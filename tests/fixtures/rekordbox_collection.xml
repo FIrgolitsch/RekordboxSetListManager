@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<DJ_PLAYLISTS Version="1.0.0">
+  <PRODUCT Name="rekordbox" Version="7.0.0" Company="AlphaTheta"/>
+  <COLLECTION Entries="3">
+    <TRACK TrackID="1" Name="Sundown" Artist="DJ Koze" Album="" Genre="Techno"
+           Kind="MP3 File" Size="23456789" TotalTime="390" DiscNumber="0"
+           TrackNumber="1" Year="2013" AverageBpm="128.00" DateAdded="2024-01-10"
+           BitRate="320" SampleRate="44100" Comments="Peak" PlayCount="12"
+           Rating="0" Location="file://localhost/Users/dj/Music/dj_koze_sundown.mp3"
+           Remixer="" Tonality="Am" Label="Pampa" Mix="" Colour="16281712"/>
+    <TRACK TrackID="2" Name="Pick Up" Artist="DJ Koze" Album="" Genre="Techno"
+           Kind="MP3 File" Size="19876543" TotalTime="420" DiscNumber="0"
+           TrackNumber="2" Year="2013" AverageBpm="125.50" DateAdded="2024-01-10"
+           BitRate="320" SampleRate="44100" Comments="Peak" PlayCount="8"
+           Rating="0" Location="file://localhost/Users/dj/Music/dj_koze_pick_up.mp3"
+           Remixer="" Tonality="Fm" Label="Pampa" Mix="" Colour="16281712"/>
+    <TRACK TrackID="3" Name="Intro Track" Artist="Unknown"
+           Album="" Genre="" Kind="MP3 File" Size="5000000" TotalTime="0"
+           DiscNumber="0" TrackNumber="0" Year="" AverageBpm="0.00"
+           DateAdded="2024-01-15" BitRate="128" SampleRate="44100" Comments=""
+           PlayCount="0" Rating="0" Location="" Remixer="" Tonality=""
+           Label="" Mix="" Colour="0"/>
+  </COLLECTION>
+  <PLAYLISTS>
+    <NODE Type="0" Name="ROOT" Count="1">
+      <NODE Type="0" Name="Berghain 2024-06-01" Count="1">
+        <NODE Type="1" Name="Peak" KeyType="0" Entries="2">
+          <TRACK Key="1"/>
+          <TRACK Key="2"/>
+        </NODE>
+      </NODE>
+    </NODE>
+  </PLAYLISTS>
+</DJ_PLAYLISTS>

@@ -1,0 +1,49 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "set-manager"
+version = "0.1.0"
+description = "DJ set organizer with Rekordbox, Spotify, and Tidal integration"
+requires-python = ">=3.14"
+license = "MIT"
+readme = "README.md"
+dependencies = [
+    "PySide6>=6.8,<7",
+    "pyrekordbox>=0.4,<0.5",
+    "spotipy>=2.24,<3",
+    "tidalapi>=0.8,<0.9",
+    "pydantic>=2.0,<3",
+    "thefuzz>=0.22,<1",
+    "platformdirs>=4.0,<5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-qt>=4.0",
+    "ruff>=0.9",
+]
+dist = [
+    "pyinstaller>=6.0",
+]
+
+[project.scripts]
+set-manager = "set_manager.app:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/set_manager"]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["N802"]  # Qt override methods are camelCase by convention
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
