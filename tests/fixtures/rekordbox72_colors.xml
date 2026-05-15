@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthetic Rekordbox 7.2 fixture — one track per track colour.
+     Colour values are 24-bit RGB integers (decimal) as written by Rekordbox 7.2 XML export.
+     ColorCode in the DjmdColor DB table is always NULL in RB7; the XML Colour attribute
+     is the authoritative source of truth.
+     NONE (0) is omitted — it is tested via tracks with no colour in rekordbox_collection.xml. -->
+<DJ_PLAYLISTS Version="1.0.0">
+  <PRODUCT Name="rekordbox" Version="7.2.14" Company="AlphaTheta"/>
+  <COLLECTION Entries="8">
+    <TRACK TrackID="101" Name="Pink Track" Artist="Test Artist" Album="" Genre=""
+           Kind="MP3 File" Size="1000000" TotalTime="300" DiscNumber="0"
+           TrackNumber="1" Year="2024" AverageBpm="128.00" DateAdded="2024-01-01"
+           BitRate="320" SampleRate="44100" Comments="" PlayCount="0"
+           Rating="0" Location="file://localhost/Users/dj/Music/pink_track.mp3"
+           Remixer="" Tonality="" Label="" Mix="" Colour="16281848"/>
+    <TRACK TrackID="102" Name="Red Track" Artist="Test Artist" Album="" Genre=""
+           Kind="MP3 File" Size="1000000" TotalTime="300" DiscNumber="0"
+           TrackNumber="2" Year="2024" AverageBpm="128.00" DateAdded="2024-01-01"
+           BitRate="320" SampleRate="44100" Comments="" PlayCount="0"
+           Rating="0" Location="file://localhost/Users/dj/Music/red_track.mp3"
+           Remixer="" Tonality="" Label="" Mix="" Colour="16281712"/>
+    <TRACK TrackID="103" Name="Orange Track" Artist="Test Artist" Album="" Genre=""
+           Kind="MP3 File" Size="1000000" TotalTime="300" DiscNumber="0"
+           TrackNumber="3" Year="2024" AverageBpm="128.00" DateAdded="2024-01-01"
+           BitRate="320" SampleRate="44100" Comments="" PlayCount="0"
+           Rating="0" Location="file://localhost/Users/dj/Music/orange_track.mp3"
+           Remixer="" Tonality="" Label="" Mix="" Colour="16752740"/>
+    <TRACK TrackID="104" Name="Yellow Track" Artist="Test Artist" Album="" Genre=""
+           Kind="MP3 File" Size="1000000" TotalTime="300" DiscNumber="0"
+           TrackNumber="4" Year="2024" AverageBpm="128.00" DateAdded="2024-01-01"
+           BitRate="320" SampleRate="44100" Comments="" PlayCount="0"
+           Rating="0" Location="file://localhost/Users/dj/Music/yellow_track.mp3"
+           Remixer="" Tonality="" Label="" Mix="" Colour="16311632"/>
+    <TRACK TrackID="105" Name="Green Track" Artist="Test Artist" Album="" Genre=""
+           Kind="MP3 File" Size="1000000" TotalTime="300" DiscNumber="0"
+           TrackNumber="5" Year="2024" AverageBpm="128.00" DateAdded="2024-01-01"
+           BitRate="320" SampleRate="44100" Comments="" PlayCount="0"
+           Rating="0" Location="file://localhost/Users/dj/Music/green_track.mp3"
+           Remixer="" Tonality="" Label="" Mix="" Colour="2023723"/>
+    <TRACK TrackID="106" Name="Aqua Track" Artist="Test Artist" Album="" Genre=""
+           Kind="MP3 File" Size="1000000" TotalTime="300" DiscNumber="0"
+           TrackNumber="6" Year="2024" AverageBpm="128.00" DateAdded="2024-01-01"
+           BitRate="320" SampleRate="44100" Comments="" PlayCount="0"
+           Rating="0" Location="file://localhost/Users/dj/Music/aqua_track.mp3"
+           Remixer="" Tonality="" Label="" Mix="" Colour="1107164"/>
+    <TRACK TrackID="107" Name="Blue Track" Artist="Test Artist" Album="" Genre=""
+           Kind="MP3 File" Size="1000000" TotalTime="300" DiscNumber="0"
+           TrackNumber="7" Year="2024" AverageBpm="128.00" DateAdded="2024-01-01"
+           BitRate="320" SampleRate="44100" Comments="" PlayCount="0"
+           Rating="0" Location="file://localhost/Users/dj/Music/blue_track.mp3"
+           Remixer="" Tonality="" Label="" Mix="" Colour="1986800"/>
+    <TRACK TrackID="108" Name="Purple Track" Artist="Test Artist" Album="" Genre=""
+           Kind="MP3 File" Size="1000000" TotalTime="300" DiscNumber="0"
+           TrackNumber="8" Year="2024" AverageBpm="128.00" DateAdded="2024-01-01"
+           BitRate="320" SampleRate="44100" Comments="" PlayCount="0"
+           Rating="0" Location="file://localhost/Users/dj/Music/purple_track.mp3"
+           Remixer="" Tonality="" Label="" Mix="" Colour="9971952"/>
+  </COLLECTION>
+  <PLAYLISTS>
+    <NODE Type="0" Name="ROOT" Count="1">
+      <NODE Type="1" Name="Color Test" KeyType="0" Entries="8">
+        <TRACK Key="101"/>
+        <TRACK Key="102"/>
+        <TRACK Key="103"/>
+        <TRACK Key="104"/>
+        <TRACK Key="105"/>
+        <TRACK Key="106"/>
+        <TRACK Key="107"/>
+        <TRACK Key="108"/>
+      </NODE>
+    </NODE>
+  </PLAYLISTS>
+</DJ_PLAYLISTS>

@@ -4,8 +4,8 @@ import uuid
 
 import pytest
 
-from set_manager.models.enums import MatchStatus, RekordboxColor, TrackSource
-from set_manager.models.track import Track
+from rekordbox_set_list_manager.models.enums import MatchStatus, RekordboxColor, TrackSource
+from rekordbox_set_list_manager.models.track import Track
 
 
 def test_track_defaults():
@@ -56,7 +56,7 @@ def test_track_ids_are_unique():
     assert t1.id != t2.id
 
 
-@pytest.mark.parametrize("duration,expected", [
+@pytest.mark.parametrize(("duration", "expected"), [
     (0, "0:00"),
     (59, "0:59"),
     (60, "1:00"),

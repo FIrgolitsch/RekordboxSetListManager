@@ -1,9 +1,15 @@
 """Tests for services/project_io.py."""
 
+import json
+
 import pytest
 
-from set_manager.models.project import Project
-from set_manager.services.project_io import ProjectIOError, load_project, save_project
+from rekordbox_set_list_manager.models.project import Project
+from rekordbox_set_list_manager.services.project_io import (
+    ProjectIOError,
+    load_project,
+    save_project,
+)
 
 
 def test_save_and_load_round_trip(project, tmp_path):
@@ -14,7 +20,7 @@ def test_save_and_load_round_trip(project, tmp_path):
     assert loaded.id == project.id
     assert loaded.name == project.name
     assert set(loaded.tracks.keys()) == set(project.tracks.keys())
-    assert len(loaded.set_lists) == len(project.set_lists)
+    assert len(loaded.sections) == len(project.sections)
     assert loaded.section_color_map == project.section_color_map
 
 
@@ -36,23 +42,9 @@ def test_round_trip_preserves_section_track_ids(project, track, section, tmp_pat
     save_project(project, path)
     loaded = load_project(path)
 
-    loaded_section = loaded.set_lists[0].sections[0]
+    loaded_section = loaded.sections[0]
     assert track.id in loaded_section.track_ids
 
-
-def test_round_trip_preserves_set_list_metadata(set_list, tmp_path):
-    import datetime
-
-    p = Project(name="P")
-    p.add_set_list(set_list)
-    path = tmp_path / "test.setmgr"
-    save_project(p, path)
-    loaded = load_project(path)
-
-    loaded_sl = loaded.set_lists[0]
-    assert loaded_sl.name == set_list.name
-    assert loaded_sl.date == datetime.date(2024, 6, 1)
-    assert loaded_sl.venue == "Berghain"
 
 
 def test_save_creates_file(project, tmp_path):
@@ -83,8 +75,6 @@ def test_load_invalid_json_raises(tmp_path):
 
 
 def test_load_unsupported_version_raises(project, tmp_path):
-    import json
-
     path = tmp_path / "test.setmgr"
     save_project(project, path)
 
@@ -110,4 +100,4 @@ def test_empty_project_round_trip(tmp_path):
     assert loaded.id == p.id
     assert loaded.name == "Empty"
     assert loaded.tracks == {}
-    assert loaded.set_lists == []
+    assert loaded.sections == []

@@ -2,13 +2,12 @@
 
 import pytest
 
-from set_manager.models import (
+from rekordbox_set_list_manager.models import (
     MatchStatus,
     Project,
     RekordboxColor,
     Section,
     SectionType,
-    SetList,
     Track,
     TrackSource,
 )
@@ -43,17 +42,8 @@ def section(track: Track) -> Section:
 
 
 @pytest.fixture
-def set_list(section: Section) -> SetList:
-    import datetime
-
-    sl = SetList(name="Berghain 2024-06-01", date=datetime.date(2024, 6, 1), venue="Berghain")
-    sl.add_section(section)
-    return sl
-
-
-@pytest.fixture
-def project(track: Track, set_list: SetList) -> Project:
+def project(track: Track, section: Section) -> Project:
     proj = Project(name="Summer Tour")
     proj.add_track(track)
-    proj.add_set_list(set_list)
+    proj.add_section(section)
     return proj

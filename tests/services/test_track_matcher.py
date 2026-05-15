@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from set_manager.models.enums import MatchStatus, TrackSource
-from set_manager.models.track import Track
-from set_manager.services.track_matcher import MatchStrategy, TrackMatcher
+from rekordbox_set_list_manager.models.enums import MatchStatus, TrackSource
+from rekordbox_set_list_manager.models.track import Track
+from rekordbox_set_list_manager.services.track_matcher import MatchStrategy, TrackMatcher
 
 
 def _spotify(title: str, artist: str, isrc: str | None = None) -> Track:
@@ -38,7 +38,7 @@ def _local(
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def matcher():
     return TrackMatcher()
 

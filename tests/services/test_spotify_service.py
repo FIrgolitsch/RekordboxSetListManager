@@ -6,16 +6,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from set_manager.models.enums import MatchStatus, TrackSource
-from set_manager.services.spotify_service import SpotifyService, SpotifyServiceError
-from set_manager.utils import config
+import rekordbox_set_list_manager.services.spotify_service as svc_mod
+import rekordbox_set_list_manager.utils.config as cfg_module
+from rekordbox_set_list_manager.models.enums import MatchStatus, TrackSource
+from rekordbox_set_list_manager.services.spotify_service import SpotifyService, SpotifyServiceError
+from rekordbox_set_list_manager.utils import config
 
 
 @pytest.fixture(autouse=True)
 def _clear_config(tmp_path, monkeypatch):
     """Redirect config writes to a temp dir and clear cache."""
-    import set_manager.utils.config as cfg_module
-
     monkeypatch.setattr(cfg_module, "_CONFIG_PATH", tmp_path / "config.json")
     monkeypatch.setattr(cfg_module, "_CONFIG_DIR", tmp_path)
     cfg_module._cache = None
@@ -23,7 +23,7 @@ def _clear_config(tmp_path, monkeypatch):
     cfg_module._cache = None
 
 
-@pytest.fixture()
+@pytest.fixture
 def service():
     return SpotifyService()
 
@@ -38,10 +38,10 @@ def test_authenticate_raises_when_client_id_missing(service):
         service.authenticate()
 
 
-@patch("set_manager.services.spotify_service.SpotifyPKCE")
-@patch("set_manager.services.spotify_service.spotipy.Spotify")
+@patch("rekordbox_set_list_manager.services.spotify_service.SpotifyPKCE")
+@patch("rekordbox_set_list_manager.services.spotify_service.spotipy.Spotify")
 def test_authenticate_returns_display_name(mock_spotify_cls, mock_pkce_cls, service):
-    config.set("spotify_client_id", "test-client-id")
+    config.set_value("spotify_client_id", "test-client-id")
     mock_sp = MagicMock()
     mock_sp.current_user.return_value = {"display_name": "DJ Test", "id": "user123"}
     mock_spotify_cls.return_value = mock_sp
@@ -55,12 +55,12 @@ def test_authenticate_returns_display_name(mock_spotify_cls, mock_pkce_cls, serv
     assert pkce_kwargs["scope"] == SpotifyService.SCOPES
 
 
-@patch("set_manager.services.spotify_service.SpotifyPKCE")
-@patch("set_manager.services.spotify_service.spotipy.Spotify")
+@patch("rekordbox_set_list_manager.services.spotify_service.SpotifyPKCE")
+@patch("rekordbox_set_list_manager.services.spotify_service.spotipy.Spotify")
 def test_authenticate_falls_back_to_id_when_no_display_name(
     mock_spotify_cls, mock_pkce_cls, service
 ):
-    config.set("spotify_client_id", "test-client-id")
+    config.set_value("spotify_client_id", "test-client-id")
     mock_sp = MagicMock()
     mock_sp.current_user.return_value = {"display_name": None, "id": "user123"}
     mock_spotify_cls.return_value = mock_sp
@@ -79,10 +79,10 @@ def test_get_playlists_raises_when_not_authenticated(service):
         service.get_playlists()
 
 
-@patch("set_manager.services.spotify_service.SpotifyPKCE")
-@patch("set_manager.services.spotify_service.spotipy.Spotify")
+@patch("rekordbox_set_list_manager.services.spotify_service.SpotifyPKCE")
+@patch("rekordbox_set_list_manager.services.spotify_service.spotipy.Spotify")
 def test_get_playlists_returns_list(mock_spotify_cls, mock_pkce_cls, service):
-    config.set("spotify_client_id", "test-client-id")
+    config.set_value("spotify_client_id", "test-client-id")
     mock_sp = MagicMock()
     mock_sp.current_user.return_value = {"display_name": "Test", "id": "u"}
     mock_sp.current_user_playlists.return_value = {
@@ -127,10 +127,10 @@ def _make_spotify_item(
     }
 
 
-@patch("set_manager.services.spotify_service.SpotifyPKCE")
-@patch("set_manager.services.spotify_service.spotipy.Spotify")
+@patch("rekordbox_set_list_manager.services.spotify_service.SpotifyPKCE")
+@patch("rekordbox_set_list_manager.services.spotify_service.spotipy.Spotify")
 def test_get_playlist_tracks_returns_tracks(mock_spotify_cls, mock_pkce_cls, service):
-    config.set("spotify_client_id", "test-client-id")
+    config.set_value("spotify_client_id", "test-client-id")
     mock_sp = MagicMock()
     mock_sp.current_user.return_value = {"display_name": "Test", "id": "u"}
     mock_sp._get.return_value = {
@@ -157,10 +157,10 @@ def test_get_playlist_tracks_returns_tracks(mock_spotify_cls, mock_pkce_cls, ser
     assert t.duration == 240  # 240000 ms → 240 s
 
 
-@patch("set_manager.services.spotify_service.SpotifyPKCE")
-@patch("set_manager.services.spotify_service.spotipy.Spotify")
+@patch("rekordbox_set_list_manager.services.spotify_service.SpotifyPKCE")
+@patch("rekordbox_set_list_manager.services.spotify_service.spotipy.Spotify")
 def test_get_playlist_tracks_handles_missing_isrc(mock_spotify_cls, mock_pkce_cls, service):
-    config.set("spotify_client_id", "test-client-id")
+    config.set_value("spotify_client_id", "test-client-id")
     mock_sp = MagicMock()
     mock_sp.current_user.return_value = {"display_name": "Test", "id": "u"}
     mock_sp._get.return_value = {
@@ -176,13 +176,13 @@ def test_get_playlist_tracks_handles_missing_isrc(mock_spotify_cls, mock_pkce_cl
     assert tracks[0].isrc is None
 
 
-@patch("set_manager.services.spotify_service.SpotifyPKCE")
-@patch("set_manager.services.spotify_service.spotipy.Spotify")
+@patch("rekordbox_set_list_manager.services.spotify_service.SpotifyPKCE")
+@patch("rekordbox_set_list_manager.services.spotify_service.spotipy.Spotify")
 def test_get_playlist_tracks_skips_null_and_episode_entries(
     mock_spotify_cls, mock_pkce_cls, service
 ):
     """Null track slots and podcast episodes are silently skipped."""
-    config.set("spotify_client_id", "test-client-id")
+    config.set_value("spotify_client_id", "test-client-id")
     mock_sp = MagicMock()
     mock_sp.current_user.return_value = {"display_name": "Test", "id": "u"}
     mock_sp._get.return_value = {
@@ -203,11 +203,11 @@ def test_get_playlist_tracks_skips_null_and_episode_entries(
     assert tracks[0].title == "Valid Track"
 
 
-@patch("set_manager.services.spotify_service.SpotifyPKCE")
-@patch("set_manager.services.spotify_service.spotipy.Spotify")
+@patch("rekordbox_set_list_manager.services.spotify_service.SpotifyPKCE")
+@patch("rekordbox_set_list_manager.services.spotify_service.spotipy.Spotify")
 def test_get_playlist_tracks_imports_local_files(mock_spotify_cls, mock_pkce_cls, service):
     """Tracks without a Spotify ID (local files) are imported with spotify_id=None."""
-    config.set("spotify_client_id", "test-client-id")
+    config.set_value("spotify_client_id", "test-client-id")
     mock_sp = MagicMock()
     mock_sp.current_user.return_value = {"display_name": "Test", "id": "u"}
     mock_sp._get.return_value = {
@@ -231,11 +231,11 @@ def test_get_playlist_tracks_imports_local_files(mock_spotify_cls, mock_pkce_cls
     assert tracks[1].spotify_id == "id5"
 
 
-@patch("set_manager.services.spotify_service.SpotifyPKCE")
-@patch("set_manager.services.spotify_service.spotipy.Spotify")
+@patch("rekordbox_set_list_manager.services.spotify_service.SpotifyPKCE")
+@patch("rekordbox_set_list_manager.services.spotify_service.spotipy.Spotify")
 def test_get_playlist_tracks_supports_legacy_track_key(mock_spotify_cls, mock_pkce_cls, service):
     """Older API responses that use 'track' instead of 'item' are still handled."""
-    config.set("spotify_client_id", "test-client-id")
+    config.set_value("spotify_client_id", "test-client-id")
     mock_sp = MagicMock()
     mock_sp.current_user.return_value = {"display_name": "Test", "id": "u"}
     mock_sp._get.return_value = {
@@ -269,26 +269,22 @@ def test_try_silent_authenticate_returns_none_without_client_id(service):
 def test_try_silent_authenticate_returns_none_without_cache_file(
     service, tmp_path, monkeypatch
 ):
-    import set_manager.services.spotify_service as svc_mod
-
     monkeypatch.setattr(svc_mod.SpotifyService, "_CACHE_PATH", tmp_path / "no_such_file")
-    config.set("spotify_client_id", "test-client-id")
+    config.set_value("spotify_client_id", "test-client-id")
     assert service.try_silent_authenticate() is None
 
 
-@patch("set_manager.services.spotify_service.SpotifyPKCE")
-@patch("set_manager.services.spotify_service.spotipy.Spotify")
+@patch("rekordbox_set_list_manager.services.spotify_service.SpotifyPKCE")
+@patch("rekordbox_set_list_manager.services.spotify_service.spotipy.Spotify")
 def test_try_silent_authenticate_returns_display_name(
     mock_spotify_cls, mock_pkce_cls, service, tmp_path, monkeypatch
 ):
-    import set_manager.services.spotify_service as svc_mod
-
     # Point cache path into tmp_path so the existence check passes
     cache_file = tmp_path / ".spotify_cache"
     cache_file.write_text("{}")
     monkeypatch.setattr(svc_mod.SpotifyService, "_CACHE_PATH", cache_file)
 
-    config.set("spotify_client_id", "test-client-id")
+    config.set_value("spotify_client_id", "test-client-id")
     mock_sp = MagicMock()
     mock_sp.current_user.return_value = {"display_name": "Silent User", "id": "u2"}
     mock_spotify_cls.return_value = mock_sp

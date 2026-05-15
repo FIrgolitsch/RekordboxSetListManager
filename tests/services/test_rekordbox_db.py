@@ -6,8 +6,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from set_manager.models.enums import MatchStatus, RekordboxColor, TrackSource
-from set_manager.services.rekordbox_db import RekordboxDbError, RekordboxDbService, _parse_color
+from rekordbox_set_list_manager.models.enums import MatchStatus, RekordboxColor, TrackSource
+from rekordbox_set_list_manager.services.rekordbox_db import (
+    RekordboxDbError,
+    RekordboxDbService,
+    _parse_color,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -16,15 +20,16 @@ from set_manager.services.rekordbox_db import RekordboxDbError, RekordboxDbServi
 
 def _make_content(
     track_id: str = "1001",
-    title: str = "Test Track",
+    title: str | None = "Test Track",
     artist_name: str = "Test Artist",
-    bpm: int | None = 12800,  # stored as BPM × 100 (128.00 → 12800)
+    bpm: int | None = 12800,
     length: int = 240,
-    key_name: str = "8A",
-    folder_path: str = "/music/test.mp3",
+    key_name: str | None = "8A",
+    folder_path: str | None = "/music/test.mp3",
     isrc: str | None = "USABC1234567",
     color_name: str | None = "Blue",
     service_id: int = 0,
+    src_id: str | None = None,
 ) -> MagicMock:
     content = MagicMock()
     content.ID = track_id
@@ -37,6 +42,7 @@ def _make_content(
     content.ISRC = isrc
     content.ColorName = color_name
     content.ServiceID = service_id
+    content.SrcID = src_id
     return content
 
 
@@ -126,6 +132,20 @@ def test_get_collection_skips_streaming_tracks(mock_cls):
 
 
 @patch("pyrekordbox.Rekordbox6Database")
+def test_get_collection_skips_streaming_tracks_by_src_id(mock_cls):
+    local = _make_content(track_id="1", title="Local Track", service_id=0, src_id=None)
+    streaming = _make_content(
+        track_id="2", title="Streaming Track", service_id=0, src_id="12345678"
+    )
+    mock_cls.return_value = _make_db([local, streaming])
+
+    tracks = RekordboxDbService().get_collection()
+
+    assert len(tracks) == 1
+    assert tracks[0].title == "Local Track"
+
+
+@patch("pyrekordbox.Rekordbox6Database")
 def test_get_collection_skips_tracks_without_filepath(mock_cls):
     no_path = _make_content(track_id="1", title="No Path Track", folder_path=None)
     with_path = _make_content(track_id="2", title="With Path Track")
@@ -135,6 +155,33 @@ def test_get_collection_skips_tracks_without_filepath(mock_cls):
 
     assert len(tracks) == 1
     assert tracks[0].title == "With Path Track"
+
+
+@patch("pyrekordbox.Rekordbox6Database")
+def test_get_collection_skips_tracks_with_streaming_url_path(mock_cls):
+    tidal = _make_content(track_id="1", title="Tidal Track", folder_path="tidal://tracks/12345678")
+    local = _make_content(track_id="2", title="Local Track")
+    mock_cls.return_value = _make_db([tidal, local])
+
+    tracks = RekordboxDbService().get_collection()
+
+    assert len(tracks) == 1
+    assert tracks[0].title == "Local Track"
+
+
+@patch("pyrekordbox.Rekordbox6Database")
+def test_get_collection_skips_tracks_with_non_absolute_path(mock_cls):
+    """Apple Music and similar services store paths like 'apple-music:tracks:123'."""
+    apple = _make_content(
+        track_id="1", title="Apple Music Track", folder_path="apple-music:tracks:1751268186"
+    )
+    local = _make_content(track_id="2", title="Local Track")
+    mock_cls.return_value = _make_db([apple, local])
+
+    tracks = RekordboxDbService().get_collection()
+
+    assert len(tracks) == 1
+    assert tracks[0].title == "Local Track"
 
 
 @patch("pyrekordbox.Rekordbox6Database")

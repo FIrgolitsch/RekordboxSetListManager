@@ -3,37 +3,50 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "set-manager"
+name = "rekordbox-set-list-manager"
 version = "0.1.0"
 description = "DJ set organizer with Rekordbox, Spotify, and Tidal integration"
 requires-python = ">=3.14"
 license = "MIT"
 readme = "README.md"
 dependencies = [
-    "PySide6>=6.8,<7",
-    "pyrekordbox>=0.4,<0.5",
-    "spotipy>=2.24,<3",
-    "tidalapi>=0.8,<0.9",
-    "pydantic>=2.0,<3",
-    "thefuzz>=0.22,<1",
-    "platformdirs>=4.0,<5",
+    "PySide6>=6.9",
+    "pyrekordbox>=0.4.4",
+    "spotipy>=2.26",
+    "tidalapi>=0.8.11",
+    "pydantic>=2.13",
+    "thefuzz>=0.22.1",
+    "platformdirs>=4.9",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.0",
-    "pytest-qt>=4.0",
-    "ruff>=0.9",
+    "pytest>=9.0",
+    "pytest-qt>=4.5",
+    "ruff>=0.15",
+    "ty>=0.0.36",
 ]
 dist = [
-    "pyinstaller>=6.0",
+    "pyinstaller>=6.20",
 ]
 
 [project.scripts]
-set-manager = "set_manager.app:main"
+rslm = "rekordbox_set_list_manager.app:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/set_manager"]
+packages = ["src/rekordbox_set_list_manager"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0",
+    "pytest-qt>=4.5",
+    "ruff>=0.15",
+    "ty>=0.0.36",
+]
+
+# ---------------------------------------------------------------------------
+# Ruff
+# ---------------------------------------------------------------------------
 
 [tool.ruff]
 target-version = "py314"
@@ -41,9 +54,179 @@ line-length = 100
 src = ["src"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "W", "UP"]
-ignore = ["N802"]  # Qt override methods are camelCase by convention
+select = [
+    "A",     # flake8-builtins
+    "ANN",   # flake8-annotations
+    "ARG",   # flake8-unused-arguments
+    "B",     # flake8-bugbear
+    "BLE",   # flake8-blind-except
+    "C4",    # flake8-comprehensions
+    "C90",   # mccabe
+    "COM",   # flake8-commas
+    "DTZ",   # flake8-datetimez
+    "E",     # pycodestyle errors
+    "EM",    # flake8-errmsg
+    "ERA",   # eradicate commented-out code
+    "F",     # pyflakes
+    "FBT",   # flake8-boolean-trap
+    "FLY",   # flynt
+    "FURB",  # refurb
+    "G",     # flake8-logging-format
+    "I",     # isort
+    "ISC",   # flake8-implicit-str-concat
+    "LOG",   # flake8-logging
+    "N",     # pep8-naming
+    "PERF",  # perflint
+    "PIE",   # flake8-pie
+    "PLC",   # pylint convention
+    "PLE",   # pylint error
+    "PLR",   # pylint refactor
+    "PLW",   # pylint warning
+    "PT",    # flake8-pytest-style
+    "PTH",   # flake8-use-pathlib
+    "Q",     # flake8-quotes
+    "RET",   # flake8-return
+    "RSE",   # flake8-raise
+    "RUF",   # ruff-specific
+    "S",     # flake8-bandit
+    "SIM",   # flake8-simplify
+    "SLF",   # flake8-self
+    "SLOT",  # flake8-slots
+    "T10",   # flake8-debugger
+    "T20",   # flake8-print
+    "TCH",   # flake8-type-checking
+    "TD",    # flake8-todos
+    "TID",   # flake8-tidy-imports
+    "TRY",   # tryceratops
+    "UP",    # pyupgrade
+    "W",     # pycodestyle warnings
+    "YTT",   # flake8-2020
+]
+ignore = [
+    # Qt override methods are camelCase by convention
+    "N802",
+    "N803",
+    "N806",
+    # TD rules: TODO comments don't need author/issue links in a personal project
+    "TD002",
+    "TD003",
+    # FBT001/002: boolean positional args acceptable in small helpers
+    "FBT001",
+    "FBT002",
+    # TRY003: long messages in exceptions are fine
+    "TRY003",
+    # EM101/EM102: f-strings in exceptions are fine for this project
+    "EM101",
+    "EM102",
+    # COM812: trailing comma conflicts with formatter
+    "COM812",
+    # ISC001: conflicts with formatter
+    "ISC001",
+    # ANN2xx: return type annotations — enforce at function level where useful
+    "ANN201",
+    "ANN202",
+    "ANN204",
+    "ANN205",
+    "ANN206",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "S101",    # assert is fine in tests
+    "ANN",     # no annotation requirements in tests
+    "PLR2004", # magic values fine in tests
+    "SLF001",  # private access fine in tests
+    "ARG001",  # unused fixture args are normal in pytest
+    "ARG002",
+    "ARG005",  # lambda self: ... patterns in monkeypatching
+    "PLR0913", # helper factories in tests can have many args
+    "S314",    # stdlib xml is fine in tests (not parsing network data)
+    "PLC0415", # inline imports used in repackaging regression tests for isolation
+]
+"scripts/**" = [
+    "T201",    # print() is the output mechanism in CLI scripts
+    "S314",    # parsing local files, not network input
+    "PLR2004", # magic values like 2 are readable in CLI arg-count checks
+    "INP001",  # not part of a package
+]
+"src/rekordbox_set_list_manager/gui/**" = [
+    "PLR0911", # too many return statements — Qt data() methods
+    "PLR0912", # too many branches — Qt event handlers get complex
+    "PLR0913", # too many arguments — Qt constructors
+    "PLR0915", # too many statements — Qt event handlers
+    "ANN001",  # Qt parent=None and event args have well-known types
+    "FBT003",  # Qt API uses boolean positional args (blockSignals, etc.)
+    "B008",    # QModelIndex() in default args is required by Qt's API contract
+    "ARG002",  # Qt overrides often have unused required positional args
+    "ARG005",  # Qt lambda args (e.g. checked) often unused
+    "TC001",   # imports used in Qt type hints may also be needed at runtime
+    "TC003",
+]
+"src/rekordbox_set_list_manager/models/**" = [
+    "TCH",     # Pydantic fields require runtime-available types; can't use TYPE_CHECKING
+]
+"src/rekordbox_set_list_manager/services/project_io.py" = [
+    "TCH",     # Path and Project used in pydantic model field and function bodies
+]
+"src/rekordbox_set_list_manager/utils/config.py" = [
+    "PLW0603", # module-level cache via global is intentional here
+]
+"src/rekordbox_set_list_manager/utils/constants.py" = [
+    "ERA001",  # phase notes in comments are not dead code
+]
+"src/rekordbox_set_list_manager/services/spotify_service.py" = [
+    "SLF001",  # sp._get() is the only way to avoid spotipy's extra type param
+]
+"src/rekordbox_set_list_manager/services/rekordbox_xml.py" = [
+    "S314",    # XML is read from local user files, not network input
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["rekordbox_set_list_manager"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 12
+
+[tool.ruff.lint.pylint]
+max-args = 8
+max-branches = 15
+max-statements = 60
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+
+# ---------------------------------------------------------------------------
+# ty
+# ---------------------------------------------------------------------------
+
+[tool.ty.environment]
+python = ".venv"
+
+[tool.ty.rules]
+# Enable strict checking across the board
+invalid-return-type = "error"
+invalid-argument-type = "error"
+missing-argument = "error"
+too-many-positional-arguments = "error"
+unknown-argument = "error"
+parameter-already-assigned = "error"
+conflicting-declarations = "error"
+unresolved-import = "warn"
+call-non-callable = "error"
+division-by-zero = "error"
+index-out-of-bounds = "error"
+invalid-type-form = "error"
+no-matching-overload = "error"
+not-iterable = "error"
+type-assertion-failure = "error"
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+qt_api = "pyside6"

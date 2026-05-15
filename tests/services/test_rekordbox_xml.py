@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import uuid
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
 
-from set_manager.models.enums import MatchStatus, RekordboxColor, SectionType, TrackSource
-from set_manager.models.section import Section
-from set_manager.models.set_list import SetList
-from set_manager.models.track import Track
-from set_manager.services.rekordbox_xml import (
+from rekordbox_set_list_manager.models.enums import (
+    MatchStatus,
+    RekordboxColor,
+    SectionType,
+    TrackSource,
+)
+from rekordbox_set_list_manager.models.section import Section
+from rekordbox_set_list_manager.models.track import Track
+from rekordbox_set_list_manager.services.rekordbox_xml import (
     RekordboxXmlError,
     RekordboxXmlService,
     _filepath_to_location,
@@ -57,8 +62,10 @@ def track_b() -> Track:
 
 
 @pytest.fixture
-def set_list_with_two_sections(track_a: Track, track_b: Track) -> tuple[SetList, dict]:
-    """SetList with a Peak section (track_a) and an After-Peak section (track_b)."""
+def two_section_fixture(
+    track_a: Track, track_b: Track
+) -> tuple[list[Section], str, dict]:
+    """Two sections (Peak + After Peak) with their tracks, and a set name."""
     peak = Section(name="Peak", section_type=SectionType.PEAK, color=RekordboxColor.RED)
     peak.add_track(track_a.id)
 
@@ -67,12 +74,8 @@ def set_list_with_two_sections(track_a: Track, track_b: Track) -> tuple[SetList,
     )
     after.add_track(track_b.id)
 
-    sl = SetList(name="Berghain 2024-06-01")
-    sl.add_section(peak)
-    sl.add_section(after)
-
     tracks = {track_a.id: track_a, track_b.id: track_b}
-    return sl, tracks
+    return [peak, after], "Berghain 2024-06-01", tracks
 
 
 # ---------------------------------------------------------------------------
@@ -82,31 +85,31 @@ def set_list_with_two_sections(track_a: Track, track_b: Track) -> tuple[SetList,
 
 class TestExportSet:
     def test_creates_valid_xml_file(
-        self, service: RekordboxXmlService, set_list_with_two_sections, tmp_path: Path
+        self, service: RekordboxXmlService, two_section_fixture, tmp_path: Path
     ) -> None:
-        sl, tracks = set_list_with_two_sections
+        sections, name, tracks = two_section_fixture
         out = tmp_path / "export.xml"
-        service.export_set(sl, tracks, out)
+        service.export_set(sections, name, tracks, out)
         assert out.exists()
         root = ET.parse(out).getroot()
         assert root.tag == "DJ_PLAYLISTS"
 
     def test_xml_declaration_present(
-        self, service: RekordboxXmlService, set_list_with_two_sections, tmp_path: Path
+        self, service: RekordboxXmlService, two_section_fixture, tmp_path: Path
     ) -> None:
-        sl, tracks = set_list_with_two_sections
+        sections, name, tracks = two_section_fixture
         out = tmp_path / "export.xml"
-        service.export_set(sl, tracks, out)
+        service.export_set(sections, name, tracks, out)
         content = out.read_text(encoding="utf-8")
         assert content.startswith("<?xml version")
         assert 'encoding="UTF-8"' in content
 
     def test_collection_entry_count(
-        self, service: RekordboxXmlService, set_list_with_two_sections, tmp_path: Path
+        self, service: RekordboxXmlService, two_section_fixture, tmp_path: Path
     ) -> None:
-        sl, tracks = set_list_with_two_sections
+        sections, name, tracks = two_section_fixture
         out = tmp_path / "export.xml"
-        service.export_set(sl, tracks, out)
+        service.export_set(sections, name, tracks, out)
         root = ET.parse(out).getroot()
         collection = root.find("COLLECTION")
         assert collection is not None
@@ -117,14 +120,15 @@ class TestExportSet:
         self,
         service: RekordboxXmlService,
         track_a: Track,
-        set_list_with_two_sections,
+        two_section_fixture,
         tmp_path: Path,
     ) -> None:
-        sl, tracks = set_list_with_two_sections
+        sections, name, tracks = two_section_fixture
         out = tmp_path / "export.xml"
-        service.export_set(sl, tracks, out)
+        service.export_set(sections, name, tracks, out)
         root = ET.parse(out).getroot()
         collection = root.find("COLLECTION")
+        assert collection is not None
         first = collection.findall("TRACK")[0]
         assert first.get("Name") == "Sundown"
         assert first.get("Artist") == "DJ Koze"
@@ -133,13 +137,14 @@ class TestExportSet:
         assert first.get("TotalTime") == "390"
 
     def test_section_name_written_to_comments(
-        self, service: RekordboxXmlService, set_list_with_two_sections, tmp_path: Path
+        self, service: RekordboxXmlService, two_section_fixture, tmp_path: Path
     ) -> None:
-        sl, tracks = set_list_with_two_sections
+        sections, name, tracks = two_section_fixture
         out = tmp_path / "export.xml"
-        service.export_set(sl, tracks, out)
+        service.export_set(sections, name, tracks, out)
         root = ET.parse(out).getroot()
         collection = root.find("COLLECTION")
+        assert collection is not None
         track_elems = collection.findall("TRACK")
         comments = {e.get("Name"): e.get("Comments") for e in track_elems}
         assert comments["Sundown"] == "Peak"
@@ -149,14 +154,15 @@ class TestExportSet:
         self,
         service: RekordboxXmlService,
         track_a: Track,
-        set_list_with_two_sections,
+        two_section_fixture,
         tmp_path: Path,
     ) -> None:
-        sl, tracks = set_list_with_two_sections
+        sections, name, tracks = two_section_fixture
         out = tmp_path / "export.xml"
-        service.export_set(sl, tracks, out)
+        service.export_set(sections, name, tracks, out)
         root = ET.parse(out).getroot()
         collection = root.find("COLLECTION")
+        assert collection is not None
         # track_a has no color override; should use section color (RED)
         sundown = next(e for e in collection.findall("TRACK") if e.get("Name") == "Sundown")
         assert sundown.get("Colour") == str(int(RekordboxColor.RED))
@@ -165,24 +171,25 @@ class TestExportSet:
         self,
         service: RekordboxXmlService,
         track_b: Track,
-        set_list_with_two_sections,
+        two_section_fixture,
         tmp_path: Path,
     ) -> None:
-        sl, tracks = set_list_with_two_sections
+        sections, name, tracks = two_section_fixture
         out = tmp_path / "export.xml"
-        service.export_set(sl, tracks, out)
+        service.export_set(sections, name, tracks, out)
         root = ET.parse(out).getroot()
         collection = root.find("COLLECTION")
+        assert collection is not None
         # track_b.color = BLUE, section color is AQUA; BLUE should win
         pick_up = next(e for e in collection.findall("TRACK") if e.get("Name") == "Pick Up")
         assert pick_up.get("Colour") == str(int(RekordboxColor.BLUE))
 
     def test_playlists_folder_structure(
-        self, service: RekordboxXmlService, set_list_with_two_sections, tmp_path: Path
+        self, service: RekordboxXmlService, two_section_fixture, tmp_path: Path
     ) -> None:
-        sl, tracks = set_list_with_two_sections
+        sections, name, tracks = two_section_fixture
         out = tmp_path / "export.xml"
-        service.export_set(sl, tracks, out)
+        service.export_set(sections, name, tracks, out)
         root = ET.parse(out).getroot()
         # ROOT > set folder > section playlists
         root_node = root.find("./PLAYLISTS/NODE")
@@ -199,11 +206,11 @@ class TestExportSet:
         assert section_nodes[1].get("Name") == "After Peak"
 
     def test_playlist_track_keys_match_collection_ids(
-        self, service: RekordboxXmlService, set_list_with_two_sections, tmp_path: Path
+        self, service: RekordboxXmlService, two_section_fixture, tmp_path: Path
     ) -> None:
-        sl, tracks = set_list_with_two_sections
+        sections, name, tracks = two_section_fixture
         out = tmp_path / "export.xml"
-        service.export_set(sl, tracks, out)
+        service.export_set(sections, name, tracks, out)
         root = ET.parse(out).getroot()
         collection_ids = {
             e.get("TrackID") for e in root.findall("./COLLECTION/TRACK")
@@ -214,13 +221,14 @@ class TestExportSet:
         assert playlist_keys.issubset(collection_ids)
 
     def test_filepath_written_as_location(
-        self, service: RekordboxXmlService, set_list_with_two_sections, tmp_path: Path
+        self, service: RekordboxXmlService, two_section_fixture, tmp_path: Path
     ) -> None:
-        sl, tracks = set_list_with_two_sections
+        sections, name, tracks = two_section_fixture
         out = tmp_path / "export.xml"
-        service.export_set(sl, tracks, out)
+        service.export_set(sections, name, tracks, out)
         root = ET.parse(out).getroot()
         collection = root.find("COLLECTION")
+        assert collection is not None
         sundown = next(e for e in collection.findall("TRACK") if e.get("Name") == "Sundown")
         assert sundown.get("Location") == "file://localhost/Users/dj/Music/sundown.mp3"
 
@@ -228,26 +236,22 @@ class TestExportSet:
         self, service: RekordboxXmlService, tmp_path: Path
     ) -> None:
         """Track IDs in sections that aren't in the tracks dict are silently skipped."""
-        import uuid
-
         section = Section(name="Peak", section_type=SectionType.PEAK, color=RekordboxColor.RED)
         section.add_track(uuid.uuid4())  # orphan — not in tracks dict
 
-        sl = SetList(name="Test Set")
-        sl.add_section(section)
-
         out = tmp_path / "export.xml"
-        service.export_set(sl, {}, out)
+        service.export_set([section], "Test Set", {}, out)
         root = ET.parse(out).getroot()
         collection = root.find("COLLECTION")
+        assert collection is not None
         assert len(collection.findall("TRACK")) == 0
 
     def test_export_raises_on_unwritable_path(
-        self, service: RekordboxXmlService, set_list_with_two_sections
+        self, service: RekordboxXmlService, two_section_fixture
     ) -> None:
-        sl, tracks = set_list_with_two_sections
+        sections, name, tracks = two_section_fixture
         with pytest.raises(RekordboxXmlError, match="Could not write"):
-            service.export_set(sl, tracks, Path("/nonexistent_dir/out.xml"))
+            service.export_set(sections, name, tracks, Path("/nonexistent_dir/out.xml"))
 
 
 # ---------------------------------------------------------------------------
@@ -278,20 +282,42 @@ class TestImportCollection:
 
     def test_zero_colour_parsed_as_none_enum_value(self, service: RekordboxXmlService) -> None:
         tracks = service.import_collection(FIXTURE_XML)
-        intro = next(t for t in tracks if t.title == "Intro Track")
-        assert intro.color == RekordboxColor.NONE  # Colour="0" maps to RekordboxColor.NONE
-        assert intro.bpm is None
-        assert intro.duration is None
+        edge = next(t for t in tracks if t.title == "Edge Track")
+        assert edge.color == RekordboxColor.NONE  # Colour="0" maps to RekordboxColor.NONE
+        assert edge.bpm is None
+        assert edge.duration is None
 
     def test_filepath_parsed_from_location(self, service: RekordboxXmlService) -> None:
         tracks = service.import_collection(FIXTURE_XML)
         sundown = next(t for t in tracks if t.title == "Sundown")
         assert sundown.filepath == "/Users/dj/Music/dj_koze_sundown.mp3"
 
-    def test_empty_location_gives_none_filepath(self, service: RekordboxXmlService) -> None:
+    def test_tracks_without_location_are_skipped(self, service: RekordboxXmlService) -> None:
+        """Tracks with an empty Location (e.g. streaming-service entries) are excluded."""
         tracks = service.import_collection(FIXTURE_XML)
-        intro = next(t for t in tracks if t.title == "Intro Track")
-        assert intro.filepath is None
+        titles = [t.title for t in tracks]
+        assert "Intro Track" not in titles
+
+    def test_streaming_url_location_is_skipped(
+        self, service: RekordboxXmlService, tmp_path: Path
+    ) -> None:
+        """Tracks with a streaming-service URL (tidal://, etc.) are excluded."""
+        xml_content = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<DJ_PLAYLISTS Version="1.0.0"><COLLECTION Entries="2">'
+            '<TRACK TrackID="1" Name="Tidal Track" Artist="Artist"'
+            ' AverageBpm="128.00" TotalTime="240"'
+            ' Location="tidal://tracks/12345678" Tonality="" Colour="0"/>'
+            '<TRACK TrackID="2" Name="Local Track" Artist="Artist"'
+            ' AverageBpm="128.00" TotalTime="240"'
+            ' Location="file://localhost/music/local.mp3" Tonality="" Colour="0"/>'
+            "</COLLECTION></DJ_PLAYLISTS>"
+        )
+        f = tmp_path / "mixed.xml"
+        f.write_text(xml_content, encoding="utf-8")
+        tracks = service.import_collection(f)
+        assert len(tracks) == 1
+        assert tracks[0].title == "Local Track"
 
     def test_missing_file_raises(self, service: RekordboxXmlService, tmp_path: Path) -> None:
         with pytest.raises(RekordboxXmlError, match="File not found"):
@@ -329,11 +355,11 @@ class TestImportCollection:
         xml_content = (
             '<?xml version="1.0" encoding="UTF-8"?>'
             '<DJ_PLAYLISTS Version="1.0.0">'
-            "<COLLECTION Entries=\"1\">"
+            '<COLLECTION Entries="1">'
             '<TRACK TrackID="1" Name="" Artist="" AverageBpm="0.00" TotalTime="0"'
             ' Colour="0" Location="" Tonality=""/>'
-            "</COLLECTION>"
-            "</DJ_PLAYLISTS>"
+            '</COLLECTION>'
+            '</DJ_PLAYLISTS>'
         )
         f = tmp_path / "empty_track.xml"
         f.write_text(xml_content, encoding="utf-8")
@@ -350,33 +376,33 @@ class TestRoundTrip:
         self,
         service: RekordboxXmlService,
         track_a: Track,
-        set_list_with_two_sections,
+        two_section_fixture,
         tmp_path: Path,
     ) -> None:
-        sl, tracks = set_list_with_two_sections
+        sections, name, tracks = two_section_fixture
         out = tmp_path / "round_trip.xml"
-        service.export_set(sl, tracks, out)
+        service.export_set(sections, name, tracks, out)
         imported = service.import_collection(out)
         assert len(imported) == 2
         titles = {t.title for t in imported}
         assert titles == {"Sundown", "Pick Up"}
 
     def test_bpm_preserved_in_round_trip(
-        self, service: RekordboxXmlService, set_list_with_two_sections, tmp_path: Path
+        self, service: RekordboxXmlService, two_section_fixture, tmp_path: Path
     ) -> None:
-        sl, tracks = set_list_with_two_sections
+        sections, name, tracks = two_section_fixture
         out = tmp_path / "round_trip.xml"
-        service.export_set(sl, tracks, out)
+        service.export_set(sections, name, tracks, out)
         imported = service.import_collection(out)
         sundown = next(t for t in imported if t.title == "Sundown")
         assert sundown.bpm == 128.0
 
     def test_key_preserved_in_round_trip(
-        self, service: RekordboxXmlService, set_list_with_two_sections, tmp_path: Path
+        self, service: RekordboxXmlService, two_section_fixture, tmp_path: Path
     ) -> None:
-        sl, tracks = set_list_with_two_sections
+        sections, name, tracks = two_section_fixture
         out = tmp_path / "round_trip.xml"
-        service.export_set(sl, tracks, out)
+        service.export_set(sections, name, tracks, out)
         imported = service.import_collection(out)
         sundown = next(t for t in imported if t.title == "Sundown")
         assert sundown.key == "Am"
@@ -404,3 +430,51 @@ class TestFilepathHelpers:
     def test_empty_location_gives_none(self) -> None:
         assert _location_to_filepath("") is None
         assert _location_to_filepath(None) is None
+
+
+# ---------------------------------------------------------------------------
+# Phase I — Rekordbox 7.2 colour regression
+# ---------------------------------------------------------------------------
+
+FIXTURE_RB72_COLORS = Path(__file__).parent.parent / "fixtures" / "rekordbox72_colors.xml"
+
+_EXPECTED_COLORS = [
+    ("Pink Track", RekordboxColor.PINK),
+    ("Red Track", RekordboxColor.RED),
+    ("Orange Track", RekordboxColor.ORANGE),
+    ("Yellow Track", RekordboxColor.YELLOW),
+    ("Green Track", RekordboxColor.GREEN),
+    ("Aqua Track", RekordboxColor.AQUA),
+    ("Blue Track", RekordboxColor.BLUE),
+    ("Purple Track", RekordboxColor.PURPLE),
+]
+
+
+class TestRekordbox72Colors:
+    """Regression tests for Rekordbox 7.2 XML colour codes.
+
+    The fixture uses Colour integers derived from the RekordboxColor enum values.
+    DjmdColor.ColorCode is always NULL in RB7; the XML Colour attribute is the
+    authoritative source.
+    """
+
+    def test_fixture_exists(self) -> None:
+        assert FIXTURE_RB72_COLORS.exists(), "rekordbox72_colors.xml fixture missing"
+
+    def test_all_eight_colours_parsed(self, service: RekordboxXmlService) -> None:
+        tracks = service.import_collection(FIXTURE_RB72_COLORS)
+        assert len(tracks) == 8
+
+    def test_each_colour_maps_to_correct_enum(self, service: RekordboxXmlService) -> None:
+        tracks = service.import_collection(FIXTURE_RB72_COLORS)
+        by_title = {t.title: t.color for t in tracks}
+        for title, expected_color in _EXPECTED_COLORS:
+            assert by_title[title] == expected_color, (
+                f"{title}: expected {expected_color.name} ({expected_color.value:#08x}), "
+                f"got {by_title[title]!r}"
+            )
+
+    def test_enum_covers_all_non_zero_rb7_colours(self) -> None:
+        """RekordboxColor must contain exactly the 8 non-NONE RB7 colours."""
+        non_none = [c for c in RekordboxColor if c != RekordboxColor.NONE]
+        assert len(non_none) == 8

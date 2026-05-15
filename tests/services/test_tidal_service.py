@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from set_manager.models.enums import MatchStatus, TrackSource
-from set_manager.services.tidal_service import (
+from rekordbox_set_list_manager.models.enums import MatchStatus, TrackSource
+from rekordbox_set_list_manager.services.tidal_service import (
     TidalService,
     TidalServiceError,
     _tidal_to_track,
@@ -209,8 +209,9 @@ def test_get_playlist_tracks_returns_tracks(mock_cls):
 
     svc = TidalService()
     svc.authenticate()
-    tracks = svc.get_playlist_tracks("pl-uuid")
+    tracks, skipped = svc.get_playlist_tracks("pl-uuid")
 
+    assert skipped == 0
     assert len(tracks) == 1
     t = tracks[0]
     assert t.title == "Hey Jude"
@@ -232,7 +233,7 @@ def test_get_playlist_tracks_handles_missing_isrc(mock_cls):
 
     svc = TidalService()
     svc.authenticate()
-    tracks = svc.get_playlist_tracks("pl-uuid")
+    tracks, _ = svc.get_playlist_tracks("pl-uuid")
 
     assert tracks[0].isrc is None
 

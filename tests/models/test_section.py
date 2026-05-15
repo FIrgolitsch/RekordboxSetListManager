@@ -4,8 +4,8 @@ import uuid
 
 import pytest
 
-from set_manager.models.enums import RekordboxColor, SectionType
-from set_manager.models.section import Section
+from rekordbox_set_list_manager.models.enums import RekordboxColor, SectionType
+from rekordbox_set_list_manager.models.section import Section
 
 
 def test_section_defaults():
@@ -50,7 +50,7 @@ def test_move_track():
 
 def test_move_track_not_in_section():
     s = Section(name="Mix")
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="not in section"):
         s.move_track(uuid.uuid4(), 0)
 
 

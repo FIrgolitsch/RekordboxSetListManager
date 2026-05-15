@@ -1,6 +1,11 @@
 """Tests for models/enums.py."""
 
-from set_manager.models.enums import MatchStatus, RekordboxColor, SectionType, TrackSource
+from rekordbox_set_list_manager.models.enums import (
+    MatchStatus,
+    RekordboxColor,
+    SectionType,
+    TrackSource,
+)
 
 
 def test_section_type_values():

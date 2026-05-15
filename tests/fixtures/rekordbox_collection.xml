@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <DJ_PLAYLISTS Version="1.0.0">
   <PRODUCT Name="rekordbox" Version="7.0.0" Company="AlphaTheta"/>
-  <COLLECTION Entries="3">
+  <COLLECTION Entries="4">
     <TRACK TrackID="1" Name="Sundown" Artist="DJ Koze" Album="" Genre="Techno"
            Kind="MP3 File" Size="23456789" TotalTime="390" DiscNumber="0"
            TrackNumber="1" Year="2013" AverageBpm="128.00" DateAdded="2024-01-10"
@@ -20,6 +20,12 @@
            DateAdded="2024-01-15" BitRate="128" SampleRate="44100" Comments=""
            PlayCount="0" Rating="0" Location="" Remixer="" Tonality=""
            Label="" Mix="" Colour="0"/>
+    <TRACK TrackID="4" Name="Edge Track" Artist="Edge Artist"
+           Album="" Genre="" Kind="MP3 File" Size="1000000" TotalTime="0"
+           DiscNumber="0" TrackNumber="0" Year="" AverageBpm="0.00"
+           DateAdded="2024-01-15" BitRate="128" SampleRate="44100" Comments=""
+           PlayCount="0" Rating="0" Location="file://localhost/Users/dj/Music/edge_track.mp3"
+           Remixer="" Tonality="" Label="" Mix="" Colour="0"/>
   </COLLECTION>
   <PLAYLISTS>
     <NODE Type="0" Name="ROOT" Count="1">

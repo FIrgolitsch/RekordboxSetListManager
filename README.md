@@ -13,7 +13,6 @@ metadata preserved.
 - **Set builder** — divide tracks into named sections (Opener, Build, Peak, Closer, …) with drag-and-drop reordering
 - **Section colors** — apply colored labels that round-trip into Rekordbox as `Colour` metadata
 - **Export to Rekordbox** — generates a valid DJ_PLAYLISTS XML (folder-per-section with section name in `Comments`)
-- **Audio features** — fetch Spotify energy / danceability / valence and visualise the energy curve across the set
 - **Transition notes** — freeform text notes for each track-to-track transition, saved with the project
 - **Dark theme** — Catppuccin Mocha-inspired QSS stylesheet
 
@@ -21,7 +20,7 @@ metadata preserved.
 
 - Python 3.14+
 - Rekordbox 7.x (for XML import/export and DB auto-detection)
-- Spotify account — optional, for playlist import and audio features
+- Spotify account — optional, for playlist import
 - Tidal account — optional, for playlist import
 
 ## Setup
@@ -112,13 +111,36 @@ Fields are versioned; opening files from older releases is backwards-compatible.
 
 ## Distribution (standalone binary)
 
-Install PyInstaller and build:
+Install dev/dist dependencies and build:
 
 ```bash
-pip install -e ".[dist]"
-pyinstaller set_manager.spec
-# Output: dist/SetManager/  (or dist/SetManager.app on macOS)
+make dev      # uv sync --all-extras
+make dist     # uv run pyinstaller set_manager.spec --noconfirm
+# Output: dist/SetManager.app  (macOS)  /  dist/SetManager/  (all platforms)
 ```
+
+Or without Make:
+
+```bash
+uv sync --all-extras
+uv run pyinstaller set_manager.spec --noconfirm
+```
+
+### macOS code-signing (optional)
+
+After `make dist`, sign the bundle with your Apple Developer ID before distributing:
+
+```bash
+# Replace <TEAM_ID> with your 10-character Apple Developer Team ID.
+codesign --deep --force --verify --verbose \
+  --sign "Developer ID Application: Your Name (<TEAM_ID>)" \
+  --entitlements entitlements.plist \
+  dist/SetManager.app
+```
+
+For Mac App Store / Notarization, additionally run `xcrun altool --notarize-app` or
+use `xcrun notarytool submit` (Xcode 14+).  Full notarization setup is outside the
+scope of this project; see [Apple's documentation](https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution).
 
 ## Architecture
 

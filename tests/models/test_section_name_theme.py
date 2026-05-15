@@ -2,8 +2,8 @@
 
 import pytest
 
-from set_manager.models.enums import SectionType
-from set_manager.models.section_name_theme import SectionNameTheme
+from rekordbox_set_list_manager.models.enums import SectionType
+from rekordbox_set_list_manager.models.section_name_theme import SectionNameTheme
 
 DAWN_THEME = {
     SectionType.OPENER: "Dawn",
