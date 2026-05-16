@@ -35,8 +35,12 @@ class CollectionBrowserWidget(QWidget):
     """Load-buttons + filter + table for browsing a Rekordbox track collection.
 
     Signals:
-        collection_loaded(int): Emitted after a successful load with the track count.
-        track_selected(object): Emitted when the table selection changes; passes the selected :class:`~rekordbox_set_list_manager.models.track.Track` or ``None``.
+
+    - ``collection_loaded(int)`` — Emitted after a successful load with the
+      track count.
+    - ``track_selected(object)`` — Emitted when the table selection changes;
+      passes the selected
+      :class:`~rekordbox_set_list_manager.models.track.Track` or ``None``.
     """
 
     collection_loaded = Signal(int)

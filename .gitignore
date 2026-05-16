@@ -40,4 +40,5 @@ venv/
 # pyrekordbox cache
 *.db-journal
 docs/_build/
-docs/api/
+docs/api/*
+!docs/api/index.rst
