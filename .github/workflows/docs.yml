@@ -21,7 +21,7 @@ concurrency:
 jobs:
   build:
     name: "Build Sphinx docs"
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6.0.2
 
@@ -34,8 +34,24 @@ jobs:
           enable-cache: true
           python-version: "3.14"
 
+      - name: Cache venv
+        uses: actions/cache@v5
+        with:
+          path: .venv
+          key: docs-venv-${{ hashFiles('uv.lock') }}
+          restore-keys: docs-venv-
+
       - name: Sync docs dependencies
         run: uv sync --extra docs --frozen
+
+      - name: Cache Sphinx doctrees
+        uses: actions/cache@v5
+        with:
+          path: docs/_build/.doctrees
+          key: sphinx-doctrees-${{ hashFiles('docs/conf.py', 'docs/index.rst', 'docs/api/index.rst') }}-${{ hashFiles('src/**/*.py') }}
+          restore-keys: |
+            sphinx-doctrees-${{ hashFiles('docs/conf.py', 'docs/index.rst', 'docs/api/index.rst') }}-
+            sphinx-doctrees-
 
       - name: Build HTML docs (warnings-as-errors)
         run: >

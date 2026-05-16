@@ -43,6 +43,13 @@ jobs:
           enable-cache: true
           python-version: "3.14"
 
+      - name: Cache venv
+        uses: actions/cache@v5
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-py314-${{ hashFiles('uv.lock') }}
+          restore-keys: venv-${{ runner.os }}-py314-
+
       - name: Sync dev dependencies
         run: uv sync --group dev --frozen
 
@@ -75,6 +82,13 @@ jobs:
           enable-cache: true
           python-version: "3.14"
 
+      - name: Cache venv
+        uses: actions/cache@v5
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-py314-${{ hashFiles('uv.lock') }}
+          restore-keys: venv-${{ runner.os }}-py314-
+
       - name: Sync dev dependencies
         run: uv sync --group dev --frozen
 
@@ -87,7 +101,7 @@ jobs:
           --cov-report=term-missing
 
       - name: Upload coverage report (Linux only)
-        if: matrix.os == 'ubuntu-24.04'
+        if: matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@v7.0.1
         with:
           name: coverage-xml
@@ -111,6 +125,13 @@ jobs:
         with:
           enable-cache: true
           python-version: "3.14"
+
+      - name: Cache venv
+        uses: actions/cache@v5
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-py314-${{ hashFiles('uv.lock') }}
+          restore-keys: venv-${{ runner.os }}-py314-
 
       - name: Sync dev dependencies
         run: uv sync --group dev --frozen
