@@ -1,7 +1,5 @@
 # Troubleshooting
 
----
-
 ## Spotify
 
 ### "Spotify Client ID not configured"

@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import logging
-import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from rekordbox_set_list_manager.models.enums import MatchStatus, RekordboxColor, TrackSource
@@ -180,7 +179,7 @@ def _content_to_track(content: Any) -> Track | None:  # noqa: ANN401
         return None
 
     filepath = content.FolderPath or None
-    if not filepath or not os.path.isabs(filepath):
+    if not filepath or not PurePosixPath(filepath).is_absolute():
         return None
 
     artist = content.ArtistName or ""

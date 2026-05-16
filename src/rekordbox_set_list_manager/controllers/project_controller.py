@@ -21,11 +21,12 @@ _DEFAULT_PROJECT_NAME = "Untitled"
 class ProjectController(QObject):
     """Manages the active project, save path, and dirty state.
 
-    Emits:
-        project_changed(Project | None): Fired after a new project is loaded,
-            created, or restored from a snapshot.
-        save_path_changed(Path | None): Fired when the save path changes.
-        dirty_changed(bool): Fired when dirty state transitions.
+    Signals:
+
+    - ``project_changed(Project | None)`` — Fired after a new project is loaded,
+      created, or restored from a snapshot.
+    - ``save_path_changed(Path | None)`` — Fired when the save path changes.
+    - ``dirty_changed(bool)`` — Fired when dirty state transitions.
     """
 
     project_changed = Signal(object)  # Project | None

@@ -1,7 +1,5 @@
 # Keyboard Shortcuts
 
----
-
 ## File
 
 | Shortcut | Action |

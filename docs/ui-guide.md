@@ -80,7 +80,7 @@ The central view lists all sections in order.  Each section is a collapsible blo
 | BPM | Tempo (from local Rekordbox metadata or streaming) |
 | Key | Musical key |
 | Duration | Track length |
-| Match | Match strategy used (see [Rekordbox matching](rekordbox.md#match-strategies)) |
+| Match | Match strategy used (see [Rekordbox matching](rekordbox.md#matching)) |
 
 **Sorting** — click any column header to sort; click again to reverse.
 
@@ -120,6 +120,7 @@ Shows a live summary: number of sections, total tracks, and how many are unmatch
 
 ---
 
+(undo-redo)=
 ## Undo / Redo
 
 Rekordbox Set List Manager records a JSON snapshot after every mutation.  Up to 100 states are kept.  Undo/redo works for:

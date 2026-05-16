@@ -1,7 +1,5 @@
 # Tracks
 
----
-
 ## Adding tracks
 
 ### Import from a streaming service

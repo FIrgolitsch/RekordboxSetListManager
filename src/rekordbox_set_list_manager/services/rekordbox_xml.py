@@ -46,13 +46,14 @@ class RekordboxXmlService:
     ) -> None:
         """Write the project's *sections* to a Rekordbox-importable XML file at *path*.
 
-        Structure:
-        - COLLECTION contains every track that appears in the exported set.
-        - PLAYLISTS contains one top-level folder named after the set.
-          Each section becomes a nested playlist folder inside that folder.
-        - Each track's ``Colour`` is taken from its section color (or the
+        The generated file contains:
+
+        - A COLLECTION of every track that appears in the exported set.
+        - A PLAYLISTS folder named after the set, with each section as a
+          nested playlist folder inside it.
+        - Each track's ``Colour`` taken from its section color (or the
           track's own ``color`` override if set).
-        - The section name is written into each track's ``Comments`` field.
+        - The section name written into each track's ``Comments`` field.
 
         Parameters
         ----------

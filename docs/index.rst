@@ -28,7 +28,7 @@ XML playlist ready to load on a CDJ.
       Full walkthrough of every panel, menu, and widget.
 
    .. grid-item-card:: API Reference
-      :link: api/index
+      :link: api/rekordbox_set_list_manager/index
       :link-type: doc
 
       Auto-generated reference for the ``rekordbox_set_list_manager`` package.
@@ -64,7 +64,7 @@ XML playlist ready to load on a CDJ.
    :hidden:
    :caption: Reference
 
-   api/index
+   api/rekordbox_set_list_manager/index
 
 
 Indices and tables

@@ -1,7 +1,5 @@
 # Projects
 
----
-
 ## File format
 
 Projects are saved as **`.setmgr`** files.  A `.setmgr` file is a plain-text JSON document (pretty-printed with 2-space indentation).  You can open it in any text editor.
