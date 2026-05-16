@@ -62,9 +62,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.2
 
-      - name: Install system libraries — Linux (SQLCipher)
+      - name: Install system libraries — Linux (SQLCipher + EGL)
         if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y libsqlcipher-dev
+        run: sudo apt-get update -qq && sudo apt-get install -y libsqlcipher-dev libegl1
 
       - name: Install system libraries — macOS (SQLCipher)
         if: runner.os == 'macOS'
@@ -104,8 +104,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.2
 
-      - name: Install system libraries (SQLCipher)
-        run: sudo apt-get update -qq && sudo apt-get install -y libsqlcipher-dev
+      - name: Install system libraries (SQLCipher + EGL)
+        run: sudo apt-get update -qq && sudo apt-get install -y libsqlcipher-dev libegl1
 
       - uses: astral-sh/setup-uv@v8.1.0
         with:

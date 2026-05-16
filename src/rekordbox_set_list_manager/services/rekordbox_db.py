@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -179,7 +180,7 @@ def _content_to_track(content: Any) -> Track | None:  # noqa: ANN401
         return None
 
     filepath = content.FolderPath or None
-    if not filepath or not Path(filepath).is_absolute():
+    if not filepath or not os.path.isabs(filepath):
         return None
 
     artist = content.ArtistName or ""
