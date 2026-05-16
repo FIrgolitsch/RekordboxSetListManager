@@ -27,8 +27,12 @@ class StreamingService(ABC):
     def try_silent_authenticate(self) -> str | None:
         """Try to authenticate using cached credentials without user interaction.
 
-        Returns the display name on success, or ``None`` if no cached session
-        is available or the cached token has expired.
+        Returns
+        -------
+        str | None
+            The display name on success, or ``None`` if no cached session is
+            available or the cached token has expired.
+
         """
 
     @abstractmethod
@@ -38,13 +42,29 @@ class StreamingService(ABC):
     ) -> str:
         """Authenticate and return the connected user's display name.
 
-        *link_callback* is passed the login URL for device-code flows (Tidal).
-        For browser-redirect flows (Spotify) it is ignored.
+        Parameters
+        ----------
+        link_callback : Callable[[str], None] | None
+            Passed the login URL for device-code flows (Tidal).  Ignored for
+            browser-redirect flows (Spotify).
+
+        Returns
+        -------
+        str
+            The authenticated user's display name.
+
         """
 
     @abstractmethod
     def is_authenticated(self) -> bool:
-        """Return ``True`` if an active session exists."""
+        """Return ``True`` if an active session exists.
+
+        Returns
+        -------
+        bool
+            ``True`` when the service has an active authenticated session.
+
+        """
 
     # ------------------------------------------------------------------
     # Playlists / tracks
@@ -54,14 +74,27 @@ class StreamingService(ABC):
     def get_playlists(self) -> list[dict]:
         """Return the authenticated user's playlists.
 
-        Each item is a ``dict`` with at minimum ``"id"`` and ``"name"`` keys.
+        Returns
+        -------
+        list[dict]
+            Each item is a ``dict`` with at minimum ``"id"`` and ``"name"`` keys.
+
         """
 
     @abstractmethod
     def get_playlist_tracks(self, playlist_id: str) -> tuple[list[Track], int]:
         """Fetch all tracks from *playlist_id*.
 
-        Returns ``(tracks, skipped)`` where *skipped* is the count of items
-        that could not be imported (e.g. null entries, local files).
-        For services that do not track skipped items, *skipped* is 0.
+        Parameters
+        ----------
+        playlist_id : str
+            The service-specific playlist identifier.
+
+        Returns
+        -------
+        tuple[list[Track], int]
+            ``(tracks, skipped)`` where *skipped* is the count of items that
+            could not be imported.  For services that do not track skipped items,
+            *skipped* is ``0``.
+
         """

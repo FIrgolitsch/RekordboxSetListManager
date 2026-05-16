@@ -72,13 +72,14 @@ def _make_icon() -> QIcon:
 
 
 def main() -> None:
+    """Launch the Rekordbox Set List Manager application."""
     if "--version" in sys.argv or "-V" in sys.argv:
-        print(f"Set Manager {__version__}")  # noqa: T201
+        print(f"Rekordbox Set List Manager {__version__}")  # noqa: T201
         sys.exit(0)
 
     _install_exception_hook()
     app = QApplication(sys.argv)
-    app.setApplicationName("Set Manager")
+    app.setApplicationName("Rekordbox Set List Manager")
     app.setApplicationVersion(__version__)
 
     apply_dark_theme(app)
@@ -100,6 +101,6 @@ def main() -> None:
         QMessageBox.critical(
             None,
             "Fatal Error",
-            f"An unexpected error occurred and Set Manager must close:\n\n{exc}",
+            f"An unexpected error occurred and Rekordbox Set List Manager must close:\n\n{exc}",
         )
         sys.exit(1)

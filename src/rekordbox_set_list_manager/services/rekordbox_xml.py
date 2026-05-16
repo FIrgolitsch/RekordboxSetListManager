@@ -53,6 +53,18 @@ class RekordboxXmlService:
         - Each track's ``Colour`` is taken from its section color (or the
           track's own ``color`` override if set).
         - The section name is written into each track's ``Comments`` field.
+
+        Parameters
+        ----------
+        sections : list[Section]
+            Ordered sections whose tracks will be exported.
+        name : str
+            Name of the top-level playlist folder in the Rekordbox XML.
+        tracks : dict[UUID, Track]
+            Mapping of all available tracks by their UUID.
+        path : Path
+            Destination file path for the generated XML file.
+
         """
         root = ET.Element("DJ_PLAYLISTS", Version=_RB_XML_VERSION)
         ET.SubElement(
@@ -125,7 +137,21 @@ class RekordboxXmlService:
     def import_collection(self, path: Path) -> list[Track]:
         """Parse *path* and return all COLLECTION tracks as :class:`Track` objects.
 
-        Raises :class:`RekordboxXmlError` if the file is missing or malformed.
+        Parameters
+        ----------
+        path : Path
+            Path to the Rekordbox XML export file.
+
+        Returns
+        -------
+        list[Track]
+            All tracks found in the ``COLLECTION`` element of the XML.
+
+        Raises
+        ------
+        RekordboxXmlError
+            If the file is missing or malformed.
+
         """
         if not path.exists():
             raise RekordboxXmlError(f"File not found: {path}")

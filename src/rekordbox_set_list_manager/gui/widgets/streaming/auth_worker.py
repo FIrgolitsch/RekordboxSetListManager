@@ -24,10 +24,12 @@ class StreamingAuthWorker(QObject):
     error = Signal(str)        # error message on failure
 
     def __init__(self, service: StreamingService) -> None:
+        """Wrap *service* auth flow for execution in a background thread."""
         super().__init__()
         self._service = service
 
     def run(self) -> None:
+        """Execute the auth flow in a background thread and emit the result."""
         try:
             name = self._service.authenticate(link_callback=self.link_ready.emit)
             self.finished.emit(name)

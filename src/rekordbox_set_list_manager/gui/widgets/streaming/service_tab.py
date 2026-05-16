@@ -34,6 +34,7 @@ class StreamingServiceTab(QWidget):
     tracks_loaded = Signal(list, int, str)  # tracks, skipped, playlist_id
 
     def __init__(self, service: StreamingService, parent: QWidget | None = None) -> None:
+        """Initialise the streaming service tab for *service*."""
         super().__init__(parent)
         self._service = service
         self._playlist_ids: list[str] = []

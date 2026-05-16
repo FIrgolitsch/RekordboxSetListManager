@@ -1,4 +1,4 @@
-"""Shared enumerations for the Set Manager domain."""
+"""Shared enumerations for the Rekordbox Set List Manager domain."""
 
 from enum import IntEnum, StrEnum
 

@@ -38,6 +38,7 @@ class BusyDialog(QDialog):
         *,
         cancellable: bool = True,
     ) -> None:
+        """Show *message* in a modal progress dialog."""
         super().__init__(parent)
         self.setWindowTitle("Please wait…")
         self.setModal(True)

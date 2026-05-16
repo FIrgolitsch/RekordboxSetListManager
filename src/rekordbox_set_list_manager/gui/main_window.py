@@ -40,13 +40,14 @@ from rekordbox_set_list_manager.services.autosave import (
 from rekordbox_set_list_manager.services.spotify_service import SpotifyService
 from rekordbox_set_list_manager.utils.config import get_recent_files
 
-_APP_NAME = "Set Manager"
+_APP_NAME = "Rekordbox Set List Manager"
 _DEFAULT_PROJECT_NAME = "Untitled"
 
 class MainWindow(QMainWindow):
     """Top-level window: multi-section view + transition note."""
 
     def __init__(self) -> None:
+        """Initialise the main window and all sub-controllers."""
         super().__init__()
         self._ctrl = ProjectController(self)
         self._edit_ctrl = EditController(self._ctrl, self)
@@ -445,6 +446,7 @@ class MainWindow(QMainWindow):
     # -------------------------------------------------------- window close
 
     def closeEvent(self, event) -> None:
+        """Confirm unsaved changes before closing the window."""
         if self._file_ctrl.confirm_discard():
             event.accept()
         else:

@@ -12,7 +12,7 @@ MIME_TYPE = "application/x-set-manager-rows"
 
 
 class SectionTableView(QTableView):
-    """QTableView variant that:
+    """QTableView variant that locks scrolling and emits cross-section drop signals.
 
     - Locks viewport scrolling (all rows always fit)
     - Intercepts cross-section drop events and emits :attr:`cross_section_drop`
@@ -22,16 +22,19 @@ class SectionTableView(QTableView):
     cross_section_drop = Signal(str, list, int)
 
     def __init__(self, section_id: UUID, parent=None) -> None:
+        """Initialise the table view bound to *section_id*."""
         super().__init__(parent)
         self._section_id_str = str(section_id)
 
     def wheelEvent(self, event) -> None:
+        """Ignore wheel events so the outer scroll area handles them."""
         event.ignore()  # let the outer scroll area handle it
 
     def scrollContentsBy(self, dx: int, dy: int) -> None:
-        pass  # lock viewport — all rows always fit, nothing should scroll
+        """No-op: all rows always fit so no scrolling is needed."""
 
     def dropEvent(self, event) -> None:
+        """Emit cross_section_drop for inter-section moves; otherwise delegate."""
         mime = event.mimeData()
         if mime.hasFormat(MIME_TYPE):
             raw = bytes(mime.data(MIME_TYPE)).decode()
@@ -47,12 +50,14 @@ class SectionTableView(QTableView):
         super().dropEvent(event)
 
     def dragEnterEvent(self, event) -> None:
+        """Accept the drag if it carries track MIME data."""
         if event.mimeData().hasFormat(MIME_TYPE):
             event.acceptProposedAction()
         else:
             super().dragEnterEvent(event)
 
     def dragMoveEvent(self, event) -> None:
+        """Accept the move if it carries track MIME data."""
         if event.mimeData().hasFormat(MIME_TYPE):
             event.acceptProposedAction()
         super().dragMoveEvent(event)

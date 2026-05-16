@@ -65,6 +65,8 @@ def _header_hex(color: RekordboxColor | None) -> str:
 # ─────────────────────────── Section block ────────────────────────────────────
 
 class SectionBlock(QFrame):
+    """A collapsible frame displaying a single set-list section with its tracks."""
+
     about_to_modify = Signal()
     section_modified = Signal()
     track_selected = Signal(object)
@@ -87,6 +89,7 @@ class SectionBlock(QFrame):
         edit_ctrl: EditController,
         parent=None,
     ) -> None:
+        """Build a collapsible block for *section* backed by *edit_ctrl*."""
         super().__init__(parent)
         self.setFrameShape(QFrame.Shape.NoFrame)
         self._section = section
@@ -169,19 +172,24 @@ class SectionBlock(QFrame):
 
     @property
     def section(self) -> Section:
+        """Return the section represented by this block."""
         return self._section
 
     def set_filter_text(self, text: str) -> None:
+        """Propagate the filter text to the proxy model."""
         self._proxy.set_filter_text(text)
 
     def update_tracks(self, tracks: dict[UUID, Track]) -> None:
+        """Replace the track mapping and refresh the model."""
         self._tracks = tracks
         self._sync_model()
 
     def refresh_model(self) -> None:
+        """Re-sync the model from the current section and track data."""
         self._sync_model()
 
     def refresh_appearance(self) -> None:
+        """Reapply header colour, border radius, and type badge from section data."""
         hdr_color = _header_hex(self._section.color)
         radius = "border-radius: 3px;" if self._collapsed else "border-radius: 3px 3px 0 0;"
         self._hdr_normal_css = f"background-color: {hdr_color}; {radius}"
@@ -193,6 +201,7 @@ class SectionBlock(QFrame):
         self._refresh_header_text()
 
     def selected_track_id(self) -> UUID | None:
+        """Return the UUID of the currently selected track, or None."""
         indexes = self._view.selectedIndexes()
         if not indexes:
             return None
@@ -200,9 +209,11 @@ class SectionBlock(QFrame):
         return self._model.track_id_at(src.row())
 
     def clear_selection(self) -> None:
+        """Clear the track selection in this block's table view."""
         self._view.clearSelection()
 
     def set_column_width(self, logical_index: int, width: int) -> None:
+        """Set the width of a column by its logical index."""
         self._view.setColumnWidth(logical_index, width)
 
     def _sync_model(self) -> None:
@@ -302,6 +313,7 @@ class SectionBlock(QFrame):
         self.section_modified.emit()
 
     def eventFilter(self, source, event) -> bool:
+        """Handle Delete key for track removal and header drag-and-drop events."""
         if (
             source is self._view
             and event.type() == QEvent.Type.KeyPress

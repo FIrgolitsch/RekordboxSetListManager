@@ -74,6 +74,7 @@ class TrackTableModel(QAbstractTableModel):
     about_to_reorder = Signal()  # fired before drag-drop reorder commits
 
     def __init__(self, parent=None) -> None:
+        """Initialise an empty track table model."""
         super().__init__(parent)
         self._ids: list[UUID] = []
         self._tracks: dict[UUID, Track] = {}
@@ -89,6 +90,7 @@ class TrackTableModel(QAbstractTableModel):
         section_color: RekordboxColor | None = None,
         section_id: UUID | None = None,
     ) -> None:
+        """Replace model contents with the tracks from a section."""
         self.beginResetModel()
         self._ids = list(track_ids)
         self._tracks = tracks
@@ -98,28 +100,34 @@ class TrackTableModel(QAbstractTableModel):
         self.endResetModel()
 
     def clear(self) -> None:
+        """Clear all tracks from the model."""
         self.beginResetModel()
         self._ids = []
         self._bg = None
         self.endResetModel()
 
     def track_id_at(self, row: int) -> UUID | None:
+        """Return the track UUID at *row*, or None if out of range."""
         if 0 <= row < len(self._ids):
             return self._ids[row]
         return None
 
     def ordered_ids(self) -> list[UUID]:
+        """Return a copy of the current track-ID list in display order."""
         return list(self._ids)
 
     # ------------------------------------------------------------ Qt overrides
 
     def rowCount(self, parent=QModelIndex()) -> int:
+        """Return the number of rows in the model."""
         return 0 if parent.isValid() else len(self._ids)
 
     def columnCount(self, parent=QModelIndex()) -> int:
+        """Return the number of columns in the model."""
         return 0 if parent.isValid() else len(COLUMNS)
 
     def headerData(self, section: int, orientation, role=Qt.ItemDataRole.DisplayRole):
+        """Return column header labels for the horizontal header."""
         if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
             return COLUMNS[section]
         return None
@@ -127,6 +135,7 @@ class TrackTableModel(QAbstractTableModel):
     def data(
         self, index: QModelIndex | QPersistentModelIndex, role: int = Qt.ItemDataRole.DisplayRole
     ) -> object:
+        """Return display data or decoration for the given model index."""
         if not index.isValid():
             return None
         row, col = index.row(), index.column()
@@ -165,21 +174,26 @@ class TrackTableModel(QAbstractTableModel):
     # ---------------------------------------------------------- drag and drop
 
     def flags(self, index: QModelIndex | QPersistentModelIndex) -> Qt.ItemFlag:
+        """Return item flags; draggable for valid indexes, drop-enabled otherwise."""
         base = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
         if index.isValid():
             return base | Qt.ItemFlag.ItemIsDragEnabled
         return base | Qt.ItemFlag.ItemIsDropEnabled
 
     def supportedDragActions(self) -> Qt.DropAction:
+        """Return the supported drag actions for this model."""
         return Qt.DropAction.MoveAction
 
     def supportedDropActions(self) -> Qt.DropAction:
+        """Return the supported drop actions for this model."""
         return Qt.DropAction.MoveAction
 
     def mimeTypes(self) -> list[str]:
+        """Return the MIME types accepted for drag-and-drop."""
         return [_MIME_TYPE]
 
     def mimeData(self, indexes: collections.abc.Sequence[QModelIndex]) -> QMimeData:
+        """Encode the selected row indices into MIME data for drag operations."""
         mime = QMimeData()
         rows = sorted({i.row() for i in indexes if i.isValid()})
         prefix = f"{self._section_id}:" if self._section_id else ""
@@ -194,6 +208,7 @@ class TrackTableModel(QAbstractTableModel):
         column: int,
         parent: QModelIndex | QPersistentModelIndex,
     ) -> bool:
+        """Handle a drop event and reorder tracks accordingly."""
         if action != Qt.DropAction.MoveAction:
             return False
         if not data.hasFormat(_MIME_TYPE):

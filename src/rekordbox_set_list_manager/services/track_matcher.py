@@ -16,6 +16,8 @@ if TYPE_CHECKING:
 
 
 class MatchStrategy(Enum):
+    """Strategy used when matching a streaming track to a local collection entry."""
+
     ISRC = auto()
     EXACT = auto()
     FUZZY = auto()
@@ -50,7 +52,21 @@ class TrackMatcher:
         spotify_tracks: list[Track],
         collection: list[Track],
     ) -> list[MatchResult]:
-        """Return one :class:`MatchResult` per spotify track."""
+        """Return one :class:`MatchResult` per spotify track.
+
+        Parameters
+        ----------
+        spotify_tracks : list[Track]
+            Tracks imported from Spotify (or another streaming service) to match.
+        collection : list[Track]
+            The local Rekordbox collection to match against.
+
+        Returns
+        -------
+        list[MatchResult]
+            One result per input track, in the same order as *spotify_tracks*.
+
+        """
         # Pre-build lookup structures for O(1) / O(n) matching
         isrc_index: dict[str, Track] = {}
         for local in collection:

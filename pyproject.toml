@@ -29,6 +29,16 @@ dev = [
 dist = [
     "pyinstaller>=6.20",
 ]
+docs = [
+    "sphinx>=9.1",
+    "pydata-sphinx-theme>=0.17",
+    "sphinx-autoapi>=3.8",
+    "sphinx-design>=0.7",
+    "myst-parser>=5.0",
+    "linkify-it-py>=2.1",
+    "sphinx-copybutton>=0.5",
+    "sphinx-notfound-page>=1.0",
+]
 
 [project.scripts]
 rslm = "rekordbox_set_list_manager.app:main"
@@ -63,6 +73,7 @@ select = [
     "C4",    # flake8-comprehensions
     "C90",   # mccabe
     "COM",   # flake8-commas
+    "D",     # pydocstyle (NumPy convention)
     "DTZ",   # flake8-datetimez
     "E",     # pycodestyle errors
     "EM",    # flake8-errmsg
@@ -128,12 +139,21 @@ ignore = [
     "ANN204",
     "ANN205",
     "ANN206",
+    # D1xx: __init__ and magic methods don't need docstrings
+    "D105",  # magic methods
+    "D107",  # public __init__ — class docstring is sufficient
+    # Imperative mood is overly strict for event/callback docstrings
+    "D401",
+]
+extend-select = [
+    "D417",  # document every parameter (not in numpy convention by default)
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = [
     "S101",    # assert is fine in tests
     "ANN",     # no annotation requirements in tests
+    "D",       # no docstring requirements in tests
     "PLR2004", # magic values fine in tests
     "SLF001",  # private access fine in tests
     "ARG001",  # unused fixture args are normal in pytest
@@ -183,6 +203,11 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["rekordbox_set_list_manager"]
+
+[tool.ruff.lint.pydocstyle]
+# NumPy-style docstrings — matches Sphinx napoleon rendering.
+# D417 is added via extend-select since it's not in numpy's default subset.
+convention = "numpy"
 
 [tool.ruff.lint.mccabe]
 max-complexity = 12

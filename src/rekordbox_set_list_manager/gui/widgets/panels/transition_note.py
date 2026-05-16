@@ -31,8 +31,8 @@ class TransitionNoteWidget(QWidget):
     note_edit = Signal(object, object, str)  # (section_id: UUID, track_id: UUID, text: str)
 
     def __init__(self, parent=None) -> None:
+        """Initialise the transition note panel."""
         super().__init__(parent)
-        self._section_id: UUID | None = None
         self._track_id: UUID | None = None
         self._updating = False
         self._edit_in_progress = False  # True after first keystroke of a session

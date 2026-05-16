@@ -72,8 +72,16 @@ class RekordboxDbService:
     def get_collection(self) -> list[Track]:
         """Load all tracks from the Rekordbox database as Track objects.
 
-        Raises:
-            RekordboxDbError: If the database cannot be opened or read.
+        Returns
+        -------
+        list[Track]
+            All local (non-streaming) tracks found in the database.
+
+        Raises
+        ------
+        RekordboxDbError
+            If the database cannot be opened or read.
+
         """
         try:
             from pyrekordbox import Rekordbox6Database  # noqa: PLC0415
@@ -94,8 +102,21 @@ class RekordboxDbService:
     def find_track_by_isrc(self, isrc: str) -> Track | None:
         """Return the first track with the given ISRC, or None.
 
-        Raises:
-            RekordboxDbError: If the database cannot be queried.
+        Parameters
+        ----------
+        isrc : str
+            The ISRC code to search for.
+
+        Returns
+        -------
+        Track | None
+            The matching track, or ``None`` if not found.
+
+        Raises
+        ------
+        RekordboxDbError
+            If the database cannot be queried.
+
         """
         try:
             from pyrekordbox import Rekordbox6Database  # noqa: PLC0415
@@ -111,8 +132,21 @@ class RekordboxDbService:
     def find_track_by_path(self, path: str) -> Track | None:
         """Return the track whose FolderPath matches *path*, or None.
 
-        Raises:
-            RekordboxDbError: If the database cannot be queried.
+        Parameters
+        ----------
+        path : str
+            The file path string to match against the ``FolderPath`` column.
+
+        Returns
+        -------
+        Track | None
+            The matching track, or ``None`` if not found.
+
+        Raises
+        ------
+        RekordboxDbError
+            If the database cannot be queried.
+
         """
         try:
             from pyrekordbox import Rekordbox6Database  # noqa: PLC0415

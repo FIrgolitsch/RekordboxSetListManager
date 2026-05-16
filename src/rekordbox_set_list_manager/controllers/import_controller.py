@@ -28,6 +28,7 @@ class ImportController(QObject):
         parent_widget: QWidget,
         parent: QObject | None = None,
     ) -> None:
+        """Initialise the import controller with project and UI dependencies."""
         super().__init__(parent)
         self._ctrl = ctrl
         self._edit_ctrl = edit_ctrl
@@ -39,6 +40,7 @@ class ImportController(QObject):
     # ------------------------------------------------------------------
 
     def import_streaming(self) -> None:
+        """Open the streaming import dialog to import a set list."""
         # Defer import to avoid circular dependency (ImportDialog → MainWindow)
         from rekordbox_set_list_manager.gui.widgets.dialogs.import_dialog import (  # noqa: PLC0415
             ImportDialog,

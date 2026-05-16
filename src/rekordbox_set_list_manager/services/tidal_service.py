@@ -34,6 +34,7 @@ class TidalService(StreamingService):
     """
 
     def __init__(self) -> None:
+        """Initialise the Tidal service with no active session."""
         self._session: tidalapi.Session | None = None
 
     # ------------------------------------------------------------------
@@ -47,10 +48,23 @@ class TidalService(StreamingService):
         provided it is called with the login URL message so the caller can
         display it in the UI; otherwise the message is printed to stdout.
         Subsequent calls reuse the cached session (or refresh the token).
-        Returns the authenticated user's display name (username).
 
-        Raises:
-            TidalServiceError: If auth fails or is not completed.
+        Parameters
+        ----------
+        link_callback : Callable[[str], None] | None
+            If provided, called with the login URL for device-code flow display.
+            Defaults to :func:`print` if ``None``.
+
+        Returns
+        -------
+        str
+            The authenticated user's display name (username).
+
+        Raises
+        ------
+        TidalServiceError
+            If auth fails or is not completed.
+
         """
         _CACHE_DIR.mkdir(parents=True, exist_ok=True)
         session = tidalapi.Session()
@@ -80,7 +94,14 @@ class TidalService(StreamingService):
         return user.username or str(user.id)
 
     def is_authenticated(self) -> bool:
-        """Return ``True`` if a Tidal session is active."""
+        """Return ``True`` if a Tidal session is active.
+
+        Returns
+        -------
+        bool
+            ``True`` when an authenticated :class:`tidalapi.Session` exists.
+
+        """
         return self._session is not None
 
     # ------------------------------------------------------------------
@@ -90,10 +111,17 @@ class TidalService(StreamingService):
     def get_playlists(self) -> list[dict]:
         """Return metadata for all the user's playlists (owned + saved).
 
-        Returns a list of ``{"id": str, "name": str, "track_count": int}``.
+        Returns
+        -------
+        list[dict]
+            Each entry contains ``"id"`` (str), ``"name"`` (str), and
+            ``"track_count"`` (int) keys.
 
-        Raises:
-            TidalServiceError: If not authenticated or the API call fails.
+        Raises
+        ------
+        TidalServiceError
+            If not authenticated or the API call fails.
+
         """
         session = self._require_auth()
         try:
@@ -116,11 +144,22 @@ class TidalService(StreamingService):
     def get_playlist_tracks(self, playlist_id: str) -> tuple[list[Track], int]:
         """Fetch all tracks from *playlist_id* and return as Track objects.
 
-        Returns ``(tracks, 0)`` — Tidal does not skip items the way Spotify
-        does, so the skipped count is always ``0``.
+        Parameters
+        ----------
+        playlist_id : str
+            The Tidal playlist ID to fetch tracks from.
 
-        Raises:
-            TidalServiceError: If not authenticated or the API call fails.
+        Returns
+        -------
+        tuple[list[Track], int]
+            ``(tracks, 0)`` — Tidal does not skip items the way Spotify does,
+            so the skipped count is always ``0``.
+
+        Raises
+        ------
+        TidalServiceError
+            If not authenticated or the API call fails.
+
         """
         session = self._require_auth()
         try:
@@ -144,8 +183,11 @@ class TidalService(StreamingService):
     def try_silent_authenticate(self) -> str | None:
         """Load a cached Tidal session without initiating device-code flow.
 
-        Returns the username on success, or ``None`` if no valid cached session
-        exists.
+        Returns
+        -------
+        str | None
+            The username on success, or ``None`` if no valid cached session exists.
+
         """
         if not _SESSION_FILE.exists():
             return None

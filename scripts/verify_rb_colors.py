@@ -32,6 +32,7 @@ from set_manager.models.enums import RekordboxColor
 
 
 def main(xml_path: Path) -> None:
+    """Verify Rekordbox colour values in the given XML export."""
     if not xml_path.exists():
         print(f"ERROR: file not found: {xml_path}", file=sys.stderr)
         sys.exit(1)

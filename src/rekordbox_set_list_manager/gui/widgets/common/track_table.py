@@ -26,11 +26,13 @@ class TrackFilterProxyModel(QSortFilterProxyModel):
     """Proxy that adds text filtering and numeric-aware sorting."""
 
     def __init__(self, parent=None) -> None:
+        """Initialise the proxy model with case-insensitive sort."""
         super().__init__(parent)
         self._filter_text = ""
         self.setSortCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
 
     def set_filter_text(self, text: str) -> None:
+        """Set the substring filter text and invalidate the current filter."""
         self._filter_text = text.lower()
         self.invalidateFilter()
 
@@ -39,6 +41,7 @@ class TrackFilterProxyModel(QSortFilterProxyModel):
     def filterAcceptsRow(
         self, source_row: int, source_parent: QModelIndex | QPersistentModelIndex
     ) -> bool:
+        """Return True if the row matches the current filter text."""
         if not self._filter_text:
             return True
         model = self.sourceModel()
@@ -54,6 +57,7 @@ class TrackFilterProxyModel(QSortFilterProxyModel):
     def lessThan(
         self, left: QModelIndex | QPersistentModelIndex, right: QModelIndex | QPersistentModelIndex
     ) -> bool:
+        """Return True if the left index should sort before the right index."""
         col = left.column()
         model = self.sourceModel()
         lv = model.data(left, Qt.ItemDataRole.DisplayRole) or ""

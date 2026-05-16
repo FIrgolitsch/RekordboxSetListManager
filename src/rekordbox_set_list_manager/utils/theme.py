@@ -1,4 +1,4 @@
-"""Dark QSS theme for Set Manager (Catppuccin Mocha-inspired)."""
+"""Dark QSS theme for Rekordbox Set List Manager (Catppuccin Mocha-inspired)."""
 
 from __future__ import annotations
 

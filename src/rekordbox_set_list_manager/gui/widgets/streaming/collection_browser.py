@@ -44,6 +44,7 @@ class CollectionBrowserWidget(QWidget):
     track_selected = Signal(object)  # Track | None
 
     def __init__(self, parent: QWidget | None = None) -> None:
+        """Initialise an empty Rekordbox collection browser widget."""
         super().__init__(parent)
         self._collection: list[Track] = []
         self._selected: Track | None = None

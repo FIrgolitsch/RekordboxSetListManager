@@ -39,6 +39,7 @@ class SpotifyService(StreamingService):
     _CACHE_PATH = _CACHE_DIR / ".spotify_cache"
 
     def __init__(self) -> None:
+        """Initialise the Spotify service with no active session."""
         self._sp: spotipy.Spotify | None = None
 
     # ------------------------------------------------------------------
@@ -54,8 +55,22 @@ class SpotifyService(StreamingService):
         *link_callback* is accepted for interface compatibility but ignored —
         Spotify uses a browser redirect flow, not a device-code link.
 
-        Returns the authenticated user's display name.
-        Raises :class:`SpotifyServiceError` if client_id is not set or auth fails.
+        Parameters
+        ----------
+        link_callback : Callable[[str], None] | None
+            Accepted for interface compatibility but ignored by Spotify's
+            browser-redirect flow.  Defaults to ``None``.
+
+        Returns
+        -------
+        str
+            The authenticated user's display name.
+
+        Raises
+        ------
+        SpotifyServiceError
+            If ``spotify_client_id`` is not configured or authentication fails.
+
         """
         client_id = config.get("spotify_client_id")
         if not client_id:
@@ -81,7 +96,14 @@ class SpotifyService(StreamingService):
         return user.get("display_name") or user.get("id") or "Unknown user"
 
     def is_authenticated(self) -> bool:
-        """Return ``True`` if a Spotify session is active."""
+        """Return ``True`` if a Spotify session is active.
+
+        Returns
+        -------
+        bool
+            ``True`` when an authenticated :class:`spotipy.Spotify` client exists.
+
+        """
         return self._sp is not None
 
     # ------------------------------------------------------------------
@@ -91,7 +113,16 @@ class SpotifyService(StreamingService):
     def get_playlists(self) -> list[dict]:
         """Return metadata for all of the authenticated user's playlists.
 
-        Returns a list of ``{"id": str, "name": str}``.
+        Returns
+        -------
+        list[dict]
+            Each entry contains ``"id"`` (str) and ``"name"`` (str) keys.
+
+        Raises
+        ------
+        SpotifyServiceError
+            If not authenticated or the API call fails.
+
         """
         sp = self._require_auth()
         playlists: list[dict] = []
@@ -120,10 +151,24 @@ class SpotifyService(StreamingService):
     def get_playlist_tracks(self, playlist_id: str) -> tuple[list[Track], int]:
         """Fetch all tracks from *playlist_id* and return as :class:`Track` objects.
 
-        Returns ``(tracks, skipped)`` where *skipped* is the count of items that
-        could not be imported (local files without a Spotify ID, null entries, etc.).
-        Each track has ``source=SPOTIFY``, ``spotify_id``, ``isrc`` (if available),
-        and ``match_status=UNMATCHED``.
+        Parameters
+        ----------
+        playlist_id : str
+            The Spotify playlist ID to fetch tracks from.
+
+        Returns
+        -------
+        tuple[list[Track], int]
+            ``(tracks, skipped)`` where *skipped* is the count of items that
+            could not be imported (local files without a Spotify ID, null entries,
+            etc.).  Each track has ``source=SPOTIFY``, ``spotify_id``, ``isrc``
+            (if available), and ``match_status=UNMATCHED``.
+
+        Raises
+        ------
+        SpotifyServiceError
+            If not authenticated or the API call fails.
+
         """
         sp = self._require_auth()
         tracks: list[Track] = []
@@ -166,8 +211,23 @@ class SpotifyService(StreamingService):
     def replace_playlist_tracks(self, playlist_id: str, spotify_uris: list[str]) -> str:
         """Replace all tracks in *playlist_id* with *spotify_uris* in order.
 
-        Returns the snapshot_id from the API response.
-        Raises :class:`SpotifyServiceError` on failure.
+        Parameters
+        ----------
+        playlist_id : str
+            The Spotify playlist ID to update.
+        spotify_uris : list[str]
+            Ordered list of Spotify track URIs to set as the playlist contents.
+
+        Returns
+        -------
+        str
+            The ``snapshot_id`` returned by the Spotify API.
+
+        Raises
+        ------
+        SpotifyServiceError
+            If not authenticated or the API call fails.
+
         """
         sp = self._require_auth()
         try:
@@ -181,8 +241,12 @@ class SpotifyService(StreamingService):
     def try_silent_authenticate(self) -> str | None:
         """Authenticate using a cached token without opening the browser.
 
-        Returns the display name on success, or ``None`` if no valid cached
-        token exists or auth fails.
+        Returns
+        -------
+        str | None
+            The display name on success, or ``None`` if no valid cached token
+            exists or authentication fails.
+
         """
         client_id = config.get("spotify_client_id")
         if not client_id or not self._CACHE_PATH.exists():

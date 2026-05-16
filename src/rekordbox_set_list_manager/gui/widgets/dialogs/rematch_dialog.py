@@ -56,14 +56,14 @@ _STATUS_COLORS = {
 
 
 class RematchDialog(QDialog):
-    """Show all project tracks and let the user manually match them against
-    a loaded Rekordbox collection.
+    """Show all project tracks and manually match them against a Rekordbox collection.
 
     Supports auto-matching (TrackMatcher) as a starting point, then manual
     overrides via browse-and-select.
     """
 
     def __init__(self, project: Project, parent=None) -> None:
+        """Open the re-match dialog for *project*."""
         super().__init__(parent)
         self.setWindowTitle("Manual Re-match with Rekordbox")
         self.setMinimumSize(1000, 650)

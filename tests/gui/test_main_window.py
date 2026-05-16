@@ -30,7 +30,7 @@ def test_opens_with_empty_project(window):
 
 
 def test_window_title_contains_app_name(window):
-    assert "Set Manager" in window.windowTitle()
+    assert "Rekordbox Set List Manager" in window.windowTitle()
 
 
 def test_add_section_updates_project(window):

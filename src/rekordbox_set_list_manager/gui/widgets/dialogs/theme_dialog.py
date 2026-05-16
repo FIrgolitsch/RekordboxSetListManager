@@ -31,6 +31,7 @@ class ThemeDialog(QDialog):
     """
 
     def __init__(self, project: Project, parent=None) -> None:
+        """Initialise the theme management dialog for *project*."""
         super().__init__(parent)
         self.setWindowTitle("Section Name Themes")
         self.setMinimumSize(560, 400)

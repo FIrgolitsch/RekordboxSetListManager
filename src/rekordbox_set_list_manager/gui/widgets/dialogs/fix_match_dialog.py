@@ -24,6 +24,7 @@ class FixMatchDialog(QDialog):
     """Browse the Rekordbox library and assign a manual match to a track."""
 
     def __init__(self, track: Track, parent=None) -> None:
+        """Open the fix-match dialog for *track*."""
         super().__init__(parent)
         self.setWindowTitle("Fix Match")
         self.setMinimumSize(750, 520)
@@ -57,6 +58,7 @@ class FixMatchDialog(QDialog):
         root.addWidget(self._btn_box)
 
     def matched_local_track(self) -> Track | None:
+        """Return the track the user selected as the correct match, or None."""
         return self._browser.selected_track
 
     # ── private ───────────────────────────────────────────────────────────

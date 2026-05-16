@@ -25,6 +25,7 @@ class ExportDialog(QDialog):
     """Lets the user choose an output path then triggers the export."""
 
     def __init__(self, project: Project, parent=None) -> None:
+        """Initialise the export dialog for *project*."""
         super().__init__(parent)
         self.setWindowTitle("Export to Rekordbox XML")
         self.setMinimumWidth(420)

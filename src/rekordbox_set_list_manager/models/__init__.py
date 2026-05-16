@@ -1,4 +1,4 @@
-"""Domain models for Set Manager."""
+"""Domain models for Rekordbox Set List Manager."""
 
 from rekordbox_set_list_manager.models.enums import (
     MatchStatus,

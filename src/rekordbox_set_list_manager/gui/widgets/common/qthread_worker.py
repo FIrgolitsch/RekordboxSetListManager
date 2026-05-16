@@ -28,10 +28,12 @@ class QThreadWorker(QObject):
     error = Signal(str)        # emitted with the error message on exception
 
     def __init__(self, fn: Callable[[], Any]) -> None:
+        """Wrap *fn* for execution in a background QThread."""
         super().__init__()
         self._fn = fn
 
     def run(self) -> None:
+        """Execute the callable in this thread and emit the result or error."""
         try:
             self.finished.emit(self._fn())
         except Exception as exc:  # noqa: BLE001

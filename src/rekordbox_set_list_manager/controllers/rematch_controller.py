@@ -34,6 +34,7 @@ class RematchController(QObject):
         parent_widget: QWidget,
         parent: QObject | None = None,
     ) -> None:
+        """Initialise the rematch controller with project and UI dependencies."""
         super().__init__(parent)
         self._ctrl = ctrl
         self._edit_ctrl = edit_ctrl
@@ -45,6 +46,7 @@ class RematchController(QObject):
     # ------------------------------------------------------------------
 
     def rematch_xml(self) -> None:
+        """Prompt for a Rekordbox XML file and re-match all project tracks against it."""
         if self._ctrl.project is None:
             QMessageBox.warning(self._w, "No project", "Open or create a project first.")
             return
@@ -64,6 +66,7 @@ class RematchController(QObject):
         self._do_rematch(collection)
 
     def rematch_db(self) -> None:
+        """Re-match all project tracks against the live Rekordbox database."""
         if self._ctrl.project is None:
             QMessageBox.warning(self._w, "No project", "Open or create a project first.")
             return
@@ -76,6 +79,7 @@ class RematchController(QObject):
         self._do_rematch(collection)
 
     def rematch_manual(self) -> None:
+        """Open the manual re-match dialog and apply any user-confirmed matches."""
         from rekordbox_set_list_manager.gui.widgets.dialogs.rematch_dialog import (  # noqa: PLC0415
             RematchDialog,
         )

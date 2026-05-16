@@ -33,7 +33,19 @@ log = logging.getLogger(__name__)
 
 
 def is_valid(db_path: Path) -> bool:
-    """Return ``True`` if the cached collection is up to date with *db_path*."""
+    """Return ``True`` if the cached collection is up to date with *db_path*.
+
+    Parameters
+    ----------
+    db_path : Path
+        Path to the Rekordbox SQLite database whose mtime is checked.
+
+    Returns
+    -------
+    bool
+        ``True`` if the cache exists and its recorded mtime matches *db_path*.
+
+    """
     if not _CACHE_FILE.exists() or not _META_FILE.exists():
         return False
     try:
@@ -46,7 +58,14 @@ def is_valid(db_path: Path) -> bool:
 
 
 def load() -> list[Track] | None:
-    """Load tracks from the cache.  Returns ``None`` if missing or corrupt."""
+    """Load tracks from the cache.  Returns ``None`` if missing or corrupt.
+
+    Returns
+    -------
+    list[Track] | None
+        The cached tracks, or ``None`` if the cache file is absent or invalid.
+
+    """
     if not _CACHE_FILE.exists():
         return None
     try:
@@ -57,14 +76,35 @@ def load() -> list[Track] | None:
 
 
 def load_if_valid(db_path: Path) -> list[Track] | None:
-    """Return cached tracks if the cache is valid for *db_path*, else ``None``."""
+    """Return cached tracks if the cache is valid for *db_path*, else ``None``.
+
+    Parameters
+    ----------
+    db_path : Path
+        Path to the Rekordbox SQLite database to validate the cache against.
+
+    Returns
+    -------
+    list[Track] | None
+        The cached track list if valid, or ``None`` if the cache is stale or absent.
+
+    """
     if not is_valid(db_path):
         return None
     return load()
 
 
 def save(tracks: list[Track], db_path: Path) -> None:
-    """Persist *tracks* and the current mtime of *db_path* to disk."""
+    """Persist *tracks* and the current mtime of *db_path* to disk.
+
+    Parameters
+    ----------
+    tracks : list[Track]
+        The collection tracks to serialise and cache.
+    db_path : Path
+        Path to the Rekordbox database; its mtime is stored for cache validation.
+
+    """
     _CACHE_DIR.mkdir(parents=True, exist_ok=True)
     try:
         _CACHE_FILE.write_bytes(_ADAPTER.dump_json(tracks))

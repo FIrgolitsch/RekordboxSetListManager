@@ -37,10 +37,12 @@ class Track(BaseModel):
 
     @property
     def display_name(self) -> str:
+        """Return 'Artist - Title' as a formatted display string."""
         return f"{self.artist} - {self.title}"
 
     @property
     def duration_formatted(self) -> str | None:
+        """Return the duration as a 'M:SS' string, or None if unknown."""
         if self.duration is None:
             return None
         minutes, seconds = divmod(self.duration, 60)

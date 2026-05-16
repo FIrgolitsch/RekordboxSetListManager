@@ -28,14 +28,34 @@ def _autosave_path(project_id: UUID) -> Path:
 
 
 def write_autosave(project: Project) -> None:
-    """Write *project* to the autosave slot for its id.  Silent on error."""
+    """Write *project* to the autosave slot for its id.  Silent on error.
+
+    Parameters
+    ----------
+    project : Project
+        The project to persist to the autosave file.
+
+    """
     with contextlib.suppress(Exception):
         _AUTOSAVE_DIR.mkdir(parents=True, exist_ok=True)
         save_project(project, _autosave_path(project.id))
 
 
 def read_autosave(project_id: UUID) -> Project | None:
-    """Return the autosaved project for *project_id*, or None if absent/corrupt."""
+    """Return the autosaved project for *project_id*, or None if absent/corrupt.
+
+    Parameters
+    ----------
+    project_id : UUID
+        The project ID whose autosave file to load.
+
+    Returns
+    -------
+    Project | None
+        The deserialised project, or ``None`` if the autosave does not exist
+        or cannot be read.
+
+    """
     path = _autosave_path(project_id)
     if not path.exists():
         return None
@@ -45,7 +65,19 @@ def read_autosave(project_id: UUID) -> Project | None:
 
 
 def autosave_mtime(project_id: UUID) -> float:
-    """Return the mtime of the autosave file, or 0.0 if it does not exist."""
+    """Return the mtime of the autosave file, or 0.0 if it does not exist.
+
+    Parameters
+    ----------
+    project_id : UUID
+        The project ID whose autosave mtime to query.
+
+    Returns
+    -------
+    float
+        The file modification timestamp, or ``0.0`` if the file is missing.
+
+    """
     path = _autosave_path(project_id)
     with contextlib.suppress(OSError):
         return path.stat().st_mtime
@@ -53,6 +85,13 @@ def autosave_mtime(project_id: UUID) -> float:
 
 
 def clear_autosave(project_id: UUID) -> None:
-    """Remove the autosave file for *project_id*.  Silent on error."""
+    """Remove the autosave file for *project_id*.  Silent on error.
+
+    Parameters
+    ----------
+    project_id : UUID
+        The project ID whose autosave file to delete.
+
+    """
     with contextlib.suppress(OSError):
         _autosave_path(project_id).unlink(missing_ok=True)

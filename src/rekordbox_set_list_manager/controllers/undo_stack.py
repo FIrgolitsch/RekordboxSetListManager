@@ -23,6 +23,7 @@ class UndoStack[T]:
     """
 
     def __init__(self, max_size: int = _DEFAULT_MAX) -> None:
+        """Initialise an empty undo/redo stack with *max_size* capacity."""
         self._max = max_size
         self._undo: list[T] = []
         self._redo: list[T] = []
@@ -31,14 +32,23 @@ class UndoStack[T]:
 
     @property
     def can_undo(self) -> bool:
+        """Return True if there are undo steps available."""
         return bool(self._undo)
 
     @property
     def can_redo(self) -> bool:
+        """Return True if there are redo steps available."""
         return bool(self._redo)
 
     def push(self, snapshot: T) -> None:
-        """Record *snapshot* before a mutation.  Clears the redo stack."""
+        """Record *snapshot* before a mutation.  Clears the redo stack.
+
+        Parameters
+        ----------
+        snapshot : T
+            The serialised project state to push onto the undo history.
+
+        """
         if self._undo and self._undo[-1] == snapshot:
             return  # no-op: nothing changed
         self._undo.append(snapshot)
@@ -51,6 +61,18 @@ class UndoStack[T]:
 
         The caller must pass the *current* snapshot so it can be pushed to the
         redo stack.
+
+        Parameters
+        ----------
+        current : T
+            The current serialised state, saved to the redo stack.
+
+        Returns
+        -------
+        T | None
+            The previous snapshot to restore, or ``None`` if the undo stack is
+            empty.
+
         """
         if not self._undo:
             return None
@@ -62,6 +84,18 @@ class UndoStack[T]:
 
         The caller must pass the *current* snapshot so it can be pushed back
         to the undo stack.
+
+        Parameters
+        ----------
+        current : T
+            The current serialised state, saved back to the undo stack.
+
+        Returns
+        -------
+        T | None
+            The next snapshot to restore, or ``None`` if the redo stack is
+            empty.
+
         """
         if not self._redo:
             return None
@@ -69,5 +103,6 @@ class UndoStack[T]:
         return self._redo.pop()
 
     def clear(self) -> None:
+        """Discard all undo and redo history."""
         self._undo.clear()
         self._redo.clear()

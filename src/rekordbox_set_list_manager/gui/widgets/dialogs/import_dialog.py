@@ -47,6 +47,7 @@ class ImportDialog(QDialog):
     """
 
     def __init__(self, project: Project, parent=None) -> None:
+        """Initialise the import dialog for *project*."""
         super().__init__(parent)
         self.setWindowTitle("Import from Streaming Service")
         self.setMinimumSize(880, 640)
@@ -190,7 +191,7 @@ class ImportDialog(QDialog):
         self._on_tracks_loaded()
 
     def _on_tracks_loaded(self) -> None:
-        """Called after any service tab populates self._playlist_tracks."""
+        """Refresh the track table after any service tab populates self._playlist_tracks."""
         self._match_results = []
         self._refresh_track_table(self._playlist_tracks)
         count = len(self._playlist_tracks)

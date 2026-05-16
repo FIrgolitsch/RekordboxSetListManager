@@ -33,6 +33,7 @@ class ProjectController(QObject):
     dirty_changed = Signal(bool)
 
     def __init__(self, parent: QObject | None = None) -> None:
+        """Initialise with no project loaded and a clean dirty state."""
         super().__init__(parent)
         self._project: Project | None = None
         self._save_path: Path | None = None
@@ -44,14 +45,17 @@ class ProjectController(QObject):
 
     @property
     def project(self) -> Project | None:
+        """Return the currently loaded project, or None if none is open."""
         return self._project
 
     @property
     def save_path(self) -> Path | None:
+        """Return the path the project was last saved to, or None."""
         return self._save_path
 
     @property
     def dirty(self) -> bool:
+        """Return True if the project has unsaved changes."""
         return self._dirty
 
     # ------------------------------------------------------------------
@@ -59,7 +63,19 @@ class ProjectController(QObject):
     # ------------------------------------------------------------------
 
     def new(self, name: str = _DEFAULT_PROJECT_NAME) -> Project:
-        """Create a fresh project and emit signals."""
+        """Create a fresh project and emit signals.
+
+        Parameters
+        ----------
+        name : str
+            Display name for the new project.  Defaults to ``"Untitled"``.
+
+        Returns
+        -------
+        Project
+            The newly created project.
+
+        """
         self._project = Project(name=name)
         self._save_path = None
         self._emit_dirty(dirty=False)
@@ -68,7 +84,19 @@ class ProjectController(QObject):
         return self._project
 
     def load(self, path: Path) -> Project:
-        """Load project from *path*.  Raises :class:`ProjectIOError` on failure."""
+        """Load project from *path*.  Raises :class:`ProjectIOError` on failure.
+
+        Parameters
+        ----------
+        path : Path
+            Path to the ``.setmgr`` project file.
+
+        Returns
+        -------
+        Project
+            The loaded project.
+
+        """
         project = load_project(path)
         self._project = project
         self._save_path = path
@@ -85,6 +113,12 @@ class ProjectController(QObject):
         .PROJECT_FILE_EXTENSION`
         if needed, then writes the file, updates the save path, clears dirty, and
         records the file in the recent-files list.
+
+        Parameters
+        ----------
+        path : Path
+            Destination path for the saved project file.
+
         """
         if self._project is None:
             return
@@ -108,6 +142,12 @@ class ProjectController(QObject):
 
         Sets dirty = True and emits :attr:`project_changed` so the UI refreshes.
         The save path is not changed.
+
+        Parameters
+        ----------
+        project : Project
+            The project snapshot to restore.
+
         """
         self._project = project
         self._emit_dirty(dirty=True)

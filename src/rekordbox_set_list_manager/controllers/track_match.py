@@ -16,6 +16,15 @@ def apply_track_match(track: Track, local: Track | None) -> None:
     If *local* is ``None`` the match is cleared (status → UNMATCHED, all
     Rekordbox fields set to ``None``).  Otherwise each non-``None`` field from
     *local* is copied and ``match_status`` is set to ``MANUALLY_MATCHED``.
+
+    Parameters
+    ----------
+    track : Track
+        The streaming track to update in-place.
+    local : Track | None
+        The local Rekordbox track to copy metadata from, or ``None`` to clear
+        the existing match.
+
     """
     if local is None:
         track.filepath = None

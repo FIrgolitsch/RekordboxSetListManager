@@ -1,4 +1,4 @@
-# Set Manager
+# Rekordbox Set List Manager
 
 DJ set organizer with Rekordbox, Spotify, and Tidal integration.
 
@@ -55,7 +55,7 @@ For Spotify you need a Client ID:
 
 1. Go to [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard) and create an app.
 2. Add `http://127.0.0.1:8888/callback` as a Redirect URI in the app settings.
-3. In Set Manager, open **Project → Service Settings…** and paste your Client ID.
+3. In Rekordbox Set List Manager, open **Project → Service Settings…** and paste your Client ID.
 
 ## Usage
 

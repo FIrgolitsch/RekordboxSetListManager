@@ -20,8 +20,8 @@ class AddTrackDialog(QDialog):
     """Simple form to enter Track metadata manually."""
 
     def __init__(self, parent=None) -> None:
+        """Initialise the add-track dialog with empty form fields."""
         super().__init__(parent)
-        self.setWindowTitle("Add Track")
         self.setMinimumWidth(360)
 
         self._title = QLineEdit()

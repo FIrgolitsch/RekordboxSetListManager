@@ -23,6 +23,7 @@ class ColorPickerWidget(QWidget):
         selected: RekordboxColor | None = None,
         parent=None,
     ) -> None:
+        """Build the color-picker widget with *selected* pre-highlighted."""
         super().__init__(parent)
         self._selected = selected
         self._buttons: dict[RekordboxColor, QPushButton] = {}
@@ -45,9 +46,11 @@ class ColorPickerWidget(QWidget):
         self._refresh_styles()
 
     def selected_color(self) -> RekordboxColor | None:
+        """Return the currently selected color, or None if none is selected."""
         return self._selected
 
     def set_selected(self, color: RekordboxColor | None) -> None:
+        """Set the selected color and refresh button styles."""
         self._selected = color
         self._refresh_styles()
 

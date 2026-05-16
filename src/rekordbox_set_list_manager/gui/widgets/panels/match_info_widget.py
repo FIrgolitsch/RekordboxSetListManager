@@ -32,12 +32,13 @@ class MatchInfoWidget(QWidget):
     """Read-only form showing match metadata for the selected track."""
 
     def __init__(self, parent=None) -> None:
+        """Initialise the match info widget with empty labels."""
         super().__init__(parent)
-        self._vals: dict[str, QLabel] = {}
 
         grid = QGridLayout()
         grid.setSpacing(3)
         grid.setColumnStretch(1, 1)
+        self._vals: dict[str, QLabel] = {}
         for i, field in enumerate(_FIELDS):
             lbl = QLabel(field + ":")
             val = QLabel("—")
@@ -57,6 +58,7 @@ class MatchInfoWidget(QWidget):
         layout.addStretch()
 
     def set_track(self, track) -> None:
+        """Update display labels to show match metadata for *track*."""
         if track is None:
             for val in self._vals.values():
                 val.setText("—")

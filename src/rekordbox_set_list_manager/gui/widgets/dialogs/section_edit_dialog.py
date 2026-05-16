@@ -27,6 +27,7 @@ class SectionEditDialog(QDialog):
         current_type: SectionType = SectionType.GENERAL,
         current_color: RekordboxColor | None = None,
     ) -> None:
+        """Initialise the section edit dialog with optional pre-filled values."""
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setMinimumWidth(320)
@@ -67,13 +68,16 @@ class SectionEditDialog(QDialog):
         self.adjustSize()
 
     def section_name(self) -> str:
+        """Return the section name entered or derived from the selected type."""
         st = self._type_combo.currentData()
         if st == SectionType.GENERAL:
             return self._name_edit.text().strip()
         return SECTION_TYPE_LABELS.get(st, str(st))
 
     def section_type(self) -> SectionType:
+        """Return the section type selected in the combo box."""
         return self._type_combo.currentData()
 
     def section_color(self) -> RekordboxColor | None:
+        """Return the color selected in the color picker, or None."""
         return self._color_picker.selected_color()

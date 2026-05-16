@@ -32,5 +32,18 @@ class SectionNameTheme(BaseModel):
     names: dict[SectionType, str] = Field(default_factory=dict)
 
     def display_name_for(self, section_type: SectionType) -> str | None:
-        """Return the themed name for *section_type*, or ``None`` if not mapped."""
+        """Return the themed name for *section_type*, or ``None`` if not mapped.
+
+        Parameters
+        ----------
+        section_type : SectionType
+            The section type to look up in this theme's name mapping.
+
+        Returns
+        -------
+        str | None
+            The mapped display name, or ``None`` if *section_type* is not in
+            this theme.
+
+        """
         return self.names.get(section_type)

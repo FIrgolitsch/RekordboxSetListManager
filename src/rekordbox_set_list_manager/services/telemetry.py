@@ -68,6 +68,7 @@ def record(event: str, **fields: Any) -> None:  # noqa: ANN401
     **fields:
         Additional scalar metadata — counts, enum values, booleans.
         No strings containing user content (paths, names, etc.).
+
     """
     if not is_enabled():
         return

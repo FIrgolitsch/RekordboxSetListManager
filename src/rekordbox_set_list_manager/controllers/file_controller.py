@@ -36,6 +36,7 @@ class FileController(QObject):
         parent_widget: QWidget,
         parent: QObject | None = None,
     ) -> None:
+        """Initialise the file controller backed by *ctrl*."""
         super().__init__(parent)
         self._ctrl = ctrl
         self._w = parent_widget
@@ -68,6 +69,7 @@ class FileController(QObject):
         )
 
     def new_project(self) -> None:
+        """Create a new empty project, prompting to discard unsaved changes."""
         if not self.confirm_discard():
             return
         self._ctrl.new()
@@ -75,19 +77,21 @@ class FileController(QObject):
         self.undo_cleared.emit()
 
     def open(self) -> None:
+        """Prompt the user to select and open a project file."""
         if not self.confirm_discard():
             return
         path_str, _ = QFileDialog.getOpenFileName(
             self._w,
             "Open Project",
             "",
-            f"Set Manager files (*{PROJECT_FILE_EXTENSION})",
+            f"Rekordbox Set List Manager files (*{PROJECT_FILE_EXTENSION})",
         )
         if not path_str:
             return
         self._load(Path(path_str))
 
     def open_recent(self, path_str: str) -> None:
+        """Open a recently-used project by file path string."""
         path = Path(path_str)
         if not path.exists():
             QMessageBox.warning(
@@ -103,19 +107,21 @@ class FileController(QObject):
         self._load(path)
 
     def save(self) -> None:
+        """Save the current project, prompting for a path if not yet set."""
         if self._ctrl.save_path is None:
             self.save_as()
         else:
             self._do_save(self._ctrl.save_path)
 
     def save_as(self) -> None:
+        """Prompt the user for a new file path and save the current project."""
         project = self._ctrl.project
         default = project.name if project else _DEFAULT_PROJECT_NAME
         path_str, _ = QFileDialog.getSaveFileName(
             self._w,
             "Save Project",
             default,
-            f"Set Manager files (*{PROJECT_FILE_EXTENSION})",
+            f"Rekordbox Set List Manager files (*{PROJECT_FILE_EXTENSION})",
         )
         if not path_str:
             return

@@ -24,6 +24,7 @@ class SettingsDialog(QDialog):
     """Service settings: Spotify Developer App credentials and Tidal session management."""
 
     def __init__(self, parent=None) -> None:
+        """Initialise the service settings dialog."""
         super().__init__(parent)
         self.setWindowTitle("Service Settings")
         self.setMinimumWidth(480)

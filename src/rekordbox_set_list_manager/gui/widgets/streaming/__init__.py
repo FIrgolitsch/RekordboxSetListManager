@@ -1,1 +1,1 @@
-# streaming subpackage: generic auth worker + service tab
+"""Streaming package — auth worker and service-tab widgets."""

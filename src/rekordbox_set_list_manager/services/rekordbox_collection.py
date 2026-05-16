@@ -27,8 +27,16 @@ class CollectionLoader(Protocol):
     def load(self) -> list[Track]:
         """Load and return all tracks.
 
-        Raises:
-            CollectionLoaderError: on any loading failure.
+        Returns
+        -------
+        list[Track]
+            All tracks available from this collection source.
+
+        Raises
+        ------
+        CollectionLoaderError
+            On any loading failure.
+
         """
         ...
 
@@ -71,10 +79,29 @@ class _DbLoader:
 
 
 def xml_loader(path: Path) -> CollectionLoader:
-    """Return a loader that reads tracks from a Rekordbox XML export at *path*."""
+    """Return a loader that reads tracks from a Rekordbox XML export at *path*.
+
+    Parameters
+    ----------
+    path : Path
+        Path to the Rekordbox XML export file.
+
+    Returns
+    -------
+    CollectionLoader
+        A loader that parses the given XML file on :meth:`~CollectionLoader.load`.
+
+    """
     return _XmlLoader(path)
 
 
 def db_loader() -> CollectionLoader:
-    """Return a loader that reads tracks from the local Rekordbox database."""
+    """Return a loader that reads tracks from the local Rekordbox database.
+
+    Returns
+    -------
+    CollectionLoader
+        A loader backed by the local Rekordbox SQLite database.
+
+    """
     return _DbLoader()

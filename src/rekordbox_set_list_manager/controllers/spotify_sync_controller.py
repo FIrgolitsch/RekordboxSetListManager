@@ -24,6 +24,7 @@ class SpotifySyncController(QObject):
         parent_widget: QWidget,
         parent: QObject | None = None,
     ) -> None:
+        """Initialise the Spotify sync controller with *ctrl* and *spotify*."""
         super().__init__(parent)
         self._ctrl = ctrl
         self._spotify = spotify
@@ -34,6 +35,7 @@ class SpotifySyncController(QObject):
     # ------------------------------------------------------------------
 
     def update_order(self) -> None:
+        """Push the current section track order to the linked Spotify playlist."""
         project = self._ctrl.project
         if project is None or not project.sections:
             QMessageBox.warning(self._w, "No project", "Open or create a project first.")

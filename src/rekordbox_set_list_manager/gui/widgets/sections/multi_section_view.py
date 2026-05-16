@@ -61,6 +61,7 @@ class MultiSectionView(QWidget):
     fix_match_requested = Signal(object, object)  # track_id, section
 
     def __init__(self, edit_ctrl: EditController, parent=None) -> None:
+        """Initialise the multi-section view with *edit_ctrl*."""
         super().__init__(parent)
         self._project: Project | None = None
         self._edit = edit_ctrl
@@ -135,6 +136,7 @@ class MultiSectionView(QWidget):
     # ─────────────────────────── public API ───────────────────────────────
 
     def set_project(self, project: Project | None) -> None:
+        """Load *project* into the view and rebuild all section blocks."""
         self._project = project
         self._btn_add_sec.setEnabled(project is not None)
         self._rebuild_blocks()
@@ -154,15 +156,18 @@ class MultiSectionView(QWidget):
         self._rebuild_blocks()
 
     def refresh_tracks(self, tracks: dict[UUID, Track]) -> None:
+        """Push an updated track mapping to all section blocks."""
         for block in self._blocks.values():
             block.update_tracks(tracks)
 
     def refresh_section(self, section: Section) -> None:
+        """Reload the model for a single section block."""
         block = self._blocks.get(str(section.id))
         if block:
             block.refresh_model()
 
     def add_track_to_section(self, track: Track, section: Section) -> None:
+        """Add *track* to *section* and refresh the corresponding block."""
         if self._project:
             self._project.tracks[track.id] = track
         section.add_track(track.id)
@@ -170,6 +175,7 @@ class MultiSectionView(QWidget):
         self.section_modified.emit()
 
     def current_section(self) -> Section | None:
+        """Return the section whose block is currently active, or the first section."""
         if self._active_block is not None:
             return self._active_block.section
         if self._project and self._project.sections:
@@ -178,6 +184,7 @@ class MultiSectionView(QWidget):
         return None
 
     def scroll_to_section(self, section_id: UUID) -> None:
+        """Scroll the viewport to ensure the section block is visible."""
         block = self._blocks.get(str(section_id))
         if block:
             self._scroll.ensureWidgetVisible(block)
@@ -377,10 +384,12 @@ class MultiSectionView(QWidget):
             block.set_filter_text(text)
 
     def resizeEvent(self, event) -> None:
+        """Sync the shared header width on resize."""
         super().resizeEvent(event)
         self._sync_header_width()
 
     def eventFilter(self, obj, event) -> bool:
+        """Sync the shared header width when the scroll viewport is resized."""
         if obj is self._scroll.viewport() and event.type() == QEvent.Type.Resize:
             self._sync_header_width()
         return super().eventFilter(obj, event)

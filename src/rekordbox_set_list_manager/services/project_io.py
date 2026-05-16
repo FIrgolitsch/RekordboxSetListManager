@@ -27,6 +27,14 @@ def save_project(project: Project, path: Path) -> None:
     The path should use the :data:`~rekordbox_set_list_manager.utils.constants
     .PROJECT_FILE_EXTENSION`
     suffix, but this is not enforced so callers can write to temp paths during saves.
+
+    Parameters
+    ----------
+    project : Project
+        The project to serialise.
+    path : Path
+        Destination file path to write.
+
     """
     envelope = _ProjectFile(project=project)
     try:
@@ -38,7 +46,21 @@ def save_project(project: Project, path: Path) -> None:
 def load_project(path: Path) -> Project:
     """Read a .setmgr file from *path* and deserialise it into a :class:`Project`.
 
-    Raises :class:`ProjectIOError` if the file cannot be read or parsed.
+    Parameters
+    ----------
+    path : Path
+        Path to the ``.setmgr`` project file.
+
+    Returns
+    -------
+    Project
+        The deserialised project.
+
+    Raises
+    ------
+    ProjectIOError
+        If the file cannot be read or parsed.
+
     """
     if not path.exists():
         raise ProjectIOError(f"Project file not found: {path}")
