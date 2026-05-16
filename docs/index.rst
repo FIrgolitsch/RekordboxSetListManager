@@ -64,7 +64,7 @@ XML playlist ready to load on a CDJ.
    :hidden:
    :caption: Reference
 
-   api/rekordbox_set_list_manager/index
+   api/index
 
 
 Indices and tables
