@@ -127,8 +127,8 @@ _NETWORK_KEYWORDS = (
     "failed to establish",
     "remote end closed",
     "broken pipe",
-    "errno 11001",   # getaddrinfo failed (Windows)
-    "errno -2",      # name not resolved (Linux/macOS)
+    "errno 11001",  # getaddrinfo failed (Windows)
+    "errno -2",  # name not resolved (Linux/macOS)
 )
 
 
@@ -158,4 +158,3 @@ def show_error_dialog(
     else:
         msg = f"{extra_detail}\n\n{error}" if extra_detail else error
         QMessageBox.critical(parent, title, msg)
-

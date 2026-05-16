@@ -19,9 +19,9 @@ class StreamingAuthWorker(QObject):
     is simply never emitted for that service.
     """
 
-    link_ready = Signal(str)   # device-code URL / message (optional)
-    finished = Signal(str)     # display name on success
-    error = Signal(str)        # error message on failure
+    link_ready = Signal(str)  # device-code URL / message (optional)
+    finished = Signal(str)  # display name on success
+    error = Signal(str)  # error message on failure
 
     def __init__(self, service: StreamingService) -> None:
         """Wrap *service* auth flow for execution in a background thread."""

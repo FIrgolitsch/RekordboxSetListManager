@@ -28,7 +28,7 @@ class ProjectController(QObject):
         dirty_changed(bool): Fired when dirty state transitions.
     """
 
-    project_changed = Signal(object)   # Project | None
+    project_changed = Signal(object)  # Project | None
     save_path_changed = Signal(object)  # Path | None
     dirty_changed = Signal(bool)
 

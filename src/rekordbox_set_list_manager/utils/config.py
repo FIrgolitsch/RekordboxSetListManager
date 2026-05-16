@@ -19,7 +19,7 @@ def _load() -> dict:
         if _CONFIG_PATH.exists():
             try:
                 _cache = json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
+            except json.JSONDecodeError, OSError:
                 _cache = {}
         else:
             _cache = {}

@@ -1,0 +1,110 @@
+name: Dist
+
+on:
+  release:
+    types: [published]
+  # Allow a manual run from the Actions tab to test the build pipeline
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: "Build — ${{ matrix.artifact }}"
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write   # required to upload release assets
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ── macOS Apple Silicon (arm64) ──────────────────────────────────
+          - os: macos-15
+            arch: arm64
+            artifact: RekordboxSetListManager-macOS-arm64
+            archive_ext: .zip
+
+          # ── macOS Intel (x86_64) ─────────────────────────────────────────
+          - os: macos-13
+            arch: x86_64
+            artifact: RekordboxSetListManager-macOS-x86_64
+            archive_ext: .zip
+
+          # ── Windows x86_64 ───────────────────────────────────────────────
+          - os: windows-2022
+            arch: x86_64
+            artifact: RekordboxSetListManager-Windows-x86_64
+            archive_ext: .zip
+
+          # ── Linux x86_64 ─────────────────────────────────────────────────
+          - os: ubuntu-24.04
+            arch: x86_64
+            artifact: RekordboxSetListManager-Linux-x86_64
+            archive_ext: .tar.gz
+
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Install system libraries — Linux (SQLCipher + UPX)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y libsqlcipher-dev upx-ucl
+
+      - name: Install system libraries — macOS (SQLCipher + UPX)
+        if: runner.os == 'macOS'
+        run: brew install sqlcipher upx
+
+      - name: Install system libraries — Windows (UPX via Chocolatey)
+        if: runner.os == 'Windows'
+        run: choco install upx --yes
+        shell: pwsh
+
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          python-version: "3.14"
+
+      - name: Sync dist dependencies
+        run: uv sync --extra dist --frozen
+
+      - name: Build with PyInstaller
+        run: uv run pyinstaller rekordbox_set_list_manager.spec --noconfirm
+
+      # ── Archive steps (one per OS) ────────────────────────────────────────
+      - name: Archive — macOS (.app → zip)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          cd dist
+          zip -r --symlinks "../${{ matrix.artifact }}.zip" RekordboxSetListManager.app
+          cd ..
+
+      - name: Archive — Windows (directory → zip)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive `
+            -Path dist\RekordboxSetListManager `
+            -DestinationPath "${{ matrix.artifact }}.zip"
+
+      - name: Archive — Linux (directory → tar.gz)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          tar -czf "${{ matrix.artifact }}.tar.gz" -C dist RekordboxSetListManager
+
+      # ── Smoke-test the archive ────────────────────────────────────────────
+      - name: Verify archive was created
+        shell: bash
+        run: ls -lh "${{ matrix.artifact }}${{ matrix.archive_ext }}"
+
+      # ── Upload steps ──────────────────────────────────────────────────────
+      - name: Upload archive as workflow artifact
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}${{ matrix.archive_ext }}
+          retention-days: 7
+
+      - name: Upload archive to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v3.0.0
+        with:
+          files: ${{ matrix.artifact }}${{ matrix.archive_ext }}

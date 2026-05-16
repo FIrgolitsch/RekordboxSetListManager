@@ -29,8 +29,8 @@ class Track(BaseModel):
 
     # Matching metadata
     match_status: MatchStatus = MatchStatus.UNMATCHED
-    match_strategy: str | None = None   # MatchStrategy value stored as string
-    match_score: float | None = None    # 0.0-1.0; None means not yet matched
+    match_strategy: str | None = None  # MatchStrategy value stored as string
+    match_score: float | None = None  # 0.0-1.0; None means not yet matched
 
     # Optional color override (when not using section default)
     color: RekordboxColor | None = None

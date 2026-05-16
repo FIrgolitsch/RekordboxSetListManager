@@ -23,8 +23,16 @@ _STRATEGY_DISPLAY = {
 }
 
 _FIELDS = (
-    "Status", "Source", "Strategy", "Score",
-    "Streaming URI", "File", "BPM", "Key", "ISRC", "Rekordbox ID",
+    "Status",
+    "Source",
+    "Strategy",
+    "Score",
+    "Streaming URI",
+    "File",
+    "BPM",
+    "Key",
+    "ISRC",
+    "Rekordbox ID",
 )
 
 
@@ -45,9 +53,7 @@ class MatchInfoWidget(QWidget):
             val.setWordWrap(True)
             if field == "Streaming URI":
                 val.setOpenExternalLinks(True)
-                val.setTextInteractionFlags(
-                    Qt.TextInteractionFlag.TextBrowserInteraction
-                )
+                val.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
             grid.addWidget(lbl, i, 0, Qt.AlignmentFlag.AlignTop)
             grid.addWidget(val, i, 1, Qt.AlignmentFlag.AlignTop)
             self._vals[field] = val
@@ -79,9 +85,7 @@ class MatchInfoWidget(QWidget):
         self._vals["BPM"].setText(f"{track.bpm:.1f}" if track.bpm is not None else "—")
         self._vals["Key"].setText(track.key or "—")
         self._vals["ISRC"].setText(track.isrc or "—")
-        self._vals["Rekordbox ID"].setText(
-            str(track.rekordbox_id) if track.rekordbox_id else "—"
-        )
+        self._vals["Rekordbox ID"].setText(str(track.rekordbox_id) if track.rekordbox_id else "—")
 
     @staticmethod
     def _streaming_uri_html(track) -> str:

@@ -25,7 +25,7 @@ class QThreadWorker(QObject):
     """
 
     finished = Signal(object)  # emitted with the return value of the callable
-    error = Signal(str)        # emitted with the error message on exception
+    error = Signal(str)  # emitted with the error message on exception
 
     def __init__(self, fn: Callable[[], Any]) -> None:
         """Wrap *fn* for execution in a background QThread."""

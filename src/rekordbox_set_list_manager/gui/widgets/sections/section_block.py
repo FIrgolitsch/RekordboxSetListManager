@@ -45,6 +45,7 @@ _COL_WIDTHS: dict[int, int] = {0: 30, 2: 140, 3: 55, 4: 50, 5: 65, 6: 60}
 def _reveal_command(filepath: str) -> tuple[str, list[str]]:
     """Return (menu_label, subprocess_args) to reveal *filepath* in the system file manager."""
     from pathlib import Path  # noqa: PLC0415
+
     if sys.platform == "darwin":
         return "Reveal in Finder", ["/usr/bin/open", "-R", filepath]
     if sys.platform == "win32":
@@ -63,6 +64,7 @@ def _header_hex(color: RekordboxColor | None) -> str:
 
 
 # ─────────────────────────── Section block ────────────────────────────────────
+
 
 class SectionBlock(QFrame):
     """A collapsible frame displaying a single set-list section with its tracks."""
@@ -154,9 +156,7 @@ class SectionBlock(QFrame):
         self._hdr_frame.installEventFilter(self)
         self._view.selectionModel().selectionChanged.connect(self._on_selection_changed)
         self._view.cross_section_drop.connect(
-            lambda src, rows, dest: self.cross_section_drop.emit(
-                src, rows, dest, self._section
-            )
+            lambda src, rows, dest: self.cross_section_drop.emit(src, rows, dest, self._section)
         )
         self._model.tracks_reordered.connect(self._on_tracks_reordered)
 
@@ -271,19 +271,14 @@ class SectionBlock(QFrame):
                 label, cmd = _reveal_command(track.filepath)
                 menu.addAction(label, lambda c=cmd: subprocess.run(c, check=False))  # noqa: S603
             # "Add to section" submenu — list all sections except current
-            other_sections = [
-                s for s in self._project.sections
-                if s.id != self._section.id
-            ]
+            other_sections = [s for s in self._project.sections if s.id != self._section.id]
             if other_sections:
                 add_menu = menu.addMenu("Add to section")
                 for sec in other_sections:
                     add_menu.addAction(
                         sec.name,
-                        lambda checked=False, sid=sec.id: (
-                            self.add_to_section_requested.emit(
-                                tid, self._section.id, sid
-                            )
+                        lambda checked=False, sid=sec.id: self.add_to_section_requested.emit(
+                            tid, self._section.id, sid
                         ),
                     )
         menu.addSeparator()
@@ -323,24 +318,20 @@ class SectionBlock(QFrame):
             self._remove_selected()
             return True
         if source is self._hdr_frame:
-            if (
-                event.type() in (QEvent.Type.DragEnter, QEvent.Type.DragMove)
-                and event.mimeData().hasFormat(_MIME_TYPE)
-            ):
+            if event.type() in (
+                QEvent.Type.DragEnter,
+                QEvent.Type.DragMove,
+            ) and event.mimeData().hasFormat(_MIME_TYPE):
                 if event.type() == QEvent.Type.DragEnter:
                     self._hdr_frame.setStyleSheet(
-                        self._hdr_normal_css
-                        + " border-bottom: 2px solid rgba(255,255,255,0.8);"
+                        self._hdr_normal_css + " border-bottom: 2px solid rgba(255,255,255,0.8);"
                     )
                 event.acceptProposedAction()
                 return True
             if event.type() == QEvent.Type.DragLeave:
                 self._hdr_frame.setStyleSheet(self._hdr_normal_css)
                 return False
-            if (
-                event.type() == QEvent.Type.Drop
-                and event.mimeData().hasFormat(_MIME_TYPE)
-            ):
+            if event.type() == QEvent.Type.Drop and event.mimeData().hasFormat(_MIME_TYPE):
                 self._hdr_frame.setStyleSheet(self._hdr_normal_css)
                 self._handle_header_drop(event)
                 event.acceptProposedAction()
@@ -366,6 +357,4 @@ class SectionBlock(QFrame):
             self._sync_model()
             self.section_modified.emit()
         else:
-            self.cross_section_drop.emit(
-                src_id, rows, len(self._section.track_ids), self._section
-            )
+            self.cross_section_drop.emit(src_id, rows, len(self._section.track_ids), self._section)

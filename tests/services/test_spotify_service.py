@@ -212,10 +212,15 @@ def test_get_playlist_tracks_imports_local_files(mock_spotify_cls, mock_pkce_cls
     mock_sp.current_user.return_value = {"display_name": "Test", "id": "u"}
     mock_sp._get.return_value = {
         "items": [
-            {"item": {
-                "id": None, "name": "Local File", "type": "track",
-                "artists": [{"name": "Artist"}], "duration_ms": 180000,
-            }},
+            {
+                "item": {
+                    "id": None,
+                    "name": "Local File",
+                    "type": "track",
+                    "artists": [{"name": "Artist"}],
+                    "duration_ms": 180000,
+                }
+            },
             _make_spotify_item("id5", "Stream Track", ["Artist"]),
         ],
         "next": None,
@@ -240,10 +245,15 @@ def test_get_playlist_tracks_supports_legacy_track_key(mock_spotify_cls, mock_pk
     mock_sp.current_user.return_value = {"display_name": "Test", "id": "u"}
     mock_sp._get.return_value = {
         "items": [
-            {"track": {
-                "id": "id6", "name": "Legacy Track", "type": "track",
-                "artists": [{"name": "Old Artist"}], "duration_ms": 200000,
-            }},
+            {
+                "track": {
+                    "id": "id6",
+                    "name": "Legacy Track",
+                    "type": "track",
+                    "artists": [{"name": "Old Artist"}],
+                    "duration_ms": 200000,
+                }
+            },
         ],
         "next": None,
     }
@@ -266,9 +276,7 @@ def test_try_silent_authenticate_returns_none_without_client_id(service):
     assert service.try_silent_authenticate() is None
 
 
-def test_try_silent_authenticate_returns_none_without_cache_file(
-    service, tmp_path, monkeypatch
-):
+def test_try_silent_authenticate_returns_none_without_cache_file(service, tmp_path, monkeypatch):
     monkeypatch.setattr(svc_mod.SpotifyService, "_CACHE_PATH", tmp_path / "no_such_file")
     config.set_value("spotify_client_id", "test-client-id")
     assert service.try_silent_authenticate() is None
@@ -294,4 +302,3 @@ def test_try_silent_authenticate_returns_display_name(
     assert name == "Silent User"
     pkce_kwargs = mock_pkce_cls.call_args.kwargs
     assert pkce_kwargs["open_browser"] is False
-

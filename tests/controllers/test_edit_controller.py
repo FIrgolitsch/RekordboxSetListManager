@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_ctrl(project: Project) -> tuple[EditController, MagicMock]:
     """Return an EditController backed by a mock ProjectController."""
     pc = MagicMock()
@@ -44,6 +45,7 @@ def _new_section(name: str = "Extra") -> Section:
 # ---------------------------------------------------------------------------
 # Section mutations
 # ---------------------------------------------------------------------------
+
 
 class TestAddSection:
     def test_section_appended(self, project: Project) -> None:
@@ -110,6 +112,7 @@ class TestEditSection:
 # Track mutations
 # ---------------------------------------------------------------------------
 
+
 class TestAddTrack:
     def test_track_in_project_and_section(self, project: Project, section: Section) -> None:
         ec, _ = _make_ctrl(project)
@@ -139,9 +142,7 @@ class TestMoveTrack:
         self, project: Project, section: Section, track: Track
     ) -> None:
         ec, _ = _make_ctrl(project)
-        dst = Section(
-            name="Closing", section_type=SectionType.CLOSING, color=RekordboxColor.NONE
-        )
+        dst = Section(name="Closing", section_type=SectionType.CLOSING, color=RekordboxColor.NONE)
         project.add_section(dst)
         ec.move_track(track.id, section.id, dst.id, 0)
         assert track.id not in project.get_section(section.id).track_ids
@@ -162,6 +163,7 @@ class TestReorderSectionTracks:
 # ---------------------------------------------------------------------------
 # apply_match
 # ---------------------------------------------------------------------------
+
 
 class TestApplyMatch:
     def test_match_applied(self, project: Project, track: Track) -> None:
@@ -188,6 +190,7 @@ class TestApplyMatch:
 # ---------------------------------------------------------------------------
 # Undo / redo
 # ---------------------------------------------------------------------------
+
 
 class TestUndoRedo:
     def test_undo_restores_project(self, project: Project) -> None:
@@ -235,6 +238,7 @@ class TestUndoRedo:
 # notify_changed
 # ---------------------------------------------------------------------------
 
+
 class TestNotifyChanged:
     def test_emits_project_changed(self, project: Project) -> None:
         ec, _ = _make_ctrl(project)
@@ -250,6 +254,7 @@ class TestNotifyChanged:
 # ---------------------------------------------------------------------------
 # set_transition_note
 # ---------------------------------------------------------------------------
+
 
 class TestSetTransitionNote:
     def test_sets_note_text(self, project: Project, section: Section, track: Track) -> None:
@@ -272,9 +277,7 @@ class TestSetTransitionNote:
         # Should not raise
         ec.set_transition_note(uuid4(), track.id, "text")
 
-    def test_emits_project_changed(
-        self, project: Project, section: Section, track: Track
-    ) -> None:
+    def test_emits_project_changed(self, project: Project, section: Section, track: Track) -> None:
         ec, _ = _make_ctrl(project)
         ec.set_transition_note(section.id, track.id, "note")
         ec.project_changed.emit.assert_called()

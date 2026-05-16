@@ -23,6 +23,8 @@ dependencies = [
 dev = [
     "pytest>=9.0",
     "pytest-qt>=4.5",
+    "pytest-cov>=6.0",
+    "coverage[toml]>=7.7",
     "ruff>=0.15",
     "ty>=0.0.36",
 ]
@@ -50,6 +52,8 @@ packages = ["src/rekordbox_set_list_manager"]
 dev = [
     "pytest>=9.0",
     "pytest-qt>=4.5",
+    "pytest-cov>=6.0",
+    "coverage[toml]>=7.7",
     "ruff>=0.15",
     "ty>=0.0.36",
 ]
@@ -255,3 +259,26 @@ type-assertion-failure = "error"
 testpaths = ["tests"]
 pythonpath = ["src"]
 qt_api = "pyside6"
+
+# ---------------------------------------------------------------------------
+# Coverage
+# ---------------------------------------------------------------------------
+
+[tool.coverage.run]
+source = ["src/rekordbox_set_list_manager"]
+branch = true
+omit = [
+    "*/__main__.py",   # thin CLI entry point
+    "*/app.py",        # Qt event-loop entry point
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "\\.\\.\\.",
+    "raise NotImplementedError",
+]

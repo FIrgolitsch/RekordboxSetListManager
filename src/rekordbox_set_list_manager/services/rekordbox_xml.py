@@ -100,15 +100,11 @@ class RekordboxXmlService:
             track = tracks[tid]
             section_name, section_colour = track_meta.get(tid, ("", 0))
             effective_colour = int(track.color) if track.color is not None else section_colour
-            collection.append(
-                _track_to_elem(track, id_map[tid], section_name, effective_colour)
-            )
+            collection.append(_track_to_elem(track, id_map[tid], section_name, effective_colour))
 
         # PLAYLISTS -----------------------------------------------------------
         playlists_root = ET.SubElement(root, "PLAYLISTS")
-        root_node = ET.SubElement(
-            playlists_root, "NODE", Type="0", Name="ROOT", Count="1"
-        )
+        root_node = ET.SubElement(playlists_root, "NODE", Type="0", Name="ROOT", Count="1")
         set_node = ET.SubElement(
             root_node,
             "NODE",
@@ -162,9 +158,7 @@ class RekordboxXmlService:
 
         root = tree.getroot()
         if root.tag != "DJ_PLAYLISTS":
-            raise RekordboxXmlError(
-                f"Not a Rekordbox XML file: root element is <{root.tag}>"
-            )
+            raise RekordboxXmlError(f"Not a Rekordbox XML file: root element is <{root.tag}>")
 
         collection = root.find("COLLECTION")
         if collection is None:
@@ -199,9 +193,9 @@ def _location_to_filepath(location: str | None) -> str | None:
     if not location:
         return None
     if location.startswith("file://localhost"):
-        return urllib.parse.unquote(location[len("file://localhost"):])
+        return urllib.parse.unquote(location[len("file://localhost") :])
     if location.startswith("file:///"):
-        return urllib.parse.unquote("/" + location[len("file:///"):])
+        return urllib.parse.unquote("/" + location[len("file:///") :])
     return location or None
 
 
@@ -268,9 +262,7 @@ def _elem_to_track(elem: ET.Element) -> Track | None:
     try:
         colour_int = int(colour_str)
         color: RekordboxColor | None = (
-            RekordboxColor(colour_int)
-            if colour_int in RekordboxColor._value2member_map_
-            else None
+            RekordboxColor(colour_int) if colour_int in RekordboxColor._value2member_map_ else None
         )
     except ValueError:
         color = None

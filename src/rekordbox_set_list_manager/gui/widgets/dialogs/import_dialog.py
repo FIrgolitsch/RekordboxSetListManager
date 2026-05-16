@@ -172,18 +172,14 @@ class ImportDialog(QDialog):
     # Slots
     # ------------------------------------------------------------------
 
-    def _on_spotify_tracks(
-        self, tracks: list[Track], skipped: int, playlist_id: str
-    ) -> None:
+    def _on_spotify_tracks(self, tracks: list[Track], skipped: int, playlist_id: str) -> None:
         self._selected_spotify_playlist_id = playlist_id
         self._selected_tidal_playlist_id = None
         self._skipped_count = skipped
         self._playlist_tracks = tracks
         self._on_tracks_loaded()
 
-    def _on_tidal_tracks(
-        self, tracks: list[Track], skipped: int, playlist_id: str
-    ) -> None:
+    def _on_tidal_tracks(self, tracks: list[Track], skipped: int, playlist_id: str) -> None:
         self._selected_tidal_playlist_id = playlist_id
         self._selected_spotify_playlist_id = None
         self._skipped_count = skipped
@@ -226,9 +222,7 @@ class ImportDialog(QDialog):
             for r in self._match_results
         ]
         matched_files = [
-            Path(r.local_track.filepath).stem
-            if r.local_track and r.local_track.filepath
-            else None
+            Path(r.local_track.filepath).stem if r.local_track and r.local_track.filepath else None
             for r in self._match_results
         ]
         self._refresh_track_table(merged, matched_files)

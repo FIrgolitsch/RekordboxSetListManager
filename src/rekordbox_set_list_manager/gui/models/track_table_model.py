@@ -49,6 +49,7 @@ def _status_badge(track: Track) -> str:
         return f"{track.match_score * 100:.0f}%"
     return "✓"
 
+
 _MIME_TYPE = "application/x-set-manager-rows"
 _BG_ALPHA = 45  # background tint transparency (0-255)
 

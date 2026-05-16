@@ -62,9 +62,7 @@ def track_b() -> Track:
 
 
 @pytest.fixture
-def two_section_fixture(
-    track_a: Track, track_b: Track
-) -> tuple[list[Section], str, dict]:
+def two_section_fixture(track_a: Track, track_b: Track) -> tuple[list[Section], str, dict]:
     """Two sections (Peak + After Peak) with their tracks, and a set name."""
     peak = Section(name="Peak", section_type=SectionType.PEAK, color=RekordboxColor.RED)
     peak.add_track(track_a.id)
@@ -212,12 +210,8 @@ class TestExportSet:
         out = tmp_path / "export.xml"
         service.export_set(sections, name, tracks, out)
         root = ET.parse(out).getroot()
-        collection_ids = {
-            e.get("TrackID") for e in root.findall("./COLLECTION/TRACK")
-        }
-        playlist_keys = {
-            e.get("Key") for e in root.findall("./PLAYLISTS/NODE/NODE/NODE/TRACK")
-        }
+        collection_ids = {e.get("TrackID") for e in root.findall("./COLLECTION/TRACK")}
+        playlist_keys = {e.get("Key") for e in root.findall("./PLAYLISTS/NODE/NODE/NODE/TRACK")}
         assert playlist_keys.issubset(collection_ids)
 
     def test_filepath_written_as_location(
@@ -232,9 +226,7 @@ class TestExportSet:
         sundown = next(e for e in collection.findall("TRACK") if e.get("Name") == "Sundown")
         assert sundown.get("Location") == "file://localhost/Users/dj/Music/sundown.mp3"
 
-    def test_orphaned_track_ids_skipped(
-        self, service: RekordboxXmlService, tmp_path: Path
-    ) -> None:
+    def test_orphaned_track_ids_skipped(self, service: RekordboxXmlService, tmp_path: Path) -> None:
         """Track IDs in sections that aren't in the tracks dict are silently skipped."""
         section = Section(name="Peak", section_type=SectionType.PEAK, color=RekordboxColor.RED)
         section.add_track(uuid.uuid4())  # orphan — not in tracks dict
@@ -329,13 +321,9 @@ class TestImportCollection:
         with pytest.raises(RekordboxXmlError, match="Invalid XML"):
             service.import_collection(bad)
 
-    def test_wrong_root_element_raises(
-        self, service: RekordboxXmlService, tmp_path: Path
-    ) -> None:
+    def test_wrong_root_element_raises(self, service: RekordboxXmlService, tmp_path: Path) -> None:
         wrong = tmp_path / "wrong.xml"
-        wrong.write_text(
-            '<?xml version="1.0"?><LIBRARY></LIBRARY>', encoding="utf-8"
-        )
+        wrong.write_text('<?xml version="1.0"?><LIBRARY></LIBRARY>', encoding="utf-8")
         with pytest.raises(RekordboxXmlError, match="Not a Rekordbox XML"):
             service.import_collection(wrong)
 
@@ -358,8 +346,8 @@ class TestImportCollection:
             '<COLLECTION Entries="1">'
             '<TRACK TrackID="1" Name="" Artist="" AverageBpm="0.00" TotalTime="0"'
             ' Colour="0" Location="" Tonality=""/>'
-            '</COLLECTION>'
-            '</DJ_PLAYLISTS>'
+            "</COLLECTION>"
+            "</DJ_PLAYLISTS>"
         )
         f = tmp_path / "empty_track.xml"
         f.write_text(xml_content, encoding="utf-8")

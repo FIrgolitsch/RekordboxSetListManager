@@ -63,9 +63,7 @@ class ExportDialog(QDialog):
     # ------------------------------------------------------------------ slots
 
     def _browse(self) -> None:
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Export Rekordbox XML", "", "XML files (*.xml)"
-        )
+        path, _ = QFileDialog.getSaveFileName(self, "Export Rekordbox XML", "", "XML files (*.xml)")
         if path:
             if not path.endswith(".xml"):
                 path += ".xml"
@@ -88,7 +86,5 @@ class ExportDialog(QDialog):
             QMessageBox.critical(self, "Export failed", str(exc))
             return
 
-        QMessageBox.information(
-            self, "Export complete", f"Exported to:\n{path_str}"
-        )
+        QMessageBox.information(self, "Export complete", f"Exported to:\n{path_str}")
         self.accept()

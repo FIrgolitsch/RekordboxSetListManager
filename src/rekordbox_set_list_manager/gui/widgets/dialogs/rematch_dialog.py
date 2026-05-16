@@ -94,12 +94,8 @@ class RematchDialog(QDialog):
         hdr.resizeSection(0, 240)
         hdr.resizeSection(1, 200)
         hdr.resizeSection(3, 80)
-        self._proj_table.setSelectionBehavior(
-            QAbstractItemView.SelectionBehavior.SelectRows
-        )
-        self._proj_table.setSelectionMode(
-            QAbstractItemView.SelectionMode.SingleSelection
-        )
+        self._proj_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._proj_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._proj_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._proj_table.verticalHeader().setVisible(False)
         self._proj_table.itemSelectionChanged.connect(self._on_proj_selection_changed)
@@ -194,9 +190,7 @@ class RematchDialog(QDialog):
             tracks = all_tracks
 
         matched_statuses = (MatchStatus.MATCHED, MatchStatus.MANUALLY_MATCHED)
-        matched_count = sum(
-            1 for t in all_tracks if t.match_status in matched_statuses
-        )
+        matched_count = sum(1 for t in all_tracks if t.match_status in matched_statuses)
         unmatched_count = len(all_tracks) - matched_count
         self._proj_table.setRowCount(len(tracks))
         for row, track in enumerate(tracks):
@@ -236,9 +230,7 @@ class RematchDialog(QDialog):
             new_match_text = ""
             if track.id in self._pending:
                 pending = self._pending[track.id]
-                new_match_text = (
-                    f"{pending.artist} - {pending.title}" if pending else "✗ Cleared"
-                )
+                new_match_text = f"{pending.artist} - {pending.title}" if pending else "✗ Cleared"
             item = QTableWidgetItem(new_match_text)
             item.setData(Qt.ItemDataRole.UserRole, track.id)
             if status_color is not None:

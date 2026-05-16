@@ -34,7 +34,7 @@ def test_undo_enables_redo():
 def test_redo_returns_current_back_to_undo():
     s: UndoStack[str] = UndoStack()
     s.push("a")
-    s.undo("b")   # undo stack now empty; redo has "b"
+    s.undo("b")  # undo stack now empty; redo has "b"
     result = s.redo("a")  # pass current "a" back; get "b" out
     assert result == "b"
 

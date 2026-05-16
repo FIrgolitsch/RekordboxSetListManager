@@ -65,9 +65,7 @@ def main(xml_path: Path) -> None:
                 member = RekordboxColor(colour_int)
                 print(f"  OK  {colour_int:>10} = 0x{colour_int:06X}  {member.name:<8}  ({title!r})")
             else:
-                msg = (
-                    f"  !!  {colour_int:>10} = 0x{colour_int:06X}  UNKNOWN  ({title!r})"
-                )
+                msg = f"  !!  {colour_int:>10} = 0x{colour_int:06X}  UNKNOWN  ({title!r})"
                 print(msg)
                 mismatches.append(msg)
 

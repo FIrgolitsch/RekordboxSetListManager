@@ -64,6 +64,4 @@ class FixMatchDialog(QDialog):
     # ── private ───────────────────────────────────────────────────────────
 
     def _on_track_selected(self, track: Track | None) -> None:
-        self._btn_box.button(QDialogButtonBox.StandardButton.Ok).setEnabled(
-            track is not None
-        )
+        self._btn_box.button(QDialogButtonBox.StandardButton.Ok).setEnabled(track is not None)

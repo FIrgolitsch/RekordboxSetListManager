@@ -56,12 +56,15 @@ def test_track_ids_are_unique():
     assert t1.id != t2.id
 
 
-@pytest.mark.parametrize(("duration", "expected"), [
-    (0, "0:00"),
-    (59, "0:59"),
-    (60, "1:00"),
-    (3661, "61:01"),
-])
+@pytest.mark.parametrize(
+    ("duration", "expected"),
+    [
+        (0, "0:00"),
+        (59, "0:59"),
+        (60, "1:00"),
+        (3661, "61:01"),
+    ],
+)
 def test_track_duration_formatted_parametrized(duration, expected):
     t = Track(title="T", artist="A", duration=duration)
     assert t.duration_formatted == expected

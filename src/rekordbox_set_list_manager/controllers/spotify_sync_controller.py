@@ -77,8 +77,7 @@ class SpotifySyncController(QObject):
                 reply = QMessageBox.question(
                     self._w,
                     "Spotify authentication required",
-                    "Your Spotify login has expired. "
-                    "Open browser to re-authenticate?",
+                    "Your Spotify login has expired. Open browser to re-authenticate?",
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 )
                 if reply != QMessageBox.StandardButton.Yes:

@@ -36,6 +36,7 @@ from rekordbox_set_list_manager.models.track import Track
 
 _TABLE_HDR_H = 24
 
+
 class MultiSectionView(QWidget):
     """Shows all sections of the project stacked vertically.
 
@@ -203,9 +204,7 @@ class MultiSectionView(QWidget):
         font.setBold(True)
         headline.setFont(font)
 
-        body = QLabel(
-            "Add a section manually, or import a set list from Spotify or Tidal."
-        )
+        body = QLabel("Add a section manually, or import a set list from Spotify or Tidal.")
         body.setAlignment(Qt.AlignmentFlag.AlignCenter)
         body.setWordWrap(True)
 
@@ -254,17 +253,11 @@ class MultiSectionView(QWidget):
 
     def _make_block(self, section: Section) -> SectionBlock:
         assert self._project is not None  # noqa: S101
-        block = SectionBlock(
-            section, self._project.tracks, self._project, self._edit
-        )
+        block = SectionBlock(section, self._project.tracks, self._project, self._edit)
         self._blocks[str(section.id)] = block
         block.section_modified.connect(self.section_modified)
-        block.add_track_requested.connect(
-            lambda sec=section: self.add_track_requested.emit(sec)
-        )
-        block.track_selected.connect(
-            lambda tid, b=block: self._on_block_track_selected(tid, b)
-        )
+        block.add_track_requested.connect(lambda sec=section: self.add_track_requested.emit(sec))
+        block.track_selected.connect(lambda tid, b=block: self._on_block_track_selected(tid, b))
         block.cross_section_drop.connect(self._on_cross_section_drop)
         block.edit_requested.connect(lambda b=block: self._on_edit_section(b))
         block.delete_requested.connect(lambda b=block: self._on_delete_section(b))
@@ -323,7 +316,8 @@ class MultiSectionView(QWidget):
     def _on_edit_section(self, block: SectionBlock) -> None:
         sec = block.section
         dialog = SectionEditDialog(
-            self, "Edit Section",
+            self,
+            "Edit Section",
             current_name=sec.name,
             current_type=sec.section_type,
             current_color=sec.color,
@@ -333,9 +327,7 @@ class MultiSectionView(QWidget):
         name = dialog.section_name()
         if not name:
             return
-        self._edit.edit_section(
-            sec.id, name, dialog.section_type(), dialog.section_color()
-        )
+        self._edit.edit_section(sec.id, name, dialog.section_type(), dialog.section_color())
         block.refresh_appearance()
         self.project_changed.emit()
 
@@ -420,9 +412,7 @@ class MultiSectionView(QWidget):
             return
         moving_ids = [src_section.track_ids[r] for r in valid_rows]
         actual_dest = max(0, min(dest_row, len(dest_section.track_ids)))
-        self._edit.move_tracks_batch(
-            moving_ids, src_section.id, dest_section.id, actual_dest
-        )
+        self._edit.move_tracks_batch(moving_ids, src_section.id, dest_section.id, actual_dest)
         src_block.refresh_model()
         dest_block = self._blocks.get(str(dest_section.id))
         if dest_block:

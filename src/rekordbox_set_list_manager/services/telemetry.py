@@ -53,6 +53,7 @@ _CONFIG_KEY = "telemetry_enabled"
 # Public API
 # ---------------------------------------------------------------------------
 
+
 def is_enabled() -> bool:
     """Return True if the user has opted in to telemetry."""
     return bool(config_get(_CONFIG_KEY, default=False))
@@ -101,6 +102,7 @@ def _write_local(payload: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 # Remote sink
 # ---------------------------------------------------------------------------
+
 
 def _maybe_send_remote(payload: dict[str, Any]) -> None:
     url = os.environ.get("SET_MANAGER_TELEMETRY_URL", "").strip()

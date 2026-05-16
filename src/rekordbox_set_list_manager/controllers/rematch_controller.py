@@ -104,9 +104,7 @@ class RematchController(QObject):
             changed += 1
         self._view.refresh_tracks(project.tracks)
         self._edit_ctrl.notify_changed()
-        QMessageBox.information(
-            self._w, "Manual re-match complete", f"{changed} track(s) updated."
-        )
+        QMessageBox.information(self._w, "Manual re-match complete", f"{changed} track(s) updated.")
 
     # ------------------------------------------------------------------
     # Private helpers

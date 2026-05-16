@@ -46,7 +46,6 @@ def test_round_trip_preserves_section_track_ids(project, track, section, tmp_pat
     assert track.id in loaded_section.track_ids
 
 
-
 def test_save_creates_file(project, tmp_path):
     path = tmp_path / "test.setmgr"
     assert not path.exists()

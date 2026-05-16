@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(autouse=True)
 def _isolate_telemetry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Redirect telemetry log dir to tmp_path and reset config each test."""
@@ -29,6 +30,7 @@ def _isolate_telemetry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 # ---------------------------------------------------------------------------
 # Opt-in gate
 # ---------------------------------------------------------------------------
+
 
 def test_record_does_nothing_when_disabled(tmp_path: Path) -> None:
     with patch("rekordbox_set_list_manager.services.telemetry.is_enabled", return_value=False):
@@ -52,6 +54,7 @@ def test_record_writes_when_enabled(tmp_path: Path) -> None:
 # Log content
 # ---------------------------------------------------------------------------
 
+
 def test_record_appends_multiple_events(tmp_path: Path) -> None:
     with patch("rekordbox_set_list_manager.services.telemetry.is_enabled", return_value=True):
         telemetry.record("project_open")
@@ -65,6 +68,7 @@ def test_record_appends_multiple_events(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Log rotation
 # ---------------------------------------------------------------------------
+
 
 def test_log_rotates_when_file_exceeds_max_size(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -89,6 +93,7 @@ def test_log_rotates_when_file_exceeds_max_size(
 # Extra fields
 # ---------------------------------------------------------------------------
 
+
 def test_record_stores_extra_fields(tmp_path: Path) -> None:
     with patch("rekordbox_set_list_manager.services.telemetry.is_enabled", return_value=True):
         telemetry.record("import_finished", track_count=42)
@@ -100,6 +105,7 @@ def test_record_stores_extra_fields(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Remote sink — fire-and-forget; failures must not propagate
 # ---------------------------------------------------------------------------
+
 
 def test_remote_sink_does_not_raise_on_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

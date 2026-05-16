@@ -210,4 +210,3 @@ def _parse_color(color_name: str | None) -> RekordboxColor | None:
     if not color_name:
         return None
     return _COLOR_NAME_MAP.get(color_name.casefold())
-

@@ -83,8 +83,7 @@ def load_project(path: Path) -> Project:
 
     if envelope.version != _FORMAT_VERSION:
         raise ProjectIOError(
-            f"Unsupported project file version '{envelope.version}' "
-            f"(expected '{_FORMAT_VERSION}')"
+            f"Unsupported project file version '{envelope.version}' (expected '{_FORMAT_VERSION}')"
         )
 
     return envelope.project

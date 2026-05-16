@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─── Linting & format check ─────────────────────────────────────────────────
+  lint:
+    name: "Lint & format"
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+
+      - name: Ruff — lint
+        run: uv run ruff check --output-format=github
+
+      - name: Ruff — format check
+        run: uv run ruff format --check
+
+  # ─── Static type checking ───────────────────────────────────────────────────
+  type-check:
+    name: "Type check"
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Install system libraries (SQLCipher)
+        run: sudo apt-get update -qq && sudo apt-get install -y libsqlcipher-dev
+
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          python-version: "3.14"
+
+      - name: Sync dev dependencies
+        run: uv sync --group dev --frozen
+
+      - name: ty — type check src/
+        run: uv run ty check src/
+
+  # ─── Unit & widget tests (cross-platform matrix) ────────────────────────────
+  unit-test:
+    name: "Tests (${{ matrix.os }})"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2022]
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Install system libraries — Linux (SQLCipher)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y libsqlcipher-dev
+
+      - name: Install system libraries — macOS (SQLCipher)
+        if: runner.os == 'macOS'
+        run: brew install sqlcipher
+
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          python-version: "3.14"
+
+      - name: Sync dev dependencies
+        run: uv sync --group dev --frozen
+
+      - name: Run unit + widget tests (excluding e2e)
+        run: >
+          uv run pytest -q --tb=short
+          --ignore=tests/e2e
+          --cov=src/rekordbox_set_list_manager
+          --cov-report=xml
+          --cov-report=term-missing
+
+      - name: Upload coverage report (Linux only)
+        if: matrix.os == 'ubuntu-24.04'
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          retention-days: 14
+
+  # ─── E2E smoke tests ────────────────────────────────────────────────────────
+  e2e:
+    name: "E2E smoke tests"
+    runs-on: ubuntu-24.04
+    needs: unit-test
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Install system libraries (SQLCipher)
+        run: sudo apt-get update -qq && sudo apt-get install -y libsqlcipher-dev
+
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          python-version: "3.14"
+
+      - name: Sync dev dependencies
+        run: uv sync --group dev --frozen
+
+      - name: Run E2E smoke tests
+        run: uv run pytest tests/e2e/ -v --tb=long

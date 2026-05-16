@@ -43,6 +43,7 @@ from rekordbox_set_list_manager.utils.config import get_recent_files
 _APP_NAME = "Rekordbox Set List Manager"
 _DEFAULT_PROJECT_NAME = "Untitled"
 
+
 class MainWindow(QMainWindow):
     """Top-level window: multi-section view + transition note."""
 
@@ -102,12 +103,8 @@ class MainWindow(QMainWindow):
         self._act_new = self._action(
             "&New", QKeySequence.StandardKey.New, self._file_ctrl.new_project
         )
-        self._act_open = self._action(
-            "&Open…", QKeySequence.StandardKey.Open, self._file_ctrl.open
-        )
-        self._act_save = self._action(
-            "&Save", QKeySequence.StandardKey.Save, self._save
-        )
+        self._act_open = self._action("&Open…", QKeySequence.StandardKey.Open, self._file_ctrl.open)
+        self._act_save = self._action("&Save", QKeySequence.StandardKey.Save, self._save)
         self._act_save_as = self._action(
             "Save &As…", QKeySequence.StandardKey.SaveAs, self._save_as
         )
@@ -136,9 +133,7 @@ class MainWindow(QMainWindow):
             "&Import from Streaming Service…", None, self._import_ctrl.import_streaming
         )
         self._act_settings = self._action("&Service Settings…", None, self._open_settings)
-        self._act_themes = self._action(
-            "Section Name &Themes…", None, self._open_theme_dialog
-        )
+        self._act_themes = self._action("Section Name &Themes…", None, self._open_theme_dialog)
         self._act_rematch_xml = self._action(
             "Re-match with Rekordbox &XML…", None, self._rematch_ctrl.rematch_xml
         )
@@ -161,9 +156,7 @@ class MainWindow(QMainWindow):
         rematch_menu.addAction(self._act_rematch_db)
         rematch_menu.addSeparator()
         rematch_menu.addAction(self._act_rematch_manual)
-        self._act_recolor = self._action(
-            "&Recolor sections by type…", None, self._recolor_by_type
-        )
+        self._act_recolor = self._action("&Recolor sections by type…", None, self._recolor_by_type)
         self._project_menu.addSeparator()
         self._project_menu.addAction(self._act_update_spotify)
         self._project_menu.addSeparator()
@@ -380,9 +373,7 @@ class MainWindow(QMainWindow):
             name = Path(path_str).name
             act = QAction(f"{name}  —  {path_str}", self)
             act.setToolTip(path_str)
-            act.triggered.connect(
-                lambda checked=False, p=path_str: self._file_ctrl.open_recent(p)
-            )
+            act.triggered.connect(lambda checked=False, p=path_str: self._file_ctrl.open_recent(p))
             self._recent_menu.addAction(act)
 
     # ----------------------------------------------------------------- actions
@@ -396,9 +387,7 @@ class MainWindow(QMainWindow):
             return
         target = section or self._multi_section_view.current_section()
         if target is None:
-            QMessageBox.information(
-                self, "No section", "Add a section before adding a track."
-            )
+            QMessageBox.information(self, "No section", "Add a section before adding a track.")
             return
         dialog = AddTrackDialog(self)
         if dialog.exec() != AddTrackDialog.DialogCode.Accepted:

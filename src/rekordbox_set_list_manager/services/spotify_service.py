@@ -233,9 +233,7 @@ class SpotifyService(StreamingService):
         try:
             result = sp.playlist_replace_items(playlist_id, spotify_uris)
         except spotipy.SpotifyException as exc:
-            raise SpotifyServiceError(
-                f"Failed to update playlist order: {exc}"
-            ) from exc
+            raise SpotifyServiceError(f"Failed to update playlist order: {exc}") from exc
         return result.get("snapshot_id", "")
 
     def try_silent_authenticate(self) -> str | None:

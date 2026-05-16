@@ -26,9 +26,9 @@ class FileController(QObject):
     (clear undo history, reset transition note, rebuild recent-file menu).
     """
 
-    recent_changed = Signal()   # recent-files list changed → rebuild menu
-    note_cleared = Signal()     # project loaded/created → clear transition note
-    undo_cleared = Signal()     # project loaded/created → clear undo history
+    recent_changed = Signal()  # recent-files list changed → rebuild menu
+    note_cleared = Signal()  # project loaded/created → clear transition note
+    undo_cleared = Signal()  # project loaded/created → clear undo history
 
     def __init__(
         self,
