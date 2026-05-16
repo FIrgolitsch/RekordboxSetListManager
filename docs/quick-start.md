@@ -69,4 +69,4 @@ Your sections appear as separate playlists inside a folder named after your proj
 - [Add transition notes](transitions.md) between tracks
 - [Customise section colours](sections.md#colours)
 - [Create name themes](sections.md#name-themes) to rename section types per project
-- [Undo / redo](ui-guide.md#undo-redo) any changes
+- {ref}`Undo / redo <undo-redo>` any changes

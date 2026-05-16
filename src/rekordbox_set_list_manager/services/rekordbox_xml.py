@@ -183,8 +183,9 @@ def _filepath_to_location(filepath: str | None) -> str:
     """Convert a local file path to a Rekordbox ``Location`` URL."""
     if not filepath:
         return ""
-    p = Path(filepath)
-    if p.is_absolute():
+    # Path.is_absolute() is False on Windows for POSIX-style paths (/Users/...),
+    # so also check startswith("/") to handle cross-platform test paths.
+    if Path(filepath).is_absolute() or filepath.startswith("/"):
         return "file://localhost" + urllib.parse.quote(filepath, safe="/")
     return filepath
 
