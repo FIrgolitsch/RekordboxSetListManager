@@ -1,5 +1,7 @@
 # Rekordbox Set List Manager
 
+[![CI](https://github.com/FIrgolitsch/RekordboxSetListManager/actions/workflows/ci.yml/badge.svg)](https://github.com/FIrgolitsch/RekordboxSetListManager/actions/workflows/ci.yml)
+
 DJ set organizer with Rekordbox, Spotify, and Tidal integration.
 
 Import playlists from streaming services, match tracks against your local Rekordbox library,
@@ -23,28 +25,31 @@ metadata preserved.
 - Spotify account — optional, for playlist import
 - Tidal account — optional, for playlist import
 
-## Setup
+## Download
+
+Pre-built binaries for macOS (Apple Silicon & Intel), Windows, and Linux are attached to each [GitHub Release](https://github.com/FIrgolitsch/RekordboxSetListManager/releases).
+
+## Setup (from source)
 
 ```bash
 # Clone
-git clone <repo-url> set_manager
-cd set_manager
+git clone https://github.com/FIrgolitsch/RekordboxSetListManager.git rekordbox_set_list_manager
+cd rekordbox_set_list_manager
 
-# Create virtualenv (using pyenv)
-pyenv virtualenv 3.14.2 set_manager
-pyenv local set_manager
+# Install uv (if needed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Install (development mode)
-pip install -e ".[dev]"
+# Install dependencies
+uv sync --group dev
 
 # Run
-python -m set_manager        # or: set-manager
+uv run rslm
 
 # Tests
-pytest
+uv run pytest
 
 # Lint
-ruff check src/
+uv run ruff check
 ```
 
 ## Configuration (Spotify)
@@ -111,36 +116,13 @@ Fields are versioned; opening files from older releases is backwards-compatible.
 
 ## Distribution (standalone binary)
 
-Install dev/dist dependencies and build:
-
-```bash
-make dev      # uv sync --all-extras
-make dist     # uv run pyinstaller set_manager.spec --noconfirm
-# Output: dist/SetManager.app  (macOS)  /  dist/SetManager/  (all platforms)
-```
-
-Or without Make:
+Builds are produced automatically by GitHub Actions on each release. To build locally:
 
 ```bash
 uv sync --all-extras
-uv run pyinstaller set_manager.spec --noconfirm
+uv run pyinstaller rekordbox_set_list_manager.spec --noconfirm
+# Output: dist/RekordboxSetListManager.app  (macOS)  /  dist/RekordboxSetListManager/  (all platforms)
 ```
-
-### macOS code-signing (optional)
-
-After `make dist`, sign the bundle with your Apple Developer ID before distributing:
-
-```bash
-# Replace <TEAM_ID> with your 10-character Apple Developer Team ID.
-codesign --deep --force --verify --verbose \
-  --sign "Developer ID Application: Your Name (<TEAM_ID>)" \
-  --entitlements entitlements.plist \
-  dist/SetManager.app
-```
-
-For Mac App Store / Notarization, additionally run `xcrun altool --notarize-app` or
-use `xcrun notarytool submit` (Xcode 14+).  Full notarization setup is outside the
-scope of this project; see [Apple's documentation](https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution).
 
 ## Architecture
 
@@ -148,10 +130,10 @@ Model-View-Service:
 
 | Layer | Location | Notes |
 |-------|----------|-------|
-| Models | `src/set_manager/models/` | Pydantic v2, no Qt dependency |
-| Services | `src/set_manager/services/` | Streaming APIs, Rekordbox XML/DB, matching |
-| GUI | `src/set_manager/gui/` | PySide6; Qt item models bridge domain → views |
-| Utils | `src/set_manager/utils/` | Config, constants, dark theme |
+| Models | `src/rekordbox_set_list_manager/models/` | Pydantic v2, no Qt dependency |
+| Services | `src/rekordbox_set_list_manager/services/` | Streaming APIs, Rekordbox XML/DB, matching |
+| GUI | `src/rekordbox_set_list_manager/gui/` | PySide6; Qt item models bridge domain → views |
+| Utils | `src/rekordbox_set_list_manager/utils/` | Config, constants, dark theme |
 
 ## License
 
