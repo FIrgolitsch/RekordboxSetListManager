@@ -59,6 +59,7 @@ class MultiSectionView(QWidget):
     section_modified = Signal()
     track_selected = Signal(object, object)
     add_track_requested = Signal(object)
+    add_from_rekordbox_requested = Signal(object)  # Section
     fix_match_requested = Signal(object, object)  # track_id, section
 
     def __init__(self, edit_ctrl: EditController, parent=None) -> None:
@@ -257,6 +258,9 @@ class MultiSectionView(QWidget):
         self._blocks[str(section.id)] = block
         block.section_modified.connect(self.section_modified)
         block.add_track_requested.connect(lambda sec=section: self.add_track_requested.emit(sec))
+        block.add_from_rekordbox_requested.connect(
+            lambda sec=section: self.add_from_rekordbox_requested.emit(sec)
+        )
         block.track_selected.connect(lambda tid, b=block: self._on_block_track_selected(tid, b))
         block.cross_section_drop.connect(self._on_cross_section_drop)
         block.edit_requested.connect(lambda b=block: self._on_edit_section(b))

@@ -38,6 +38,9 @@ class StreamingServiceTab(QWidget):
         super().__init__(parent)
         self._service = service
         self._playlist_ids: list[str] = []
+        self._auto_select_id: str | None = None
+        self._thread: QThread | None = None
+        self._worker: StreamingAuthWorker | None = None
 
         # ── Connect row ──────────────────────────────────────────────────
         self._connect_btn = QPushButton("Connect")
@@ -65,13 +68,20 @@ class StreamingServiceTab(QWidget):
 
         self._connect_btn.clicked.connect(self._on_connect)
 
-    def try_auto_connect(self) -> None:
+    def try_auto_connect(self, auto_select_id: str | None = None) -> None:
         """Silently reconnect using cached credentials if available."""
+        self._auto_select_id = auto_select_id
         name = self._service.try_silent_authenticate()
         if name:
             self._auth_label.setText(f"Connected as {name}")
             self._connect_btn.setEnabled(False)
             self._load_playlists()
+
+    def stop_auth(self) -> None:
+        """Quit and wait for any running auth thread (safe to call on dialog close)."""
+        if self._thread is not None and self._thread.isRunning():
+            self._thread.quit()
+            self._thread.wait(3000)
 
     # ------------------------------------------------------------------
     # Private slots
@@ -81,7 +91,7 @@ class StreamingServiceTab(QWidget):
         self._connect_btn.setEnabled(False)
         self._auth_label.setText("Connecting…")
 
-        self._thread = QThread(self)
+        self._thread = QThread()  # no parent — avoids "destroyed while running" crash
         self._worker = StreamingAuthWorker(self._service)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
@@ -90,6 +100,9 @@ class StreamingServiceTab(QWidget):
         self._worker.error.connect(self._on_auth_error)
         self._worker.finished.connect(self._thread.quit)
         self._worker.error.connect(self._thread.quit)
+        self._thread.finished.connect(self._thread.deleteLater)
+        self._worker.finished.connect(self._worker.deleteLater)
+        self._worker.error.connect(self._worker.deleteLater)
         self._thread.start()
 
     def _on_link_ready(self, msg: str) -> None:
@@ -131,6 +144,17 @@ class StreamingServiceTab(QWidget):
                 label += f"  ({pl['track_count']})"
             self._playlist_widget.addItem(label)
         self._playlist_widget.blockSignals(False)
+
+        # Auto-select the playlist used in the previous import, if still present.
+        if self._auto_select_id is not None:
+            try:
+                idx = self._playlist_ids.index(self._auto_select_id)
+                item = self._playlist_widget.item(idx)
+                if item is not None:
+                    self._playlist_widget.setCurrentItem(item)
+                    self._on_playlist_clicked(item)
+            except ValueError:
+                pass
 
     def _on_playlist_clicked(self, item: QListWidgetItem) -> None:
         row = self._playlist_widget.row(item)

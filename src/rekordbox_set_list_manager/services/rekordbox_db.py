@@ -1,13 +1,18 @@
-"""Read-only access to the local Rekordbox 6/7 database via pyrekordbox."""
+"""Read/write access to the local Rekordbox 6/7 database via pyrekordbox."""
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from rekordbox_set_list_manager.models.enums import MatchStatus, RekordboxColor, TrackSource
 from rekordbox_set_list_manager.models.track import Track
+
+if TYPE_CHECKING:
+    from uuid import UUID
+
+    from rekordbox_set_list_manager.models.section import Section
 
 log = logging.getLogger(__name__)
 
@@ -122,7 +127,9 @@ class RekordboxDbService:
             from pyrekordbox import Rekordbox6Database  # noqa: PLC0415
 
             with Rekordbox6Database() as db:
-                content = db.get_content(ISRC=isrc).first()
+                content = db.get_content(ISRC=isrc)
+                if hasattr(content, "first"):
+                    content = content.first()
                 return _content_to_track(content) if content is not None else None
         except RekordboxDbError:
             raise
@@ -152,12 +159,97 @@ class RekordboxDbService:
             from pyrekordbox import Rekordbox6Database  # noqa: PLC0415
 
             with Rekordbox6Database() as db:
-                content = db.get_content(FolderPath=path).first()
+                content = db.get_content(FolderPath=path)
+                if hasattr(content, "first"):
+                    content = content.first()
                 return _content_to_track(content) if content is not None else None
         except RekordboxDbError:
             raise
         except Exception as exc:
             raise RekordboxDbError(f"Failed to search Rekordbox database: {exc}") from exc
+
+    def export_set_to_db(
+        self,
+        sections: list[Section],
+        name: str,
+        tracks: dict[UUID, Track],
+    ) -> tuple[int, int]:
+        """Write *sections* as a playlist folder directly to the Rekordbox database.
+
+        Creates a top-level folder named *name* containing one playlist per
+        section.  If a folder with that name already exists at the root level
+        it is deleted and re-created so the export is idempotent.
+
+        Only tracks that have a ``rekordbox_id`` (integer DB primary key) or a
+        ``filepath`` that can be resolved to a ``DjmdContent`` row are written.
+        Unmatched or streaming-only tracks are silently skipped.
+
+        Parameters
+        ----------
+        sections : list[Section]
+            Ordered sections whose tracks will be exported.
+        name : str
+            Name of the flat playlist created in the Rekordbox database.
+        tracks : dict[UUID, Track]
+            Mapping of all available tracks by their UUID.
+
+        Returns
+        -------
+        tuple[int, int]
+            ``(exported_count, skipped_count)`` — how many track-playlist
+            entries were written and how many were skipped.
+
+        Raises
+        ------
+        RekordboxDbError
+            If the database cannot be opened, written, or committed.
+
+        """
+        try:
+            from pyrekordbox import Rekordbox6Database  # noqa: PLC0415
+
+            exported = 0
+            skipped = 0
+
+            with Rekordbox6Database() as db:
+                # Remove any existing root-level playlist with the same name so
+                # the export is idempotent (re-running replaces the old data).
+                existing = db.get_playlist(Name=name).all()
+                for pl in existing:
+                    if pl.ParentID in ("root", None, ""):
+                        db.delete_playlist(pl)
+
+                playlist = db.create_playlist(name)
+
+                for section in sections:
+                    for tid in section.track_ids:
+                        track = tracks.get(tid)
+                        if track is None:
+                            skipped += 1
+                            continue
+
+                        content = None
+                        if track.rekordbox_id is not None:
+                            result = db.get_content(ID=track.rekordbox_id)
+                            content = result.first() if hasattr(result, "first") else result
+                        if content is None and track.filepath:
+                            result = db.get_content(FolderPath=track.filepath)
+                            content = result.first() if hasattr(result, "first") else result
+
+                        if content is None:
+                            skipped += 1
+                            continue
+
+                        db.add_to_playlist(playlist, content)
+                        exported += 1
+
+                db.commit()
+        except RekordboxDbError:
+            raise
+        except Exception as exc:
+            raise RekordboxDbError(f"Failed to export to Rekordbox database: {exc}") from exc
+        else:
+            return exported, skipped
 
 
 # ---------------------------------------------------------------------------

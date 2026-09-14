@@ -73,6 +73,7 @@ class SectionBlock(QFrame):
     section_modified = Signal()
     track_selected = Signal(object)
     add_track_requested = Signal()
+    add_from_rekordbox_requested = Signal()
     cross_section_drop = Signal(str, list, int, object)
     edit_requested = Signal()
     delete_requested = Signal()
@@ -283,6 +284,7 @@ class SectionBlock(QFrame):
                     )
         menu.addSeparator()
         menu.addAction("Add track…", self.add_track_requested.emit)
+        menu.addAction("Add from Rekordbox DB…", self.add_from_rekordbox_requested.emit)
         menu.exec(self._view.viewport().mapToGlobal(pos))
 
     def _on_header_context_menu(self, pos) -> None:

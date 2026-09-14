@@ -128,7 +128,13 @@ class FileController(QObject):
         path = Path(path_str)
         if path.suffix.lower() != PROJECT_FILE_EXTENSION:
             path = path.with_suffix(PROJECT_FILE_EXTENSION)
+        # Sync project name from the chosen filename so the title bar reflects it.
+        if project is not None:
+            project.name = path.stem
         self._do_save(path)
+        # Notify listeners so the title bar refreshes with the new name.
+        if project is not None:
+            self._ctrl.project_changed.emit(project)
 
     # ------------------------------------------------------------------
     # Private helpers

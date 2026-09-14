@@ -59,18 +59,34 @@ class ImportController(QObject):
 
         telemetry.record("import_started", track_count=len(tracks))
         self._edit_ctrl.push_snapshot()
-        for track in tracks:
+
+        if dialog.sync_mode:
+            from rekordbox_set_list_manager.gui.widgets.dialogs.import_dialog import (  # noqa: PLC0415
+                _existing_streaming_ids,
+                _is_known,
+            )
+            known = _existing_streaming_ids(project)
+            new_tracks = [t for t in tracks if not _is_known(t, known)]
+        else:
+            new_tracks = list(tracks)
+
+        if not new_tracks:
+            QMessageBox.information(self._w, "Already up to date", "No new tracks to import.")
+            return
+
+        for track in new_tracks:
             project.add_track(track)
 
         target = self._view.current_section()
+        section_label = "New tracks" if dialog.sync_mode else "Imported"
         if target is not None:
-            for track in tracks:
+            for track in new_tracks:
                 target.add_track(track.id)
             self._view.refresh_section(target)
         else:
             color = project.default_color_for(SectionType.GENERAL)
-            section = Section(name="Imported", section_type=SectionType.GENERAL, color=color)
-            for track in tracks:
+            section = Section(name=section_label, section_type=SectionType.GENERAL, color=color)
+            for track in new_tracks:
                 section.add_track(track.id)
             project.add_section(section)
             self._view.refresh()
@@ -83,8 +99,11 @@ class ImportController(QObject):
         )
 
         self._edit_ctrl.notify_changed()
-        telemetry.record("import_finished", track_count=len(tracks))
-        QMessageBox.information(self._w, "Import complete", f"{len(tracks)} track(s) imported.")
+        telemetry.record("import_finished", track_count=len(new_tracks))
+        verb = "synced" if dialog.sync_mode else "imported"
+        QMessageBox.information(
+            self._w, "Import complete", f"{len(new_tracks)} track(s) {verb}."
+        )
 
     # ------------------------------------------------------------------
     # Private helpers

@@ -7,6 +7,7 @@ from pathlib import Path
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
+    QInputDialog,
     QLabel,
     QMainWindow,
     QMessageBox,
@@ -23,6 +24,9 @@ from rekordbox_set_list_manager.controllers.spotify_sync_controller import Spoti
 from rekordbox_set_list_manager.gui.widgets.dialogs.add_track_dialog import AddTrackDialog
 from rekordbox_set_list_manager.gui.widgets.dialogs.export_dialog import ExportDialog
 from rekordbox_set_list_manager.gui.widgets.dialogs.fix_match_dialog import FixMatchDialog
+from rekordbox_set_list_manager.gui.widgets.dialogs.pick_from_rekordbox_dialog import (
+    PickFromRekordboxDialog,
+)
 from rekordbox_set_list_manager.gui.widgets.dialogs.settings_dialog import SettingsDialog
 from rekordbox_set_list_manager.gui.widgets.dialogs.theme_dialog import ThemeDialog
 from rekordbox_set_list_manager.gui.widgets.panels.match_info_widget import MatchInfoWidget
@@ -128,6 +132,9 @@ class MainWindow(QMainWindow):
         self._edit_menu.addAction(self._act_redo)
 
         self._project_menu = bar.addMenu("&Project")
+        self._act_rename = self._action("Re&name Project…", None, self._rename_project)
+        self._project_menu.addAction(self._act_rename)
+        self._project_menu.addSeparator()
         self._act_export = self._action("&Export to Rekordbox…", None, self._export)
         self._act_import = self._action(
             "&Import from Streaming Service…", None, self._import_ctrl.import_streaming
@@ -238,11 +245,13 @@ class MainWindow(QMainWindow):
 
     def _connect_signals(self) -> None:
         self._ctrl.project_changed.connect(self._on_project_changed)
+        self._ctrl.dirty_changed.connect(self._refresh_title)
         self._edit_ctrl.project_changed.connect(self._update_undo_actions)
         self._edit_ctrl.project_changed.connect(self._mark_dirty)
         self._multi_section_view.section_modified.connect(self._update_statusbar)
         self._multi_section_view.project_changed.connect(self._update_statusbar)
         self._multi_section_view.add_track_requested.connect(self._add_track)
+        self._multi_section_view.add_from_rekordbox_requested.connect(self._add_track_from_rekordbox)
         self._multi_section_view.track_selected.connect(self._on_track_selected)
         self._multi_section_view.fix_match_requested.connect(self._on_fix_match)
         self._multi_section_view.import_requested.connect(self._import_ctrl.import_streaming)
@@ -328,6 +337,18 @@ class MainWindow(QMainWindow):
         if self._project is not None and not self._dirty:
             clear_autosave(self._project.id)
 
+    def _rename_project(self) -> None:
+        if self._project is None:
+            return
+        name, ok = QInputDialog.getText(
+            self,
+            "Rename Project",
+            "Project name:",
+            text=self._project.name,
+        )
+        if ok and name.strip():
+            self._edit_ctrl.rename_project(name.strip())
+
     def _mark_dirty(self) -> None:
         self._ctrl.mark_dirty()
         self._update_statusbar()
@@ -393,6 +414,23 @@ class MainWindow(QMainWindow):
         if dialog.exec() != AddTrackDialog.DialogCode.Accepted:
             return
         track = dialog.track()
+        self._edit_ctrl.add_track(track, target.id)
+        self._multi_section_view.refresh_section(target)
+        self._update_statusbar()
+
+    def _add_track_from_rekordbox(self, section: Section | None = None) -> None:
+        if self._project is None:
+            return
+        target = section or self._multi_section_view.current_section()
+        if target is None:
+            QMessageBox.information(self, "No section", "Add a section before adding a track.")
+            return
+        dialog = PickFromRekordboxDialog(self)
+        if dialog.exec() != PickFromRekordboxDialog.DialogCode.Accepted:
+            return
+        track = dialog.track()
+        if track is None:
+            return
         self._edit_ctrl.add_track(track, target.id)
         self._multi_section_view.refresh_section(target)
         self._update_statusbar()

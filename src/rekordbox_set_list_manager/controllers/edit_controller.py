@@ -90,6 +90,22 @@ class EditController(QObject):
         proj.remove_section(section_id)
         self._emit()
 
+    def rename_project(self, name: str) -> None:
+        """Rename the project.
+
+        Parameters
+        ----------
+        name : str
+            The new project name.
+
+        """
+        proj = self._require()
+        if proj is None:
+            return
+        self._push(proj)
+        proj.name = name
+        self._emit()
+
     def rename_section(self, section_id: UUID, name: str) -> None:
         """Rename the section identified by *section_id*.
 

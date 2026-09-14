@@ -6,6 +6,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QGroupBox,
     QHBoxLayout,
@@ -81,6 +82,11 @@ class ImportDialog(QDialog):
         """The Tidal playlist ID the user selected, if any."""
         return self._selected_tidal_playlist_id
 
+    @property
+    def sync_mode(self) -> bool:
+        """True when the user chose to add new tracks only (skip already imported)."""
+        return self._sync_cb.isChecked()
+
     # ------------------------------------------------------------------
     # UI construction
     # ------------------------------------------------------------------
@@ -139,6 +145,19 @@ class ImportDialog(QDialog):
         match_row.addWidget(self._match_label)
         match_row.addStretch()
 
+        # --- Sync checkbox (only useful when re-importing a known playlist) ---
+        self._sync_cb = QCheckBox("New tracks only (skip already imported)")
+        self._sync_cb.setToolTip(
+            "When checked, only tracks not already in this project will be added."
+        )
+        # Show the checkbox when the project has a stored playlist ID.
+        has_stored = bool(
+            self._project.spotify_playlist_id or self._project.tidal_playlist_id
+        )
+        self._sync_cb.setVisible(has_stored)
+        self._sync_cb.setChecked(has_stored)  # default ON when re-importing
+        self._sync_cb.stateChanged.connect(self._update_import_button)
+
         # --- Buttons ---
         self._ok_btn = QPushButton("Import")
         self._ok_btn.setEnabled(False)
@@ -148,6 +167,7 @@ class ImportDialog(QDialog):
         cancel_btn.clicked.connect(self.reject)
 
         btn_row = QHBoxLayout()
+        btn_row.addWidget(self._sync_cb)
         btn_row.addStretch()
         btn_row.addWidget(cancel_btn)
         btn_row.addWidget(self._ok_btn)
@@ -165,8 +185,14 @@ class ImportDialog(QDialog):
 
     def _try_auto_connect(self) -> None:
         """Silently connect to services with cached credentials on dialog open."""
-        self._spotify_tab.try_auto_connect()
-        self._tidal_tab.try_auto_connect()
+        self._spotify_tab.try_auto_connect(self._project.spotify_playlist_id)
+        self._tidal_tab.try_auto_connect(self._project.tidal_playlist_id)
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        """Stop any running auth threads before closing."""
+        self._spotify_tab.stop_auth()
+        self._tidal_tab.stop_auth()
+        super().closeEvent(event)
 
     # ------------------------------------------------------------------
     # Slots
@@ -177,6 +203,10 @@ class ImportDialog(QDialog):
         self._selected_tidal_playlist_id = None
         self._skipped_count = skipped
         self._playlist_tracks = tracks
+        # Show the sync checkbox when this is the playlist the project was imported from.
+        is_known = playlist_id == self._project.spotify_playlist_id
+        self._sync_cb.setVisible(is_known)
+        self._sync_cb.setChecked(is_known)
         self._on_tracks_loaded()
 
     def _on_tidal_tracks(self, tracks: list[Track], skipped: int, playlist_id: str) -> None:
@@ -184,6 +214,10 @@ class ImportDialog(QDialog):
         self._selected_spotify_playlist_id = None
         self._skipped_count = skipped
         self._playlist_tracks = tracks
+        # Show the sync checkbox when this is the playlist the project was imported from.
+        is_known = playlist_id == self._project.tidal_playlist_id
+        self._sync_cb.setVisible(is_known)
+        self._sync_cb.setChecked(is_known)
         self._on_tracks_loaded()
 
     def _on_tracks_loaded(self) -> None:
@@ -278,6 +312,50 @@ class ImportDialog(QDialog):
                 self._track_table.setItem(row, col, item)
 
     def _update_import_button(self) -> None:
-        count = len(self._playlist_tracks)
-        self._ok_btn.setEnabled(count > 0)
-        self._ok_btn.setText(f"Import {count} track(s)" if count else "Import")
+        total = len(self._playlist_tracks)
+        if self._sync_cb.isVisible() and self._sync_cb.isChecked():
+            new_count = self._count_new_tracks()
+            self._ok_btn.setEnabled(new_count > 0)
+            self._ok_btn.setText(
+                f"Add {new_count} new track(s)" if new_count else "No new tracks"
+            )
+        else:
+            self._ok_btn.setEnabled(total > 0)
+            self._ok_btn.setText(f"Import {total} track(s)" if total else "Import")
+
+    def _count_new_tracks(self) -> int:
+        """Return how many playlist tracks are not yet in the project."""
+        known = _existing_streaming_ids(self._project)
+        return sum(1 for t in self._playlist_tracks if not _is_known(t, known))
+
+
+# ---------------------------------------------------------------------------
+# Module-level helpers
+# ---------------------------------------------------------------------------
+
+
+def _existing_streaming_ids(project: Project) -> tuple[set[str], set[str], set[str]]:
+    """Return (spotify_ids, tidal_ids, isrcs) already present in *project*."""
+    spotify_ids: set[str] = set()
+    tidal_ids: set[str] = set()
+    isrcs: set[str] = set()
+    for track in project.tracks.values():
+        if track.spotify_id:
+            spotify_ids.add(track.spotify_id)
+        if track.tidal_id:
+            tidal_ids.add(track.tidal_id)
+        if track.isrc:
+            isrcs.add(track.isrc)
+    return spotify_ids, tidal_ids, isrcs
+
+
+def _is_known(
+    track: Track, known: tuple[set[str], set[str], set[str]]
+) -> bool:
+    """Return True if *track* is already represented in the project."""
+    spotify_ids, tidal_ids, isrcs = known
+    if track.spotify_id and track.spotify_id in spotify_ids:
+        return True
+    if track.tidal_id and track.tidal_id in tidal_ids:
+        return True
+    return bool(track.isrc and track.isrc in isrcs)
