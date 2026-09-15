@@ -48,15 +48,9 @@ def window(qtbot, monkeypatch):
 @pytest.fixture(autouse=True)
 def _no_modal_popups(monkeypatch):
     """Modal message boxes would block the offscreen run — stub them out."""
-    monkeypatch.setattr(
-        QMessageBox, "information", lambda *a, **k: QMessageBox.StandardButton.Ok
-    )
-    monkeypatch.setattr(
-        QMessageBox, "warning", lambda *a, **k: QMessageBox.StandardButton.Ok
-    )
-    monkeypatch.setattr(
-        QMessageBox, "critical", lambda *a, **k: QMessageBox.StandardButton.Ok
-    )
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: QMessageBox.StandardButton.Ok)
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: QMessageBox.StandardButton.Ok)
+    monkeypatch.setattr(QMessageBox, "critical", lambda *a, **k: QMessageBox.StandardButton.Ok)
 
 
 # --------------------------------------------------------------------------- helpers
@@ -161,9 +155,7 @@ def test_import_note_undo_save_reload(window, monkeypatch, tmp_path):
 
     # ── save leg: real FileController save-as to tmp_path ─────────────────
     save_path = tmp_path / "golden.setmgr"
-    monkeypatch.setattr(
-        QFileDialog, "getSaveFileName", lambda *a, **k: (str(save_path), "")
-    )
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(save_path), ""))
     window._save()
 
     assert save_path.exists()
@@ -173,9 +165,7 @@ def test_import_note_undo_save_reload(window, monkeypatch, tmp_path):
     expected = window._project.model_dump_json()
 
     # ── reload leg: FileController open round-trips the project ───────────
-    monkeypatch.setattr(
-        QFileDialog, "getOpenFileName", lambda *a, **k: (str(save_path), "")
-    )
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *a, **k: (str(save_path), ""))
     window._file_ctrl.open()
 
     reloaded = window._project
@@ -290,9 +280,7 @@ def test_rematch_xml_journey(window, monkeypatch, tmp_path):
 def test_fix_match_then_export_xml_journey(window, monkeypatch, tmp_path):
     """Fix-match flow → export: a manual match lands, then the set writes XML."""
     track = Track(title="Sundown", artist="DJ Koze")
-    section = Section(
-        name="Peak", section_type=SectionType.PEAK, color=RekordboxColor.RED
-    )
+    section = Section(name="Peak", section_type=SectionType.PEAK, color=RekordboxColor.RED)
     section.add_track(track.id)
     window._project.add_track(track)
     window._project.add_section(section)
@@ -355,9 +343,7 @@ def test_fix_match_then_export_xml_journey(window, monkeypatch, tmp_path):
     root = ET.parse(xml_path).getroot()
     track_names = {el.get("Name") for el in root.iter("TRACK")}
     assert "Sundown" in track_names
-    playlist_names = {
-        node.get("Name") for node in root.iter("NODE") if node.get("Type") == "1"
-    }
+    playlist_names = {node.get("Name") for node in root.iter("NODE") if node.get("Type") == "1"}
     assert "Peak" in playlist_names
     # The section name is stamped into each exported track's Comments.
     comments = {el.get("Comments") for el in root.iter("TRACK")}
