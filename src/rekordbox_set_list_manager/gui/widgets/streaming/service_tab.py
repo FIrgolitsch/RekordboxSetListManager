@@ -80,7 +80,9 @@ class StreamingServiceTab(QWidget):
             self._load_playlists()
 
     def stop_auth(self) -> None:
-        """Quit and wait for any running auth thread (safe to call on dialog close)."""
+        """Cancel and wait briefly for any running auth thread (safe on dialog close)."""
+        if self._worker is not None:
+            self._worker.cancel()
         if self._thread is not None and self._thread.isRunning():
             self._thread.quit()
             self._thread.wait(3000)
@@ -93,7 +95,9 @@ class StreamingServiceTab(QWidget):
         self._connect_btn.setEnabled(False)
         self._auth_label.setText("Connecting…")
 
-        self._thread = QThread()  # no parent — avoids "destroyed while running" crash
+        # No parent: the thread may still be running (blocking auth) when the
+        # widget tree is torn down; stop_auth cancels and joins it first.
+        self._thread = QThread()
         self._worker = StreamingAuthWorker(self._service)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
@@ -103,8 +107,9 @@ class StreamingServiceTab(QWidget):
         self._worker.finished.connect(self._thread.quit)
         self._worker.error.connect(self._thread.quit)
         self._thread.finished.connect(self._thread.deleteLater)
-        self._worker.finished.connect(self._worker.deleteLater)
-        self._worker.error.connect(self._worker.deleteLater)
+        # Deleting the worker on thread.finished (not on finished/error)
+        # also covers the cancelled path, where the worker emits nothing.
+        self._thread.finished.connect(self._worker.deleteLater)
         self._thread.start()
 
     def _on_link_ready(self, msg: str) -> None:

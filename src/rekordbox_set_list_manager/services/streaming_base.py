@@ -59,6 +59,7 @@ class StreamingService(ABC):
     def authenticate(
         self,
         link_callback: Callable[[str], None] | None = None,
+        cancel_check: Callable[[], bool] | None = None,
     ) -> str:
         """Authenticate and return the connected user's display name.
 
@@ -67,6 +68,11 @@ class StreamingService(ABC):
         link_callback : Callable[[str], None] | None
             Passed the login URL for device-code flows (Tidal).  Ignored for
             browser-redirect flows (Spotify).
+        cancel_check : Callable[[], bool] | None
+            Optional callable polled while waiting for the user to complete
+            the login.  When it returns ``True`` the flow aborts with a
+            service error instead of blocking until the link expires.
+            Services whose flow cannot be interrupted may ignore it.
 
         Returns
         -------

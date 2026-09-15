@@ -56,6 +56,7 @@ class SpotifyService(StreamingService):
     def authenticate(
         self,
         link_callback: Callable[[str], None] | None = None,  # noqa: ARG002 — ignored; Spotify uses browser redirect
+        cancel_check: Callable[[], bool] | None = None,
     ) -> str:
         """Open browser for PKCE auth (skipped if cached token is valid).
 
@@ -67,6 +68,10 @@ class SpotifyService(StreamingService):
         link_callback : Callable[[str], None] | None
             Accepted for interface compatibility but ignored by Spotify's
             browser-redirect flow.  Defaults to ``None``.
+        cancel_check : Callable[[], bool] | None
+            Checked before and after the blocking PKCE wait — the browser
+            redirect cannot be interrupted mid-wait, but a cancel request is
+            honoured by discarding the result.  Defaults to ``None``.
 
         Returns
         -------
@@ -84,6 +89,8 @@ class SpotifyService(StreamingService):
             raise SpotifyServiceError(
                 "Spotify Client ID not configured. Open Spotify Settings first."
             )
+        if cancel_check is not None and cancel_check():
+            raise SpotifyServiceError("Authentication cancelled.")
 
         _CACHE_DIR.mkdir(parents=True, exist_ok=True)
         auth_manager = SpotifyPKCE(
@@ -99,6 +106,10 @@ class SpotifyService(StreamingService):
         except spotipy.SpotifyException as exc:
             self._sp = None
             raise SpotifyServiceError(f"Authentication failed: {exc}") from exc
+
+        if cancel_check is not None and cancel_check():
+            self._sp = None
+            raise SpotifyServiceError("Authentication cancelled.")
 
         return user.get("display_name") or user.get("id") or "Unknown user"
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -24,6 +25,10 @@ log = logging.getLogger(__name__)
 _CACHE_DIR = Path(platformdirs.user_cache_dir("rekordbox_set_list_manager"))
 _SESSION_FILE = _CACHE_DIR / "tidal_session.json"
 
+# Poll interval while waiting on the device-code future so a cancel
+# request is honoured within a fraction of a second.
+_OAUTH_POLL_SECONDS = 0.2
+
 
 class TidalServiceError(Exception):
     """Raised when a Tidal API operation fails."""
@@ -45,7 +50,11 @@ class TidalService(StreamingService):
     # Auth
     # ------------------------------------------------------------------
 
-    def authenticate(self, link_callback: Callable[[str], None] | None = None) -> str:
+    def authenticate(
+        self,
+        link_callback: Callable[[str], None] | None = None,
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> str:
         """Authenticate with Tidal using the device code flow.
 
         On first run initiates the device-code flow.  If *link_callback* is
@@ -58,6 +67,10 @@ class TidalService(StreamingService):
         link_callback : Callable[[str], None] | None
             If provided, called with the login URL for device-code flow display.
             Defaults to :func:`print` if ``None``.
+        cancel_check : Callable[[], bool] | None
+            If provided, polled while waiting for the user to approve the
+            device-code login; returning ``True`` aborts the wait promptly
+            instead of blocking until the link expires.
 
         Returns
         -------
@@ -85,9 +98,11 @@ class TidalService(StreamingService):
         if not loaded:
             fn = link_callback if link_callback is not None else print
             try:
-                session.login_oauth_simple(fn_print=fn)
+                _oauth_login(session, fn, cancel_check)
                 session.save_session_to_file(_SESSION_FILE)
                 _restrict_session_permissions()
+            except TidalServiceError:
+                raise
             except Exception as exc:
                 raise TidalServiceError(f"Authentication failed: {exc}") from exc
 
@@ -230,6 +245,43 @@ class TidalService(StreamingService):
 # ---------------------------------------------------------------------------
 # Module-level helpers
 # ---------------------------------------------------------------------------
+
+
+def _oauth_login(
+    session: tidalapi.Session,
+    fn_print: Callable[[str], None],
+    cancel_check: Callable[[], bool] | None,
+) -> None:
+    """Run the device-code login, honouring a cooperative cancel request.
+
+    Falls back to tidalapi's blocking ``login_oauth_simple`` when no
+    *cancel_check* is given; otherwise polls the login future so a cancel
+    is honoured within ``_OAUTH_POLL_SECONDS`` instead of blocking until
+    the link expires (~5 minutes).
+
+    Raises
+    ------
+    TidalServiceError
+        If *cancel_check* aborts the flow.
+    """
+    if cancel_check is None:
+        session.login_oauth_simple(fn_print=fn_print)
+        return
+    login, future = session.login_oauth()
+    fn_print(
+        f"Visit https://{login.verification_uri_complete} to log in, "
+        f"the code will expire in {login.expires_in} seconds"
+    )
+    while True:
+        if cancel_check():
+            future.cancel()
+            raise TidalServiceError("Authentication cancelled.")
+        try:
+            future.result(timeout=_OAUTH_POLL_SECONDS)
+        except concurrent.futures.TimeoutError:
+            continue
+        else:
+            return
 
 
 def _restrict_session_permissions() -> None:
