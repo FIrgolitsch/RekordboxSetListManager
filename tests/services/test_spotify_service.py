@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -9,7 +10,10 @@ import pytest
 import rekordbox_set_list_manager.services.spotify_service as svc_mod
 import rekordbox_set_list_manager.utils.config as cfg_module
 from rekordbox_set_list_manager.models.enums import MatchStatus, TrackSource
+from rekordbox_set_list_manager.services._spotify_adapter import SecureCacheFileHandler
+from rekordbox_set_list_manager.services.skipped_item import SkippedItem
 from rekordbox_set_list_manager.services.spotify_service import SpotifyService, SpotifyServiceError
+from rekordbox_set_list_manager.services.streaming_base import PlaylistResult
 from rekordbox_set_list_manager.utils import config
 
 
@@ -53,6 +57,22 @@ def test_authenticate_returns_display_name(mock_spotify_cls, mock_pkce_cls, serv
     pkce_kwargs = mock_pkce_cls.call_args.kwargs
     assert pkce_kwargs["client_id"] == "test-client-id"
     assert pkce_kwargs["scope"] == SpotifyService.SCOPES
+
+
+@patch("rekordbox_set_list_manager.services.spotify_service.SpotifyPKCE")
+@patch("rekordbox_set_list_manager.services.spotify_service.spotipy.Spotify")
+def test_authenticate_wires_secure_cache_handler(mock_spotify_cls, mock_pkce_cls, service):
+    """The OAuth token cache file is permission-locked via SecureCacheFileHandler."""
+    config.set_value("spotify_client_id", "test-client-id")
+    mock_sp = MagicMock()
+    mock_sp.current_user.return_value = {"display_name": "DJ Test", "id": "user123"}
+    mock_spotify_cls.return_value = mock_sp
+
+    service.authenticate()
+
+    handler = mock_pkce_cls.call_args.kwargs["cache_handler"]
+    assert isinstance(handler, SecureCacheFileHandler)
+    assert handler.cache_path == str(SpotifyService._CACHE_PATH)
 
 
 @patch("rekordbox_set_list_manager.services.spotify_service.SpotifyPKCE")
@@ -143,11 +163,12 @@ def test_get_playlist_tracks_returns_tracks(mock_spotify_cls, mock_pkce_cls, ser
     mock_spotify_cls.return_value = mock_sp
     service.authenticate()
 
-    tracks, skipped = service.get_playlist_tracks("some-playlist-id")
+    result = service.get_playlist_tracks("some-playlist-id")
 
-    assert len(tracks) == 2
-    assert skipped == 0
-    t = tracks[0]
+    assert isinstance(result, PlaylistResult)
+    assert len(result.tracks) == 2
+    assert result.skipped == []
+    t = result.tracks[0]
     assert t.title == "Hey Jude"
     assert t.artist == "The Beatles"
     assert t.spotify_id == "id1"
@@ -170,10 +191,10 @@ def test_get_playlist_tracks_handles_missing_isrc(mock_spotify_cls, mock_pkce_cl
     mock_spotify_cls.return_value = mock_sp
     service.authenticate()
 
-    tracks, skipped = service.get_playlist_tracks("pl")
-    assert len(tracks) == 1
-    assert skipped == 0
-    assert tracks[0].isrc is None
+    result = service.get_playlist_tracks("pl")
+    assert len(result.tracks) == 1
+    assert result.skipped == []
+    assert result.tracks[0].isrc is None
 
 
 @patch("rekordbox_set_list_manager.services.spotify_service.SpotifyPKCE")
@@ -181,7 +202,7 @@ def test_get_playlist_tracks_handles_missing_isrc(mock_spotify_cls, mock_pkce_cl
 def test_get_playlist_tracks_skips_null_and_episode_entries(
     mock_spotify_cls, mock_pkce_cls, service
 ):
-    """Null track slots and podcast episodes are silently skipped."""
+    """Null track slots and podcast episodes are skipped with a label and reason."""
     config.set_value("spotify_client_id", "test-client-id")
     mock_sp = MagicMock()
     mock_sp.current_user.return_value = {"display_name": "Test", "id": "u"}
@@ -197,10 +218,72 @@ def test_get_playlist_tracks_skips_null_and_episode_entries(
     mock_spotify_cls.return_value = mock_sp
     service.authenticate()
 
-    tracks, skipped = service.get_playlist_tracks("pl")
-    assert len(tracks) == 1
-    assert skipped == 3
-    assert tracks[0].title == "Valid Track"
+    result = service.get_playlist_tracks("pl")
+    assert len(result.tracks) == 1
+    assert len(result.skipped) == 3
+    assert result.tracks[0].title == "Valid Track"
+    assert all(isinstance(item, SkippedItem) for item in result.skipped)
+    labels = [item.label for item in result.skipped]
+    assert labels.count("(empty playlist slot)") == 2
+    assert "Podcast Episode" in labels
+    assert all("not a track" in item.reason for item in result.skipped)
+
+
+@patch("rekordbox_set_list_manager.services.spotify_service.SpotifyPKCE")
+@patch("rekordbox_set_list_manager.services.spotify_service.spotipy.Spotify")
+def test_get_playlist_tracks_skips_nameless_tracks(mock_spotify_cls, mock_pkce_cls, service):
+    """Tracks with no name are skipped and reported by their Spotify id."""
+    config.set_value("spotify_client_id", "test-client-id")
+    mock_sp = MagicMock()
+    mock_sp.current_user.return_value = {"display_name": "Test", "id": "u"}
+    mock_sp._get.return_value = {
+        "items": [
+            {"item": {"id": "idX", "name": None, "type": "track", "artists": []}},
+        ],
+        "next": None,
+    }
+    mock_spotify_cls.return_value = mock_sp
+    service.authenticate()
+
+    result = service.get_playlist_tracks("pl")
+    assert result.tracks == []
+    assert len(result.skipped) == 1
+    assert result.skipped[0].label == "idX"
+    assert "no track name" in result.skipped[0].reason
+
+
+@patch("rekordbox_set_list_manager.services.spotify_service.fetch_playlist_items")
+@patch("rekordbox_set_list_manager.services.spotify_service.SpotifyPKCE")
+@patch("rekordbox_set_list_manager.services.spotify_service.spotipy.Spotify")
+def test_get_playlist_tracks_uses_adapter(
+    mock_spotify_cls, mock_pkce_cls, mock_fetch, service
+):
+    """The service delegates pagination to the adapter and converts its dicts."""
+    config.set_value("spotify_client_id", "test-client-id")
+    mock_sp = MagicMock()
+    mock_sp.current_user.return_value = {"display_name": "Test", "id": "u"}
+    mock_spotify_cls.return_value = mock_sp
+    skipped = SkippedItem(label="Podcast", reason="not a track (episode or empty slot)")
+    mock_fetch.return_value = (
+        [
+            {
+                "id": "id9",
+                "name": "Song",
+                "type": "track",
+                "artists": [{"name": "A"}],
+                "duration_ms": 60000,
+            }
+        ],
+        [skipped],
+    )
+    service.authenticate()
+
+    result = service.get_playlist_tracks("pl-1")
+
+    mock_fetch.assert_called_once_with(mock_sp, "pl-1")
+    assert result.tracks[0].title == "Song"
+    assert result.tracks[0].spotify_id == "id9"
+    assert result.skipped == [skipped]
 
 
 @patch("rekordbox_set_list_manager.services.spotify_service.SpotifyPKCE")
@@ -228,12 +311,12 @@ def test_get_playlist_tracks_imports_local_files(mock_spotify_cls, mock_pkce_cls
     mock_spotify_cls.return_value = mock_sp
     service.authenticate()
 
-    tracks, skipped = service.get_playlist_tracks("pl")
-    assert len(tracks) == 2
-    assert skipped == 0
-    assert tracks[0].title == "Local File"
-    assert tracks[0].spotify_id is None
-    assert tracks[1].spotify_id == "id5"
+    result = service.get_playlist_tracks("pl")
+    assert len(result.tracks) == 2
+    assert result.skipped == []
+    assert result.tracks[0].title == "Local File"
+    assert result.tracks[0].spotify_id is None
+    assert result.tracks[1].spotify_id == "id5"
 
 
 @patch("rekordbox_set_list_manager.services.spotify_service.SpotifyPKCE")
@@ -260,11 +343,11 @@ def test_get_playlist_tracks_supports_legacy_track_key(mock_spotify_cls, mock_pk
     mock_spotify_cls.return_value = mock_sp
     service.authenticate()
 
-    tracks, skipped = service.get_playlist_tracks("pl")
-    assert len(tracks) == 1
-    assert skipped == 0
-    assert tracks[0].title == "Legacy Track"
-    assert tracks[0].spotify_id == "id6"
+    result = service.get_playlist_tracks("pl")
+    assert len(result.tracks) == 1
+    assert result.skipped == []
+    assert result.tracks[0].title == "Legacy Track"
+    assert result.tracks[0].spotify_id == "id6"
 
 
 # ---------------------------------------------------------------------------
@@ -302,3 +385,25 @@ def test_try_silent_authenticate_returns_display_name(
     assert name == "Silent User"
     pkce_kwargs = mock_pkce_cls.call_args.kwargs
     assert pkce_kwargs["open_browser"] is False
+    assert isinstance(pkce_kwargs["cache_handler"], SecureCacheFileHandler)
+
+
+@patch("rekordbox_set_list_manager.services.spotify_service.SpotifyPKCE")
+@patch("rekordbox_set_list_manager.services.spotify_service.spotipy.Spotify")
+def test_try_silent_authenticate_logs_warning_on_cache_failure(
+    mock_spotify_cls, mock_pkce_cls, service, tmp_path, monkeypatch, caplog
+):
+    """A failed silent restore returns None but is logged with the traceback."""
+    cache_file = tmp_path / ".spotify_cache"
+    cache_file.write_text("{}")
+    monkeypatch.setattr(svc_mod.SpotifyService, "_CACHE_PATH", cache_file)
+
+    config.set_value("spotify_client_id", "test-client-id")
+    mock_sp = MagicMock()
+    mock_sp.current_user.side_effect = RuntimeError("token decode failed")
+    mock_spotify_cls.return_value = mock_sp
+
+    with caplog.at_level(logging.WARNING, logger=svc_mod.__name__):
+        assert service.try_silent_authenticate() is None
+
+    assert any(record.exc_info for record in caplog.records)
