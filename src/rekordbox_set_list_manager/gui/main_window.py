@@ -451,8 +451,9 @@ class MainWindow(QMainWindow):
         snap_after = self._project.model_dump_json()
         if snap_after != snap_before:
             self._edit_ctrl._stack.push(snap_before)  # noqa: SLF001
-            self._update_undo_actions()
-            self._mark_dirty()
+            self._edit_ctrl.notify_changed()
+            # The dialog may have renamed sections — repaint the view.
+            self._multi_section_view.refresh()
 
     def _open_settings(self) -> None:
         SettingsDialog(self).exec()
