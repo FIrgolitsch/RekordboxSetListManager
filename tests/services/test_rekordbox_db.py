@@ -82,6 +82,34 @@ def test_is_available_returns_false_on_exception(mock_cls):
 
 
 # ---------------------------------------------------------------------------
+# get_db_path
+# ---------------------------------------------------------------------------
+
+
+@patch("rekordbox_set_list_manager.services._pyrekordbox_adapter.rekordbox_db_candidates")
+def test_get_db_path_returns_first_candidate(mock_candidates, tmp_path):
+    db_path = tmp_path / "master.db"
+    db_path.touch()
+    mock_candidates.return_value = [db_path, tmp_path / "other.db"]
+
+    assert RekordboxDbService().get_db_path() == db_path
+
+
+@patch("rekordbox_set_list_manager.services._pyrekordbox_adapter.rekordbox_db_candidates")
+def test_get_db_path_returns_none_when_no_candidates(mock_candidates):
+    mock_candidates.return_value = []
+
+    assert RekordboxDbService().get_db_path() is None
+
+
+@patch("rekordbox_set_list_manager.services._pyrekordbox_adapter.rekordbox_db_candidates")
+def test_get_db_path_returns_none_on_adapter_error(mock_candidates):
+    mock_candidates.side_effect = RuntimeError("pyrekordbox broke")
+
+    assert RekordboxDbService().get_db_path() is None
+
+
+# ---------------------------------------------------------------------------
 # get_collection
 # ---------------------------------------------------------------------------
 

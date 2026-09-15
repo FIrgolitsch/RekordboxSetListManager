@@ -56,23 +56,15 @@ class RekordboxDbService:
     def get_db_path(self) -> Path | None:
         """Return the Rekordbox database path without opening it, or ``None``."""
         try:
-            from pyrekordbox.config import (  # noqa: PLC0415
-                _get_rb6_config,  # type: ignore[attr-defined]
-                _get_rb7_config,  # type: ignore[attr-defined]
-                get_pioneer_app_dir,
-                get_pioneer_install_dir,
+            from rekordbox_set_list_manager.services import (  # noqa: PLC0415
+                _pyrekordbox_adapter,
             )
 
-            prog = get_pioneer_install_dir()
-            app = get_pioneer_app_dir()
-            for fn in (_get_rb7_config, _get_rb6_config):
-                cfg = fn(prog, app)
-                p = cfg.get("db_path")
-                if p is not None and Path(str(p)).exists():
-                    return Path(str(p))
+            candidates = _pyrekordbox_adapter.rekordbox_db_candidates()
         except Exception:
             log.debug("Could not determine Rekordbox DB path", exc_info=True)
-        return None
+            return None
+        return candidates[0] if candidates else None
 
     def get_collection(self) -> list[Track]:
         """Load all tracks from the Rekordbox database as Track objects.
