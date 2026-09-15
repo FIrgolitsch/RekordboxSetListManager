@@ -71,13 +71,16 @@ class StreamingServiceTab(QWidget):
         self._connect_btn.clicked.connect(self._on_connect)
 
     def try_auto_connect(self, auto_select_id: str | None = None) -> None:
-        """Silently reconnect using cached credentials if available."""
+        """Silently reconnect using cached credentials on a background thread.
+
+        The silent path performs real network I/O (token validation), so it
+        runs on the same worker thread as interactive auth — a slow or
+        absent network must not freeze dialog construction.
+        """
         self._auto_select_id = auto_select_id
-        name = self._service.try_silent_authenticate()
-        if name:
-            self._auth_label.setText(f"Connected as {name}")
-            self._connect_btn.setEnabled(False)
-            self._load_playlists()
+        self._connect_btn.setEnabled(False)
+        self._auth_label.setText("Connecting…")
+        self._start_auth(silent=True)
 
     def stop_auth(self) -> None:
         """Cancel and wait briefly for any running auth thread (safe on dialog close)."""
@@ -94,18 +97,22 @@ class StreamingServiceTab(QWidget):
     def _on_connect(self) -> None:
         self._connect_btn.setEnabled(False)
         self._auth_label.setText("Connecting…")
+        self._start_auth(silent=False)
 
+    def _start_auth(self, silent: bool) -> None:
         # No parent: the thread may still be running (blocking auth) when the
         # widget tree is torn down; stop_auth cancels and joins it first.
         self._thread = QThread()
-        self._worker = StreamingAuthWorker(self._service)
+        self._worker = StreamingAuthWorker(self._service, silent=silent)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.link_ready.connect(self._on_link_ready)
         self._worker.finished.connect(self._on_auth_done)
         self._worker.error.connect(self._on_auth_error)
+        self._worker.silent_failed.connect(self._on_silent_failed)
         self._worker.finished.connect(self._thread.quit)
         self._worker.error.connect(self._thread.quit)
+        self._worker.silent_failed.connect(self._thread.quit)
         self._thread.finished.connect(self._thread.deleteLater)
         # Deleting the worker on thread.finished (not on finished/error)
         # also covers the cancelled path, where the worker emits nothing.
@@ -133,6 +140,11 @@ class StreamingServiceTab(QWidget):
         self._link_label.setVisible(False)
         self._connect_btn.setEnabled(True)
         show_error_dialog(self, "Connection Error", msg)
+
+    def _on_silent_failed(self) -> None:
+        """No cached session to restore — stay disconnected without a dialog."""
+        self._auth_label.setText("Not connected")
+        self._connect_btn.setEnabled(True)
 
     def _load_playlists(self) -> None:
         dlg = BusyDialog("Loading playlists\u2026", self, cancellable=False)
