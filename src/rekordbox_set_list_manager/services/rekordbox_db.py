@@ -147,7 +147,7 @@ class RekordboxDbService:
                             isrc,
                             len(rows),
                         )
-                    content = min(rows, key=lambda row: int(row.ID), default=None)
+                    content = min(rows, key=_content_id_sort_key, default=None)
                 elif hasattr(content, "first"):
                     content = content.first()
                 return _content_to_track(content) if content is not None else None
@@ -368,6 +368,20 @@ def _backup_db_files(db_path: Path) -> None:
             file.unlink()
 
 
+def _int_or_none(value: Any) -> int | None:  # noqa: ANN401
+    """Return ``int(value)`` or ``None`` when it is not numeric."""
+    try:
+        return int(value) if value else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _content_id_sort_key(row: Any) -> float:  # noqa: ANN401
+    """Sort key for lowest-ID resolution; non-numeric IDs sort last."""
+    parsed = _int_or_none(row.ID)
+    return parsed if parsed is not None else float("inf")
+
+
 def _content_to_track(content: Any) -> Track | None:  # noqa: ANN401
     """Convert a DjmdContent ORM row to a Track; return None if unusable."""
     title = content.Title
@@ -394,7 +408,9 @@ def _content_to_track(content: Any) -> Track | None:  # noqa: ANN401
     key = content.KeyName or None
     duration = content.Length  # seconds (int or None)
     isrc = content.ISRC or None
-    rekordbox_id = int(content.ID) if content.ID else None
+    # DjmdContent.ID is a VARCHAR — a non-numeric value must not abort the
+    # whole collection read; the track stays usable via its filepath.
+    rekordbox_id = _int_or_none(content.ID)
     color = _parse_color(content.ColorName)
 
     return Track(
