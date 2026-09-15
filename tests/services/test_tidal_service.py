@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import logging
+import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+import rekordbox_set_list_manager.services.tidal_service as svc_mod
 from rekordbox_set_list_manager.models.enums import MatchStatus, TrackSource
+from rekordbox_set_list_manager.services.streaming_base import PlaylistResult
 from rekordbox_set_list_manager.services.tidal_service import (
     TidalService,
     TidalServiceError,
@@ -78,6 +83,53 @@ def test_authenticate_returns_username(mock_cls):
     name = TidalService().authenticate()
 
     assert name == "DJ Bob"
+
+
+@patch("tidalapi.Session")
+def test_authenticate_logs_warning_when_session_load_fails(mock_cls, caplog):
+    """A failed session restore falls back to login but is logged with traceback."""
+    session = _make_session()
+    session.load_session_from_file.side_effect = RuntimeError("corrupt file")
+    mock_cls.return_value = session
+
+    with caplog.at_level(logging.WARNING, logger=svc_mod.__name__):
+        name = TidalService().authenticate()
+
+    assert name == "DJ Test"
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert warnings and all(r.exc_info for r in warnings)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX file permissions")
+@patch("tidalapi.Session")
+def test_authenticate_chmods_session_file_after_save(mock_cls, tmp_path, monkeypatch):
+    """The session file is restricted to owner-only right after it is written."""
+    session_file = tmp_path / "tidal_session.json"
+    monkeypatch.setattr(svc_mod, "_SESSION_FILE", session_file)
+    session = _make_session(login_ok=False)
+    session.check_login.return_value = True  # login completes after the save
+    session.save_session_to_file.side_effect = lambda path: Path(path).write_text("{}")
+    mock_cls.return_value = session
+
+    TidalService().authenticate()
+
+    assert (session_file.stat().st_mode & 0o777) == 0o600
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX file permissions")
+@patch("tidalapi.Session")
+def test_authenticate_chmods_loose_existing_session_file(mock_cls, tmp_path, monkeypatch):
+    """A pre-existing world-readable session file is tightened on load."""
+    session_file = tmp_path / "tidal_session.json"
+    session_file.write_text("{}")
+    session_file.chmod(0o644)
+    monkeypatch.setattr(svc_mod, "_SESSION_FILE", session_file)
+    mock_cls.return_value = _make_session()
+
+    name = TidalService().authenticate()
+
+    assert name == "DJ Test"
+    assert (session_file.stat().st_mode & 0o777) == 0o600
 
 
 @patch("tidalapi.Session")
@@ -211,6 +263,7 @@ def test_get_playlist_tracks_returns_tracks(mock_cls):
     svc.authenticate()
     result = svc.get_playlist_tracks("pl-uuid")
 
+    assert isinstance(result, PlaylistResult)
     assert result.skipped == []
     assert len(result.tracks) == 1
     t = result.tracks[0]
@@ -251,6 +304,85 @@ def test_get_playlist_tracks_raises_on_api_error(mock_cls):
         svc.get_playlist_tracks("bad-id")
 
 
+@patch("tidalapi.Session")
+def test_get_playlist_tracks_paginates_until_short_batch(mock_cls):
+    """Pagination ignores num_tracks: pages are fetched until a short batch arrives."""
+    page1 = [_make_tidal_track(track_id=i) for i in range(100)]
+    page2 = [_make_tidal_track(track_id=100 + i) for i in range(30)]
+    pl = _make_playlist(num_tracks=250)  # over-reports the total
+    pl.tracks.side_effect = [page1, page2]
+    session = _make_session()
+    session.playlist.return_value = pl
+    mock_cls.return_value = session
+
+    svc = TidalService()
+    svc.authenticate()
+    result = svc.get_playlist_tracks("pl-uuid")
+
+    assert len(result.tracks) == 130
+    assert pl.tracks.call_count == 2
+    second_call = pl.tracks.call_args_list[1]
+    assert second_call.kwargs["offset"] == 100
+
+
+@patch("tidalapi.Session")
+def test_get_playlist_tracks_fetches_when_num_tracks_unknown(mock_cls):
+    """num_tracks = -1 (tidalapi's 'unknown' default) must not suppress the fetch."""
+    page = [_make_tidal_track(track_id=i) for i in range(5)]
+    pl = _make_playlist(num_tracks=-1)
+    pl.tracks.side_effect = [page]  # short batch ends pagination
+    session = _make_session()
+    session.playlist.return_value = pl
+    mock_cls.return_value = session
+
+    svc = TidalService()
+    svc.authenticate()
+    result = svc.get_playlist_tracks("pl-uuid")
+
+    assert len(result.tracks) == 5
+    assert pl.tracks.call_count == 1
+
+
+@patch("tidalapi.Session")
+def test_get_playlist_tracks_continues_past_empty_first_page_when_short_check(
+    mock_cls,
+):
+    """An empty batch ends pagination regardless of the reported total."""
+    pl = _make_playlist(num_tracks=500)
+    pl.tracks.side_effect = [[]]
+    session = _make_session()
+    session.playlist.return_value = pl
+    mock_cls.return_value = session
+
+    svc = TidalService()
+    svc.authenticate()
+    result = svc.get_playlist_tracks("pl-uuid")
+
+    assert result.tracks == []
+    assert result.skipped == []
+
+
+@patch("tidalapi.Session")
+def test_get_playlist_tracks_reports_unconvertible_items(mock_cls):
+    """A malformed playlist item is skipped with a label and reason, not raised."""
+    good = _make_tidal_track(track_id=1, title="Good Track")
+    bad = object()  # no title/artist attributes — conversion fails
+    pl = _make_playlist()
+    pl.tracks.side_effect = [[good, bad]]
+    session = _make_session()
+    session.playlist.return_value = pl
+    mock_cls.return_value = session
+
+    svc = TidalService()
+    svc.authenticate()
+    result = svc.get_playlist_tracks("pl-uuid")
+
+    assert [t.title for t in result.tracks] == ["Good Track"]
+    assert len(result.skipped) == 1
+    assert result.skipped[0].label == "Track at position 2"
+    assert result.skipped[0].reason
+
+
 # ---------------------------------------------------------------------------
 # _tidal_to_track
 # ---------------------------------------------------------------------------
@@ -273,3 +405,24 @@ def test_tidal_to_track_empty_artist_when_none():
     raw.artist = None
     track = _tidal_to_track(raw)
     assert track.artist == ""
+
+
+# ---------------------------------------------------------------------------
+# try_silent_authenticate
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX file permissions")
+@patch("tidalapi.Session")
+def test_try_silent_authenticate_chmods_session_file(mock_cls, tmp_path, monkeypatch):
+    """Silent restore tightens a pre-existing loose session file."""
+    session_file = tmp_path / "tidal_session.json"
+    session_file.write_text("{}")
+    session_file.chmod(0o644)
+    monkeypatch.setattr(svc_mod, "_SESSION_FILE", session_file)
+    mock_cls.return_value = _make_session()
+
+    name = TidalService().try_silent_authenticate()
+
+    assert name == "DJ Test"
+    assert (session_file.stat().st_mode & 0o777) == 0o600
