@@ -76,6 +76,7 @@ _FLUSH_TIMEOUT = 2.0  # seconds — upper bound on exit-time drain
 # Event queue + single consumer thread
 # ---------------------------------------------------------------------------
 
+
 class _Consumer:
     """One consumer generation: a private queue plus the thread draining it.
 

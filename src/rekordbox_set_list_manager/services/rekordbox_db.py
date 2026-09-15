@@ -374,7 +374,7 @@ def _int_or_none(value: Any) -> int | None:  # noqa: ANN401
     """Return ``int(value)`` or ``None`` when it is not numeric."""
     try:
         return int(value) if value else None
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 
