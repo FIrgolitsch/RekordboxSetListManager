@@ -125,8 +125,18 @@ class ExportDialog(QDialog):
 
         msg = f"Exported {exported} track(s) to Rekordbox database."
         if skipped:
-            msg += f"\n{skipped} unmatched track(s) were skipped."
-        QMessageBox.information(self, "Export complete", msg)
+            msg += f"\n{len(skipped)} unmatched track(s) were skipped."
+
+        msg_box = QMessageBox(
+            QMessageBox.Icon.Information,
+            "Export complete",
+            msg,
+            QMessageBox.StandardButton.Ok,
+            self,
+        )
+        if skipped:
+            msg_box.setDetailedText("\n".join(f"{item.label} — {item.reason}" for item in skipped))
+        msg_box.exec()
         self.accept()
 
     def _export_to_xml(self) -> None:

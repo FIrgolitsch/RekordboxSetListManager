@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING, Any
 
 from rekordbox_set_list_manager.models.enums import MatchStatus, RekordboxColor, TrackSource
 from rekordbox_set_list_manager.models.track import Track
+from rekordbox_set_list_manager.services.skipped_item import SkippedItem
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -35,10 +36,12 @@ class RekordboxDbError(Exception):
 
 
 class RekordboxDbService:
-    """Read-only wrapper around a local Rekordbox 6/7 SQLite database.
+    """Read/write wrapper around a local Rekordbox 6/7 SQLite database.
 
     Uses pyrekordbox to auto-detect and open the database using the Pioneer
-    application settings on the local machine.
+    application settings on the local machine.  Reads the collection for
+    matching; writes via ``export_set_to_db``, which refuses to run while
+    Rekordbox is open and backs up the database files first.
     """
 
     def is_available(self) -> bool:
@@ -48,7 +51,10 @@ class RekordboxDbService:
 
             with Rekordbox6Database():
                 pass
-        except Exception:  # noqa: BLE001
+        except Exception:
+            # Best-effort probe: any failure (missing DB, driver, config)
+            # means "not available" — callers only need the boolean.
+            log.debug("Rekordbox database not available", exc_info=True)
             return False
         else:
             return True
@@ -62,6 +68,8 @@ class RekordboxDbService:
 
             candidates = _pyrekordbox_adapter.rekordbox_db_candidates()
         except Exception:
+            # Best-effort detection path: a broken pyrekordbox config means
+            # "no known DB path", never a raised error.
             log.debug("Could not determine Rekordbox DB path", exc_info=True)
             return None
         return candidates[0] if candidates else None
@@ -120,7 +128,19 @@ class RekordboxDbService:
 
             with Rekordbox6Database() as db:
                 content = db.get_content(ISRC=isrc)
-                if hasattr(content, "first"):
+                if hasattr(content, "all"):
+                    rows = content.all()
+                    if len(rows) > 1:
+                        # Ambiguous ISRC: pick deterministically (lowest
+                        # content ID) and note it instead of silently
+                        # collapsing to whatever .first() returned.
+                        log.debug(
+                            "ISRC %s matched %d Rekordbox rows; using the lowest ID",
+                            isrc,
+                            len(rows),
+                        )
+                    content = min(rows, key=lambda row: int(row.ID), default=None)
+                elif hasattr(content, "first"):
                     content = content.first()
                 return _content_to_track(content) if content is not None else None
         except RekordboxDbError:
@@ -165,7 +185,7 @@ class RekordboxDbService:
         sections: list[Section],
         name: str,
         tracks: dict[UUID, Track],
-    ) -> tuple[int, int]:
+    ) -> tuple[int, list[SkippedItem]]:
         """Write *sections* as a playlist folder directly to the Rekordbox database.
 
         Creates a top-level folder named *name* containing one playlist per
@@ -174,7 +194,8 @@ class RekordboxDbService:
 
         Only tracks that have a ``rekordbox_id`` (integer DB primary key) or a
         ``filepath`` that can be resolved to a ``DjmdContent`` row are written.
-        Unmatched or streaming-only tracks are silently skipped.
+        Unmatched or streaming-only tracks are returned as ``SkippedItem``
+        entries so the caller can show exactly what was left out and why.
 
         Parameters
         ----------
@@ -187,9 +208,10 @@ class RekordboxDbService:
 
         Returns
         -------
-        tuple[int, int]
-            ``(exported_count, skipped_count)`` — how many track-playlist
-            entries were written and how many were skipped.
+        tuple[int, list[SkippedItem]]
+            ``(exported_count, skipped_items)`` — how many track-playlist
+            entries were written and an itemized list of the tracks that were
+            skipped with the reason for each.
 
         Raises
         ------
@@ -201,7 +223,7 @@ class RekordboxDbService:
             from pyrekordbox import Rekordbox6Database  # noqa: PLC0415
 
             exported = 0
-            skipped = 0
+            skipped: list[SkippedItem] = []
 
             with Rekordbox6Database() as db:
                 # Remove any existing root-level playlist with the same name so
@@ -217,7 +239,7 @@ class RekordboxDbService:
                     for tid in section.track_ids:
                         track = tracks.get(tid)
                         if track is None:
-                            skipped += 1
+                            skipped.append(SkippedItem(str(tid), "not in project tracks"))
                             continue
 
                         content = None
@@ -229,7 +251,12 @@ class RekordboxDbService:
                             content = result.first() if hasattr(result, "first") else result
 
                         if content is None:
-                            skipped += 1
+                            skipped.append(
+                                SkippedItem(
+                                    track.display_name,
+                                    "not found in Rekordbox collection",
+                                )
+                            )
                             continue
 
                         db.add_to_playlist(playlist, content)
@@ -263,7 +290,11 @@ def _content_to_track(content: Any) -> Track | None:  # noqa: ANN401
         return None
 
     filepath = content.FolderPath or None
-    if not filepath or not PurePosixPath(filepath).is_absolute():
+    if not filepath or not (
+        # Rekordbox on Windows stores drive-absolute (C:\...) or UNC paths;
+        # drive-relative "C:foo" is correctly not absolute under either flavor.
+        PurePosixPath(filepath).is_absolute() or PureWindowsPath(filepath).is_absolute()
+    ):
         return None
 
     artist = content.ArtistName or ""

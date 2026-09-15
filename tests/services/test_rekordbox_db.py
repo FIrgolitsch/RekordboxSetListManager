@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import logging
-from uuid import uuid4
 from unittest.mock import MagicMock, patch
+from uuid import uuid4
 
 import pytest
 
@@ -373,9 +373,7 @@ def test_find_track_by_isrc_logs_debug_on_duplicate_isrc(mock_cls, caplog):
     db.get_content.return_value = query
     mock_cls.return_value = db
 
-    with caplog.at_level(
-        logging.DEBUG, logger="rekordbox_set_list_manager.services.rekordbox_db"
-    ):
+    with caplog.at_level(logging.DEBUG, logger="rekordbox_set_list_manager.services.rekordbox_db"):
         RekordboxDbService().find_track_by_isrc("DEBL41500001")
 
     assert any(r.levelno == logging.DEBUG for r in caplog.records)
@@ -392,9 +390,7 @@ def test_export_set_to_db_writes_resolvable_tracks(mock_cls):
     db.get_content.return_value = MagicMock()  # any lookup resolves to a row
     mock_cls.return_value = db
 
-    track = Track(
-        title="Song", artist="Artist", rekordbox_id=42, filepath="/music/song.mp3"
-    )
+    track = Track(title="Song", artist="Artist", rekordbox_id=42, filepath="/music/song.mp3")
     section = Section(name="Peak", track_ids=[track.id])
 
     exported, skipped = RekordboxDbService().export_set_to_db(
@@ -435,9 +431,7 @@ def test_export_set_to_db_reports_unresolvable_tracks(mock_cls):
     )
 
     assert exported == 0
-    assert skipped == [
-        SkippedItem(track.display_name, "not found in Rekordbox collection")
-    ]
+    assert skipped == [SkippedItem(track.display_name, "not found in Rekordbox collection")]
 
 
 @patch("pyrekordbox.Rekordbox6Database")
