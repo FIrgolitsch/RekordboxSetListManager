@@ -70,7 +70,7 @@ class RekordboxDbService:
                 p = cfg.get("db_path")
                 if p is not None and Path(str(p)).exists():
                     return Path(str(p))
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.debug("Could not determine Rekordbox DB path", exc_info=True)
         return None
 

@@ -19,6 +19,7 @@ from rekordbox_set_list_manager.services.rekordbox_db import (
 
 
 def _make_content(
+    *,
     track_id: str = "1001",
     title: str | None = "Test Track",
     artist_name: str = "Test Artist",
