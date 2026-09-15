@@ -57,9 +57,6 @@ class ImportController(QObject):
         if not tracks:
             return
 
-        telemetry.record("import_started", track_count=len(tracks))
-        self._edit_ctrl.push_snapshot()
-
         if dialog.sync_mode:
             from rekordbox_set_list_manager.gui.widgets.dialogs.import_dialog import (  # noqa: PLC0415
                 _existing_streaming_ids,
@@ -74,6 +71,9 @@ class ImportController(QObject):
         if not new_tracks:
             QMessageBox.information(self._w, "Already up to date", "No new tracks to import.")
             return
+
+        telemetry.record("import_started", track_count=len(tracks))
+        self._edit_ctrl.push_snapshot()
 
         for track in new_tracks:
             project.add_track(track)
