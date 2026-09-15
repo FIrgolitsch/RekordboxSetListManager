@@ -146,16 +146,10 @@ class TrackMatcher:
         collection: list[Track],
         index: _CollectionIndex,
     ) -> MatchResult:
-        # A track without a title or artist has no usable match signal.
-        if not sp_track.title or not sp_track.artist:
-            return MatchResult(
-                spotify_track=sp_track,
-                local_track=None,
-                strategy=MatchStrategy.NONE,
-                score=0.0,
-            )
-
-        # 1. ISRC exact — duplicate ISRCs resolve to the lowest Rekordbox ID
+        # 1. ISRC exact — duplicate ISRCs resolve to the lowest Rekordbox ID.
+        #    Runs before the title/artist bail-out: the comparison needs
+        #    neither text field, so a track with a valid ISRC but an empty
+        #    artist (e.g. an empty Spotify artists list) can still match.
         if sp_track.isrc and sp_track.isrc in index.isrc:
             local = min(index.isrc[sp_track.isrc], key=_id_key)
             return MatchResult(
@@ -163,6 +157,15 @@ class TrackMatcher:
                 local_track=_merge(sp_track, local, MatchStrategy.ISRC, 1.0),
                 strategy=MatchStrategy.ISRC,
                 score=1.0,
+            )
+
+        # The text strategies need both a title and an artist.
+        if not sp_track.title or not sp_track.artist:
+            return MatchResult(
+                spotify_track=sp_track,
+                local_track=None,
+                strategy=MatchStrategy.NONE,
+                score=0.0,
             )
 
         # 2. Exact title + artist on the normalized index
