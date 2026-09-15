@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import logging
+from uuid import uuid4
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from rekordbox_set_list_manager.models.enums import MatchStatus, RekordboxColor, TrackSource
+from rekordbox_set_list_manager.models.section import Section
+from rekordbox_set_list_manager.models.track import Track
 from rekordbox_set_list_manager.services.rekordbox_db import (
     RekordboxDbError,
     RekordboxDbService,
     _parse_color,
 )
+from rekordbox_set_list_manager.services.skipped_item import SkippedItem
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -56,6 +61,20 @@ def _make_db(contents: list[MagicMock]) -> MagicMock:
     # Support context manager protocol
     db.__enter__ = lambda self: self
     db.__exit__ = MagicMock(return_value=False)
+    return db
+
+
+def _make_export_db() -> MagicMock:
+    """Return a mock Rekordbox6Database ready for export_set_to_db.
+
+    Configured with no existing playlists so the idempotent-delete loop is a
+    no-op; ``create_playlist`` returns a mock playlist object.
+    """
+    db = MagicMock()
+    db.__enter__ = lambda self: self
+    db.__exit__ = MagicMock(return_value=False)
+    db.get_playlist.return_value.all.return_value = []
+    db.create_playlist.return_value = MagicMock()
     return db
 
 
@@ -245,6 +264,47 @@ def test_get_collection_raises_on_db_error(mock_cls):
 
 
 # ---------------------------------------------------------------------------
+# get_collection — filepath handling
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "folder_path",
+    [
+        "C:\\music\\x.mp3",  # Windows drive-absolute
+        "D:/tracks/y.wav",  # Windows drive-absolute, forward slashes
+        "\\\\server\\share\\x.mp3",  # UNC share
+    ],
+)
+@patch("pyrekordbox.Rekordbox6Database")
+def test_get_collection_accepts_windows_absolute_paths(mock_cls, folder_path):
+    """Rekordbox on Windows stores FolderPath values like C:\\music\\x.mp3."""
+    content = _make_content(folder_path=folder_path)
+    mock_cls.return_value = _make_db([content])
+
+    tracks = RekordboxDbService().get_collection()
+
+    assert len(tracks) == 1
+    assert tracks[0].filepath == folder_path
+
+
+@pytest.mark.parametrize(
+    "folder_path",
+    [
+        "C:rel.mp3",  # drive-relative — deliberately not absolute
+        "rel/x.mp3",  # plain relative path
+        "",  # empty string
+    ],
+)
+@patch("pyrekordbox.Rekordbox6Database")
+def test_get_collection_rejects_non_absolute_paths(mock_cls, folder_path):
+    content = _make_content(folder_path=folder_path)
+    mock_cls.return_value = _make_db([content])
+
+    assert RekordboxDbService().get_collection() == []
+
+
+# ---------------------------------------------------------------------------
 # find_track_by_isrc
 # ---------------------------------------------------------------------------
 
@@ -256,7 +316,7 @@ def test_find_track_by_isrc_returns_track_when_found(mock_cls):
     db.__enter__ = lambda self: self
     db.__exit__ = MagicMock(return_value=False)
     query = MagicMock()
-    query.first.return_value = content
+    query.all.return_value = [content]
     db.get_content.return_value = query
     mock_cls.return_value = db
 
@@ -273,11 +333,130 @@ def test_find_track_by_isrc_returns_none_when_not_found(mock_cls):
     db.__enter__ = lambda self: self
     db.__exit__ = MagicMock(return_value=False)
     query = MagicMock()
-    query.first.return_value = None
+    query.all.return_value = []
     db.get_content.return_value = query
     mock_cls.return_value = db
 
     assert RekordboxDbService().find_track_by_isrc("NOTFOUND") is None
+
+
+@patch("pyrekordbox.Rekordbox6Database")
+def test_find_track_by_isrc_resolves_duplicates_to_lowest_id(mock_cls):
+    """Duplicate ISRCs resolve deterministically to the lowest content ID."""
+    high = _make_content(track_id="200", title="Dup High")
+    low = _make_content(track_id="100", title="Dup Low")
+    db = MagicMock()
+    db.__enter__ = lambda self: self
+    db.__exit__ = MagicMock(return_value=False)
+    query = MagicMock()
+    query.all.return_value = [high, low]  # DB order is not the pick order
+    db.get_content.return_value = query
+    mock_cls.return_value = db
+
+    track = RekordboxDbService().find_track_by_isrc("DEBL41500001")
+
+    assert track is not None
+    assert track.rekordbox_id == 100
+
+
+@patch("pyrekordbox.Rekordbox6Database")
+def test_find_track_by_isrc_logs_debug_on_duplicate_isrc(mock_cls, caplog):
+    """Ambiguous ISRC rows are logged at debug, not silently collapsed."""
+    db = MagicMock()
+    db.__enter__ = lambda self: self
+    db.__exit__ = MagicMock(return_value=False)
+    query = MagicMock()
+    query.all.return_value = [
+        _make_content(track_id="200"),
+        _make_content(track_id="100"),
+    ]
+    db.get_content.return_value = query
+    mock_cls.return_value = db
+
+    with caplog.at_level(
+        logging.DEBUG, logger="rekordbox_set_list_manager.services.rekordbox_db"
+    ):
+        RekordboxDbService().find_track_by_isrc("DEBL41500001")
+
+    assert any(r.levelno == logging.DEBUG for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# export_set_to_db
+# ---------------------------------------------------------------------------
+
+
+@patch("pyrekordbox.Rekordbox6Database")
+def test_export_set_to_db_writes_resolvable_tracks(mock_cls):
+    db = _make_export_db()
+    db.get_content.return_value = MagicMock()  # any lookup resolves to a row
+    mock_cls.return_value = db
+
+    track = Track(
+        title="Song", artist="Artist", rekordbox_id=42, filepath="/music/song.mp3"
+    )
+    section = Section(name="Peak", track_ids=[track.id])
+
+    exported, skipped = RekordboxDbService().export_set_to_db(
+        [section], "My Set", {track.id: track}
+    )
+
+    assert exported == 1
+    assert skipped == []
+    db.add_to_playlist.assert_called_once()
+    db.commit.assert_called_once_with()
+
+
+@patch("pyrekordbox.Rekordbox6Database")
+def test_export_set_to_db_reports_unknown_track_ids(mock_cls):
+    db = _make_export_db()
+    mock_cls.return_value = db
+
+    missing_id = uuid4()
+    section = Section(name="Peak", track_ids=[missing_id])
+
+    exported, skipped = RekordboxDbService().export_set_to_db([section], "My Set", {})
+
+    assert exported == 0
+    assert skipped == [SkippedItem(str(missing_id), "not in project tracks")]
+
+
+@patch("pyrekordbox.Rekordbox6Database")
+def test_export_set_to_db_reports_unresolvable_tracks(mock_cls):
+    db = _make_export_db()
+    db.get_content.return_value = None  # neither ID nor filepath lookup resolves
+    mock_cls.return_value = db
+
+    track = Track(title="Lost Song", artist="Lost Artist", filepath="/music/gone.mp3")
+    section = Section(name="Peak", track_ids=[track.id])
+
+    exported, skipped = RekordboxDbService().export_set_to_db(
+        [section], "My Set", {track.id: track}
+    )
+
+    assert exported == 0
+    assert skipped == [
+        SkippedItem(track.display_name, "not found in Rekordbox collection")
+    ]
+
+
+@patch("pyrekordbox.Rekordbox6Database")
+def test_export_set_to_db_reports_track_without_any_reference(mock_cls):
+    """A track with no rekordbox_id and no filepath can never resolve."""
+    db = _make_export_db()
+    mock_cls.return_value = db
+
+    track = Track(title="Stream Only", artist="Someone")
+    section = Section(name="Peak", track_ids=[track.id])
+
+    exported, skipped = RekordboxDbService().export_set_to_db(
+        [section], "My Set", {track.id: track}
+    )
+
+    assert exported == 0
+    assert len(skipped) == 1
+    assert skipped[0].reason == "not found in Rekordbox collection"
+    db.get_content.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
