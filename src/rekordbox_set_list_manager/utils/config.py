@@ -112,6 +112,10 @@ def get_recent_files() -> list[str]:
 def add_recent_file(path: str) -> None:
     """Add *path* to the top of the recent-files list (max _MAX_RECENT).
 
+    Recent-files bookkeeping is best-effort: a config-write failure
+    (unwritable config dir, full disk) is logged and swallowed so it can
+    never abort an otherwise-successful open/save in the caller.
+
     Parameters
     ----------
     path : str
@@ -123,4 +127,7 @@ def add_recent_file(path: str) -> None:
     if path in recent:
         recent.remove(path)
     recent.insert(0, path)
-    set_value("recent_files", recent[:_MAX_RECENT])
+    try:
+        set_value("recent_files", recent[:_MAX_RECENT])
+    except OSError as exc:
+        log.warning("Could not persist recent-files list: %s", exc)
