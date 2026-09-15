@@ -65,6 +65,7 @@ class ImportController(QObject):
                 _existing_streaming_ids,
                 _is_known,
             )
+
             known = _existing_streaming_ids(project)
             new_tracks = [t for t in tracks if not _is_known(t, known)]
         else:
@@ -101,9 +102,7 @@ class ImportController(QObject):
         self._edit_ctrl.notify_changed()
         telemetry.record("import_finished", track_count=len(new_tracks))
         verb = "synced" if dialog.sync_mode else "imported"
-        QMessageBox.information(
-            self._w, "Import complete", f"{len(new_tracks)} track(s) {verb}."
-        )
+        QMessageBox.information(self._w, "Import complete", f"{len(new_tracks)} track(s) {verb}.")
 
     # ------------------------------------------------------------------
     # Private helpers
