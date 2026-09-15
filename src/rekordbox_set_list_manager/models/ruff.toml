@@ -1,0 +1,8 @@
+# Layer enforcement: the domain model layer must stay Qt-free.
+# Extends the repo-root config so all other rules and per-file-ignores apply.
+extend = "../../../pyproject.toml"
+
+[lint.flake8-tidy-imports]
+banned-module-level-imports = [
+    "PySide6", # models must stay Qt-free
+]

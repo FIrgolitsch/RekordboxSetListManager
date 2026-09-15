@@ -1,0 +1,10 @@
+# Layer enforcement: services must not depend on Qt or the layers above them.
+# Extends the repo-root config so all other rules and per-file-ignores apply.
+extend = "../../../pyproject.toml"
+
+[lint.flake8-tidy-imports]
+banned-module-level-imports = [
+    "PySide6", # services must stay Qt-free
+    "rekordbox_set_list_manager.gui", # services must not import the view layer
+    "rekordbox_set_list_manager.controllers", # controllers depend on services, never the reverse
+]
