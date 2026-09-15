@@ -210,7 +210,8 @@ class RekordboxDbService:
         sections : list[Section]
             Ordered sections whose tracks will be exported.
         name : str
-            Name of the flat playlist created in the Rekordbox database.
+            Name of the playlist folder created at the root of the
+            Rekordbox database.
         tracks : dict[UUID, Track]
             Mapping of all available tracks by their UUID.
 
@@ -239,16 +240,22 @@ class RekordboxDbService:
             skipped: list[SkippedItem] = []
 
             with Rekordbox6Database() as db:
-                # Remove any existing root-level playlist with the same name so
-                # the export is idempotent (re-running replaces the old data).
+                # Remove any existing root-level playlist or folder with the
+                # same name so the export is idempotent (re-running replaces
+                # the old data). "Root-level" means the ParentID does not
+                # reference another playlist row — covering every sentinel
+                # Rekordbox/pyrekordbox uses ("root", None, "", "0", …).
+                # delete_playlist removes a folder's children recursively.
+                known_ids = {str(pl.ID) for pl in db.get_playlist().all()}
                 existing = db.get_playlist(Name=name).all()
                 for pl in existing:
-                    if pl.ParentID in ("root", None, ""):
+                    if str(pl.ParentID) not in known_ids:
                         db.delete_playlist(pl)
 
-                playlist = db.create_playlist(name)
+                folder = db.create_playlist_folder(name)
 
                 for section in sections:
+                    playlist = db.create_playlist(section.name, parent=folder)
                     for tid in section.track_ids:
                         track = tracks.get(tid)
                         if track is None:
