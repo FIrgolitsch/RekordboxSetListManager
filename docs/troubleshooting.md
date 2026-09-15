@@ -112,7 +112,7 @@ Fetching all tracks in a large playlist (1,000+ tracks) involves multiple API ca
 Rekordbox Set List Manager uses PySide6 (Qt 6).  On some Linux configurations, Wayland or GPU compositing can cause rendering issues.  Try launching with:
 
 ```bash
-QT_QPA_PLATFORM=xcb uv run set-manager
+QT_QPA_PLATFORM=xcb uv run rslm
 ```
 
 ### Reporting a bug
