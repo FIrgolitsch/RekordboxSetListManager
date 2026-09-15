@@ -19,15 +19,9 @@ dependencies = [
     "rapidfuzz>=3.13,<4",
 ]
 
+# Dev tooling lives in [dependency-groups] (uv-native, synced by default);
+# extras are only for optional install targets (dist builds, docs).
 [project.optional-dependencies]
-dev = [
-    "pytest>=9.0",
-    "pytest-qt>=4.5",
-    "pytest-cov>=6.0",
-    "coverage[toml]>=7.7",
-    "ruff>=0.15",
-    "ty>=0.0.36",
-]
 dist = [
     "pyinstaller>=6.20",
 ]
