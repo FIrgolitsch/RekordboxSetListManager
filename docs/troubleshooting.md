@@ -41,6 +41,23 @@ Tidal sessions last several months.  If yours has expired, click **Connect to Ti
 
 ---
 
+## Importing playlists
+
+### Some tracks were skipped when the playlist loaded
+
+When a streaming playlist loads, entries that cannot be imported — podcast
+episodes, empty playlist slots, tracks with no title, or unreadable entries —
+are skipped.  The status line under the track list shows how many were
+skipped, and the **Skipped details…** button next to it opens a report
+listing each skipped entry with the reason it was dropped.
+
+The same report also lists duplicate ISRCs found in your Rekordbox collection
+after running **Match with Collection**.  Those tracks are still matched —
+deterministically, to the lowest Rekordbox ID — and the report shows which
+ISRCs were ambiguous so you can clean up the duplicates in Rekordbox.
+
+---
+
 ## Rekordbox collection
 
 ### "master.db not found" / auto-detection fails
@@ -56,6 +73,7 @@ Check the following:
 1. The Rekordbox collection was loaded (the import dialog shows a track count > 0 in the Collection section).
 2. Your streaming tracks have ISRCs — check the Match Info panel.  Without ISRCs, the engine falls back to fuzzy matching, which requires reasonable artist/title data.
 3. The local files in your Rekordbox library have their metadata correctly filled in (artist + title).
+4. Several collection tracks share the same ISRC — click **Skipped details…** after matching; duplicates resolve to the lowest Rekordbox ID, so merge or re-tag the extras in Rekordbox.
 
 ### Wrong track matched
 
