@@ -12,11 +12,12 @@ rotation backup is kept.
 
 Queue
 -----
-``record()`` enqueues each event onto a single module-level ``queue.Queue``
-drained by one lazily started daemon consumer thread — never a thread per event.
-An ``atexit`` hook enqueues a sentinel and joins the consumer with a bounded
-timeout; any undelivered events are dropped rather than delaying interpreter
-exit.  Telemetry must never affect the main application.
+``record()`` enqueues each event onto the active consumer generation's
+``queue.Queue``, drained by one lazily started daemon consumer thread —
+never a thread per event.  An ``atexit`` hook enqueues a sentinel into the
+current generation's private queue and joins the consumer with a bounded
+timeout; any undelivered events are dropped rather than delaying
+interpreter exit.  Telemetry must never affect the main application.
 
 Remote sink (optional)
 ----------------------
@@ -75,43 +76,64 @@ _FLUSH_TIMEOUT = 2.0  # seconds — upper bound on exit-time drain
 # Event queue + single consumer thread
 # ---------------------------------------------------------------------------
 
-_QUEUE: queue.Queue[dict[str, Any] | None] = queue.Queue()
-_CONSUMER: threading.Thread | None = None
+class _Consumer:
+    """One consumer generation: a private queue plus the thread draining it.
+
+    The queue is per-generation so a shutdown sentinel can only ever be
+    consumed by the generation it was issued for — a racing ``record()``
+    that starts a replacement consumer can neither steal the sentinel nor
+    strand events behind it.
+    """
+
+    def __init__(self) -> None:
+        self.queue: queue.Queue[dict[str, Any] | None] = queue.Queue()
+        self.thread = threading.Thread(
+            target=_drain,
+            args=(self.queue,),
+            name="telemetry-consumer",
+            daemon=True,
+        )
+        self.thread.start()
+
+    def is_alive(self) -> bool:
+        """Return True while the consumer thread is running."""
+        return self.thread.is_alive()
+
+
+_QUEUE: queue.Queue[dict[str, Any] | None] = queue.Queue()  # active generation's queue
+_CONSUMER: _Consumer | None = None
 _CONSUMER_LOCK = threading.Lock()
 _FLUSHED = False
 _FLUSH_REGISTERED = False
 _HTTPS_WARNED = False
 
 
-def _ensure_consumer() -> None:
-    global _CONSUMER, _FLUSHED, _FLUSH_REGISTERED
+def _ensure_consumer() -> _Consumer:
+    global _CONSUMER, _FLUSHED, _FLUSH_REGISTERED, _QUEUE
     with _CONSUMER_LOCK:
         # A queued shutdown sentinel dooms the current consumer even while it
         # is still alive — anything enqueued after it would be stranded, so a
         # pending flush always means start a new generation.
         if _CONSUMER is None or not _CONSUMER.is_alive() or _FLUSHED:
-            _CONSUMER = threading.Thread(
-                target=_drain,
-                name="telemetry-consumer",
-                daemon=True,
-            )
-            _CONSUMER.start()
+            _CONSUMER = _Consumer()
+            _QUEUE = _CONSUMER.queue
             _FLUSHED = False
         if not _FLUSH_REGISTERED:
             atexit.register(_flush)
             _FLUSH_REGISTERED = True
+        return _CONSUMER
 
 
-def _drain() -> None:
+def _drain(q: queue.Queue[dict[str, Any] | None]) -> None:
     while True:
-        payload = _QUEUE.get()
+        payload = q.get()
         try:
             if payload is None:  # sentinel — clean shutdown
                 return
             _write_local(payload)
             _maybe_send_remote(payload)
         finally:
-            _QUEUE.task_done()
+            q.task_done()
 
 
 def _flush(timeout: float = _FLUSH_TIMEOUT) -> None:
@@ -124,8 +146,8 @@ def _flush(timeout: float = _FLUSH_TIMEOUT) -> None:
         if _FLUSHED or consumer is None or not consumer.is_alive():
             return
         _FLUSHED = True
-        _QUEUE.put(None)
-    consumer.join(timeout=timeout)
+        consumer.queue.put(None)
+    consumer.thread.join(timeout=timeout)
 
 
 # ---------------------------------------------------------------------------
@@ -163,8 +185,8 @@ def record(event: str, **fields: Any) -> None:  # noqa: ANN401
         "ts": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
         **safe_fields,
     }
-    _ensure_consumer()
-    _QUEUE.put_nowait(payload)
+    consumer = _ensure_consumer()
+    consumer.queue.put_nowait(payload)
 
 
 # ---------------------------------------------------------------------------
