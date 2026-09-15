@@ -208,8 +208,8 @@ class MainWindow(QMainWindow):
             self._status_unmatched.setText("")
             return
         all_ids: set = set()
+        unmatched_ids: set = set()
         total_dur = 0
-        unmatched = 0
         for sec in self._project.sections:
             for tid in sec.track_ids:
                 all_ids.add(tid)
@@ -217,13 +217,14 @@ class MainWindow(QMainWindow):
                 if track:
                     total_dur += track.duration or 0
                     if track.match_status == MatchStatus.UNMATCHED:
-                        unmatched += 1
+                        unmatched_ids.add(tid)
         mins, secs = divmod(total_dur, 60)
         hours, mins = divmod(mins, 60)
         dur_str = f"{hours}:{mins:02d}:{secs:02d}" if hours else f"{mins}:{secs:02d}"
         self._status_tracks.setText(f"Tracks: {len(all_ids)}")
         self._status_duration.setText(f"Duration: {dur_str}")
-        self._status_unmatched.setText(f"Unmatched: {unmatched}")
+        # Unique tracks, like "Tracks:" — a track in two sections counts once.
+        self._status_unmatched.setText(f"Unmatched: {len(unmatched_ids)}")
 
     # ------------------------------------------------------------ wiring
 
