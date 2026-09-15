@@ -354,7 +354,9 @@ def _backup_db_files(db_path: Path) -> None:
     )
     backup_dir.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    # Microseconds keep same-second exports from overwriting each other's
+    # backup file set.
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     for src in sorted(db_path.parent.glob("master.db*")):
         shutil.copy2(src, backup_dir / f"master-{timestamp}{src.suffix}")
 
