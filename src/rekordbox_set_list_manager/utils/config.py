@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
+import logging
+import os
 from pathlib import Path
 
 import platformdirs
+
+log = logging.getLogger(__name__)
 
 _CONFIG_DIR = Path(platformdirs.user_config_dir("rekordbox_set_list_manager"))
 _CONFIG_PATH = _CONFIG_DIR / "config.json"
@@ -13,13 +18,20 @@ _CONFIG_PATH = _CONFIG_DIR / "config.json"
 _cache: dict | None = None
 
 
+def _chmod_private(path: Path) -> None:
+    with contextlib.suppress(OSError):
+        path.chmod(0o600)
+
+
 def _load() -> dict:
     global _cache
     if _cache is None:
         if _CONFIG_PATH.exists():
+            _chmod_private(_CONFIG_PATH)
             try:
                 _cache = json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
-            except json.JSONDecodeError, OSError:
+            except (json.JSONDecodeError, OSError) as exc:
+                log.warning("Could not parse config file %s: %s", _CONFIG_PATH, exc)
                 _cache = {}
         else:
             _cache = {}
@@ -28,7 +40,14 @@ def _load() -> dict:
 
 def _save(data: dict) -> None:
     _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    _CONFIG_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    # Create the sibling tmp file with mode 0600 so the config never exists
+    # world-readable, then atomically replace the target.
+    tmp_path = _CONFIG_PATH.with_name(f"{_CONFIG_PATH.name}.tmp")
+    fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2)
+    tmp_path.replace(_CONFIG_PATH)
+    _chmod_private(_CONFIG_PATH)
 
 
 def get(key: str, default: object = None) -> object:
