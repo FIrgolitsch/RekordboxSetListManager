@@ -71,7 +71,8 @@ class ExportDialog(QDialog):
         path_row.addWidget(self._browse_btn)
 
         self._path_form = QFormLayout()
-        self._path_form.addRow("Output file", path_row)
+        self._path_label = QLabel("Output file")
+        self._path_form.addRow(self._path_label, path_row)
 
         self._status = QLabel()
 
@@ -96,6 +97,7 @@ class ExportDialog(QDialog):
     def _on_mode_changed(self) -> None:
         db_mode = self._rb_db.isChecked()
         self._db_note.setVisible(db_mode)
+        self._path_label.setVisible(not db_mode)
         self._path_edit.setVisible(not db_mode)
         self._browse_btn.setVisible(not db_mode)
 
