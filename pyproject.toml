@@ -201,6 +201,9 @@ extend-select = [
 "src/rekordbox_set_list_manager/services/spotify_service.py" = [
     "SLF001",  # sp._get() is the only way to avoid spotipy's extra type param
 ]
+"src/rekordbox_set_list_manager/services/_spotify_adapter.py" = [
+    "SLF001",  # sp._get() is the only way to avoid spotipy's extra type param
+]
 "src/rekordbox_set_list_manager/services/rekordbox_xml.py" = [
     "S314",    # XML is read from local user files, not network input
 ]
