@@ -9,7 +9,7 @@ The most common workflow is to import an entire Spotify or Tidal playlist at onc
 ### Add a track manually
 
 1. Select a section.
-2. Click **Add Track** in the section header, or press `Ctrl+T`.
+2. Right-click the section's track table → **Add track…**, or press `Ctrl+T`.
 3. Fill in the track details in the Add Track dialog:
    - **Artist** (required)
    - **Title** (required)
@@ -23,7 +23,7 @@ Manually added tracks have source `manual` and match status `unmatched` until ma
 
 ## Removing tracks
 
-Select one or more track rows and press `Delete`, or right-click → **Remove Track**.  Removing is undoable.
+Select one or more track rows and press `Delete`, or right-click → **Remove from section**.  Removing is undoable.
 
 ---
 
@@ -35,7 +35,7 @@ Drag a row to a new position within the same section, or drag it into a differen
 
 ## Filtering and sorting
 
-A **search box** at the top of each section filters tracks in real time by artist or title — useful in large sections.
+A **filter box** at the top of the section list narrows tracks in every section in real time by artist or title — useful in large projects.  Press `Ctrl+F` to jump to it.
 
 Click any **column header** to sort by that column; click again to reverse the order.  Sorting is in-memory and does not reorder the saved section.
 

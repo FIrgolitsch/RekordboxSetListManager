@@ -67,8 +67,8 @@ For Spotify you need a Client ID:
 ### Building a set
 
 1. **File → New** to start a fresh project.
-2. Right-click in the **Section Panel** (left) → **Add Set List**, then **Add Section** to build the section structure.
-3. Select a section, then use the context menu inside the **Track Table** (or **Ctrl+T**) → **Add track…** to add tracks manually, or import from a streaming service (see below).
+2. Click **+ Section** in the filter bar above the section list (or press **Ctrl+Shift+A**) to build the section structure.
+3. Select a section, then right-click inside its track table (or press **Ctrl+T**) → **Add track…** to add tracks manually, or import from a streaming service (see below).
 4. Drag rows to reorder tracks within a section.
 5. Use the **filter bar** above the track table to narrow tracks by title or artist. Click column headers to sort.
 6. Click a track to open the **Transition Note** editor below the table — write cues, key changes, or anything useful for the mix.
@@ -83,14 +83,10 @@ For Spotify you need a Client ID:
 5. Click **Match** to run the matching engine, then **Import** to add the results.
 6. Unmatched tracks can still be added as metadata-only entries.
 
-### Fetching audio features
-
-**Project → Fetch Audio Features…** authenticates with Spotify and downloads energy, danceability, and valence for all tracks that have a Spotify ID. The **energy overview bar at the bottom** visualises the set's energy arc.
-
 ### Exporting to Rekordbox
 
-**Project → Export to Rekordbox…** → choose a set list and an output `.xml` file.
-In Rekordbox: **File → Import Playlist from XML** and point to the exported file.
+**Project → Export to Rekordbox…** → choose **Export to XML file** and pick an output `.xml` file, or **Export directly to Rekordbox database** when a local Rekordbox database is detected (Rekordbox must be closed; a backup is taken automatically).
+For XML: in Rekordbox, **File → Import Playlist from XML** and point to the exported file.
 Each section appears as a sub-folder; track colors and comments carry over.
 
 ## Keyboard shortcuts
@@ -101,6 +97,11 @@ Each section appears as a sub-folder; track colors and comments carry over.
 | `Ctrl+O` | Open project |
 | `Ctrl+S` | Save project |
 | `Ctrl+Shift+S` | Save As |
+| `Ctrl+Z` | Undo |
+| `Ctrl+Y` | Redo |
+| `Ctrl+Shift+A` | Add section |
+| `Ctrl+T` | Add track to the selected section |
+| `Ctrl+F` | Focus the track filter |
 | `Delete` | Remove selected track from section |
 | `Ctrl+Q` | Quit |
 

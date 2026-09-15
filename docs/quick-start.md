@@ -20,7 +20,7 @@ Each track is fetched and immediately matched against your local Rekordbox libra
 
 A section groups related tracks and maps to a phase of your set (Opener, Build, Peak, etc.).
 
-1. Click **Add Section** in the toolbar, or use the **+** button in the section panel.
+1. Click **+ Section** in the filter bar above the section list, or press `Ctrl+Shift+A`.
 2. Give it a name and pick a **Section Type** from the dropdown (e.g. *Peak*).
 3. Click **OK**.  The section appears in the main view with its default colour.
 
@@ -48,7 +48,7 @@ Tracks are colour-coded by match status:
 | No highlight | Matched — local file found |
 | Orange text | Unmatched — no local file found yet |
 
-Click a track to see full match details in the **Match Info** panel on the right.
+Click a track to see full match details in the **Match Info** tab in the bottom panel.
 
 If a track is wrong or unmatched, right-click it and choose **Fix Match** to browse your Rekordbox library manually.
 
@@ -57,10 +57,10 @@ If a track is wrong or unmatched, right-click it and choose **Fix Match** to bro
 ## 5 — Export to Rekordbox
 
 1. Open **Project → Export to Rekordbox…**
-2. Choose a save location.
-3. Open Rekordbox and import the exported XML via **File → Import Library XML**.
+2. Choose **Export to XML file** and pick a save location — or **Export directly to Rekordbox database** if a local Rekordbox database is detected (close Rekordbox first; a backup of `master.db` is taken automatically).
+3. For XML: open Rekordbox and import the exported file via **File → Import Library XML**.
 
-Your sections appear as separate playlists inside a folder named after your project.  Each track carries the section's colour as its Rekordbox memory cue colour.
+Your sections appear as separate playlists inside a folder named after your project.  Each track carries the section's Rekordbox colour.
 
 ---
 

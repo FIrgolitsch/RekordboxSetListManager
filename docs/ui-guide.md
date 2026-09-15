@@ -7,7 +7,7 @@
 │                                                                        │
 │  Multi-section view (scrollable)                                       │
 │  ┌──────────────────────────────────────────────────────────────────┐  │
-│  │  ▶  Opener  (Aqua)          [Add track ▾]  [⋮]                  │  │
+│  │  ▶  Opener  (Aqua)                                             │  │
 │  │  ─────────────────────────────────────────────────────────────── │  │
 │  │  # │ Artist             │ Title             │ BPM │ Key │ Match  │  │
 │  │  1 │ Bicep              │ Glue              │ 128 │ Am  │ ISRC   │  │
@@ -53,13 +53,16 @@
 
 | Menu item | Description |
 |---|---|
-| Export to Rekordbox… | Export the project to a Rekordbox XML file |
+| Export to Rekordbox… | Export the project to a Rekordbox XML file or directly to the Rekordbox database |
 | Import from Streaming Service… | Import tracks from Spotify or Tidal |
 | Service Settings… | Configure Spotify credentials and telemetry |
+| Re-match with Rekordbox ▸ XML… | Re-run matching against a fresh Rekordbox XML export |
+| Re-match with Rekordbox ▸ DB | Re-run matching against the local Rekordbox database |
+| Re-match with Rekordbox ▸ Manual Re-match… | Manually assign a local file to one or more tracks |
+| Update Spotify Playlist Order | Write the section order back to the source Spotify playlist |
 | Section Name Themes… | Create/edit section-name theme presets |
-| Re-match with Rekordbox XML… | Re-run matching against a fresh Rekordbox XML export |
-| Re-match with Rekordbox DB | Re-run matching against the local Rekordbox database |
-| Manual Re-match… | Manually assign a local file to one or more tracks |
+| Recolor sections by type… | Re-apply the default colour of each section's type |
+| Rename Project… | Rename the current project (shown in the title bar and used as the export folder name) |
 
 ---
 
@@ -84,14 +87,17 @@ The central view lists all sections in order.  Each section is a collapsible blo
 
 **Sorting** — click any column header to sort; click again to reverse.
 
-**Filtering** — type in the search box above the track table to filter by artist or title.
+**Filtering** — type in the filter box at the top of the view (`Ctrl+F`) to narrow tracks in every section by artist or title.
 
 **Context menu** — right-click a track row for:
 
-- Add track above / below
-- Remove track
-- Fix Match — manually reassign the local file
-- Copy / Paste
+- Remove from section
+- Fix Match… — manually reassign the local file
+- Reveal in file manager — shown when the track has a local file
+- Add to section ▸ — move the track to another section
+- Add track… / Add from Rekordbox DB…
+
+Right-click a **section header** for section actions: **Edit Section…**, **Apply Theme** (when themes exist), **Delete Section**.
 
 ---
 

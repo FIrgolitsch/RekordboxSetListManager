@@ -25,7 +25,7 @@ The colour mapping follows the natural energy arc of a set: cool tones for low-e
 
 ## Creating a section
 
-1. Click **Add Section** (toolbar or section panel `+` button), or press `Ctrl+Shift+A`.
+1. Click **+ Section** in the filter bar above the section list, or press `Ctrl+Shift+A`.
 2. Enter a **name** (e.g. "Friday Peak").
 3. Choose a **type** from the dropdown.
 4. Click **OK**.
