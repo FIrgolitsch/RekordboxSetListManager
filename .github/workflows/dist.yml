@@ -28,7 +28,8 @@ jobs:
             archive_ext: .zip
 
           # ── macOS Intel (x86_64) ─────────────────────────────────────────
-          - os: macos-26
+          # macos-26 is arm64-only; the Intel runner label is macos-26-intel.
+          - os: macos-26-intel
             arch: x86_64
             artifact: RekordboxSetListManager-macOS-x86_64
             archive_ext: .zip
