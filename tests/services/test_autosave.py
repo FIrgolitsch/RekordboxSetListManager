@@ -69,9 +69,7 @@ def test_read_corrupt_file_returns_none(tmp_path):
 
 
 def test_write_autosave_failure_logs_warning(monkeypatch, caplog):
-    monkeypatch.setattr(
-        autosave_mod, "save_project", Mock(side_effect=OSError("disk full"))
-    )
+    monkeypatch.setattr(autosave_mod, "save_project", Mock(side_effect=OSError("disk full")))
     proj = Project(name="Fail")
 
     with caplog.at_level(logging.WARNING, logger=autosave_mod.__name__):
@@ -86,9 +84,7 @@ def test_read_autosave_failure_logs_warning(tmp_path, monkeypatch, caplog):
     proj = Project(name="Fail")
     path = tmp_path / f"{proj.id}.setmgr"
     path.write_text("x", encoding="utf-8")  # must exist so read is attempted
-    monkeypatch.setattr(
-        autosave_mod, "load_project", Mock(side_effect=OSError("io error"))
-    )
+    monkeypatch.setattr(autosave_mod, "load_project", Mock(side_effect=OSError("io error")))
 
     with caplog.at_level(logging.WARNING, logger=autosave_mod.__name__):
         assert read_autosave(proj.id) is None

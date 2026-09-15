@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import platformdirs
 
 from rekordbox_set_list_manager.services.project_io import (
-    ProjectIOError,
     load_project,
     save_project,
 )
@@ -18,6 +18,8 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from rekordbox_set_list_manager.models.project import Project
+
+log = logging.getLogger(__name__)
 
 _AUTOSAVE_DIR = Path(platformdirs.user_cache_dir("rekordbox_set_list_manager")) / "autosave"
 CRASH_LOG = Path(platformdirs.user_cache_dir("rekordbox_set_list_manager")) / "crash.log"
@@ -28,7 +30,7 @@ def _autosave_path(project_id: UUID) -> Path:
 
 
 def write_autosave(project: Project) -> None:
-    """Write *project* to the autosave slot for its id.  Silent on error.
+    """Write *project* to the autosave slot for its id.  Logs on error.
 
     Parameters
     ----------
@@ -36,9 +38,11 @@ def write_autosave(project: Project) -> None:
         The project to persist to the autosave file.
 
     """
-    with contextlib.suppress(Exception):
+    try:
         _AUTOSAVE_DIR.mkdir(parents=True, exist_ok=True)
         save_project(project, _autosave_path(project.id))
+    except Exception:
+        log.warning("Failed to write autosave", exc_info=True)
 
 
 def read_autosave(project_id: UUID) -> Project | None:
@@ -59,9 +63,11 @@ def read_autosave(project_id: UUID) -> Project | None:
     path = _autosave_path(project_id)
     if not path.exists():
         return None
-    with contextlib.suppress(ProjectIOError, Exception):
+    try:
         return load_project(path)
-    return None
+    except Exception:
+        log.warning("Failed to read autosave", exc_info=True)
+        return None
 
 
 def autosave_mtime(project_id: UUID) -> float:
@@ -79,7 +85,7 @@ def autosave_mtime(project_id: UUID) -> float:
 
     """
     path = _autosave_path(project_id)
-    with contextlib.suppress(OSError):
+    with contextlib.suppress(OSError):  # cosmetic — best-effort
         return path.stat().st_mtime
     return 0.0
 
@@ -93,5 +99,5 @@ def clear_autosave(project_id: UUID) -> None:
         The project ID whose autosave file to delete.
 
     """
-    with contextlib.suppress(OSError):
+    with contextlib.suppress(OSError):  # cosmetic — best-effort
         _autosave_path(project_id).unlink(missing_ok=True)
