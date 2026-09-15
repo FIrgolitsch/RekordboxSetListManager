@@ -147,13 +147,16 @@ class SpotifyService(StreamingService):
         try:
             page = sp.current_user_playlists(limit=50)
             while page:
-                for item in page["items"]:
-                    if item is None:
+                for item in page.get("items") or []:
+                    if not item:
+                        continue
+                    pl_id, name = item.get("id"), item.get("name")
+                    if pl_id is None or name is None:
                         continue
                     playlists.append(
                         {
-                            "id": item["id"],
-                            "name": item["name"],
+                            "id": pl_id,
+                            "name": name,
                         }
                     )
                 page = sp.next(page) if page.get("next") else None
