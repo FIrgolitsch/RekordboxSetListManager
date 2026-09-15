@@ -241,9 +241,7 @@ def test_fuzzy_score_scaled_to_zero_one(matcher):
 
 
 def test_fuzzy_threshold_boundary_85_matches(matcher, monkeypatch):
-    monkeypatch.setattr(
-        track_matcher.fuzz, "token_sort_ratio", lambda *args, **kwargs: 85.0
-    )
+    monkeypatch.setattr(track_matcher.fuzz, "token_sort_ratio", lambda *args, **kwargs: 85.0)
     sp = _spotify("Abc", "Xyz")
     local = _local("Different Title", "Xyz")
 
@@ -254,9 +252,7 @@ def test_fuzzy_threshold_boundary_85_matches(matcher, monkeypatch):
 
 
 def test_fuzzy_threshold_boundary_849_does_not_match(matcher, monkeypatch):
-    monkeypatch.setattr(
-        track_matcher.fuzz, "token_sort_ratio", lambda *args, **kwargs: 84.9
-    )
+    monkeypatch.setattr(track_matcher.fuzz, "token_sort_ratio", lambda *args, **kwargs: 84.9)
     sp = _spotify("Abc", "Xyz")
     local = _local("Different Title", "Xyz")
 
@@ -266,9 +262,7 @@ def test_fuzzy_threshold_boundary_849_does_not_match(matcher, monkeypatch):
 
 
 def test_fuzzy_tie_resolves_to_lowest_rekordbox_id(matcher, monkeypatch):
-    monkeypatch.setattr(
-        track_matcher.fuzz, "token_sort_ratio", lambda *args, **kwargs: 90.0
-    )
+    monkeypatch.setattr(track_matcher.fuzz, "token_sort_ratio", lambda *args, **kwargs: 90.0)
     sp = _spotify("Whatever", "Artist")
     high = _local("Alpha", "Artist", rekordbox_id=99)
     low = _local("Beta", "Artist", rekordbox_id=3)
