@@ -8,7 +8,7 @@ This guide gets you from a blank project to an exported Rekordbox playlist in ab
 
 1. Open **Project → Import from Streaming Service…**
 2. Select the **Spotify** tab and click **Connect**.  A browser window opens — log in and approve access.
-3. Choose a playlist from the dropdown and click **Import**.
+3. Choose a playlist from the list and click **Import**.
 
 Each track is fetched and immediately matched against your local Rekordbox library (see [Rekordbox matching](rekordbox.md#matching)).
 
@@ -58,7 +58,7 @@ If a track is wrong or unmatched, right-click it and choose **Fix Match** to bro
 
 1. Open **Project → Export to Rekordbox…**
 2. Choose **Export to XML file** and pick a save location — or **Export directly to Rekordbox database** if a local Rekordbox database is detected (close Rekordbox first; a backup of `master.db` is taken automatically).
-3. For XML: open Rekordbox and import the exported file via **File → Import Library XML**.
+3. For XML: in Rekordbox, point **Preferences → Advanced → Database → rekordbox xml → Imported Library** at the exported file, then right-click a playlist in the rekordbox xml tree and choose **Import Playlist**.
 
 Your sections appear as separate playlists inside a folder named after your project.  Each track carries the section's Rekordbox colour.
 

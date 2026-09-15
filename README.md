@@ -21,7 +21,7 @@ metadata preserved.
 ## Requirements
 
 - Python 3.14+
-- Rekordbox 7.x (for XML import/export and DB auto-detection)
+- Rekordbox 6 or 7 (for XML import/export and DB auto-detection)
 - Spotify account — optional, for playlist import
 - Tidal account — optional, for playlist import
 
@@ -86,7 +86,7 @@ For Spotify you need a Client ID:
 ### Exporting to Rekordbox
 
 **Project → Export to Rekordbox…** → choose **Export to XML file** and pick an output `.xml` file, or **Export directly to Rekordbox database** when a local Rekordbox database is detected (Rekordbox must be closed; a backup is taken automatically).
-For XML: in Rekordbox, **File → Import Playlist from XML** and point to the exported file.
+For XML: in Rekordbox, set **Preferences → Advanced → Database → rekordbox xml → Imported Library** to the exported file, then right-click a playlist in the rekordbox xml tree and choose **Import Playlist**.
 Each section appears as a sub-folder; track colors and comments carry over.
 
 ## Keyboard shortcuts

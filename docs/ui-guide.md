@@ -129,7 +129,7 @@ Shows a live summary: number of sections, total tracks, and how many are unmatch
 (undo-redo)=
 ## Undo / Redo
 
-Rekordbox Set List Manager records a JSON snapshot after every mutation.  Up to 100 states are kept.  Undo/redo works for:
+Rekordbox Set List Manager records a JSON snapshot after every mutation.  Up to 50 states are kept.  Undo/redo works for:
 
 - Adding or removing sections or tracks
 - Reordering tracks

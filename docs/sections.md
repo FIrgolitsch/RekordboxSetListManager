@@ -76,9 +76,9 @@ These are the exact colour codes baked into the Rekordbox 7 binary — no other 
 
 Click the colour swatch in the section header to open the colour picker, then click the desired colour.
 
-### Recolour all sections by type
+### Recolor all sections by type
 
-**Project → Recolour All Sections** resets every section's colour to the default for its type.  Useful after changing section types in bulk.
+**Project → Recolor sections by type…** resets every section's colour to the default for its type.  Useful after changing section types in bulk.
 
 ---
 

@@ -75,7 +75,7 @@ Once authenticated (either service):
 
 1. Open **Project → Import from Streaming Service…**
 2. Select the service tab.
-3. Choose a playlist from the dropdown.
+3. Choose a playlist from the list.
 4. Click **Match** to run the matching engine against your Rekordbox collection, then **Import**.
 5. Tracks are appended to the section currently selected in the main window.  If no section is selected, a new **Imported** section is created automatically.
 

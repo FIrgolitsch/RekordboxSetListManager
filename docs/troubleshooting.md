@@ -29,7 +29,7 @@ Try clearing the cached token:
 
 ### The device-code URL is not shown in the dialog
 
-Check the terminal window where you launched Rekordbox Set List Manager — the URL is always printed to stdout.  Copy it and open it in a browser.
+The URL is shown in the dialog as a clickable link while the login waits.  If it does not appear, click **Connect** again — the device-code link may have expired.  (Only non-GUI launches print the URL to stdout.)
 
 ### "Authentication was not completed"
 

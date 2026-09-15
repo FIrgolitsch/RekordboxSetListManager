@@ -112,8 +112,8 @@ Each playlist entry in the XML carries:
 
 ### Importing the XML into Rekordbox
 
-1. In Rekordbox, go to **File → Import Library XML** (or drag the file into the Library panel).
-2. Navigate to the folder named after your project.
-3. Drag sections into your USB stick or Hot Cue playlists as needed.
+1. In Rekordbox, open **Preferences → Advanced → Database** and point **Imported Library** (in the **rekordbox xml** section) at the exported file — enable **rekordbox xml** under **View → Layout** first if the tree entry is missing.
+2. In the rekordbox xml tree, navigate to the folder named after your project.
+3. Right-click a section playlist and choose **Import Playlist**, or drag it into your collection.
 
 > **Rekordbox 7 note:** Rekordbox 7.x reads the `Colour` field from the XML and maps it to the correct colour chip.  The nine colours exported by Rekordbox Set List Manager are verified against Rekordbox 7.2.14.  Other colour values are not supported.
