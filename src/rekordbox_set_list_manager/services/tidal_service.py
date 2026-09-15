@@ -106,7 +106,9 @@ class TidalService(StreamingService):
             except Exception as exc:
                 raise TidalServiceError(f"Authentication failed: {exc}") from exc
 
-        if not session.check_login():
+        # A restored session already passed check_login() above; only a
+        # fresh device-code login still needs verification.
+        if not loaded and not session.check_login():
             raise TidalServiceError(
                 "Tidal authentication was not completed. "
                 "Please visit the link shown and approve access."
