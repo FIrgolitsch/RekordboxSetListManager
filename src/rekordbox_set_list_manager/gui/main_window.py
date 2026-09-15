@@ -173,7 +173,7 @@ class MainWindow(QMainWindow):
         # ── Global keyboard shortcuts (not shown in any menu) ─────────────
         for shortcut, slot in [
             (QKeySequence("Ctrl+T"), self._add_track_shortcut),
-            (QKeySequence("Ctrl+Shift+S"), self._multi_section_view.add_section_interactive),
+            (QKeySequence("Ctrl+Shift+A"), self._multi_section_view.add_section_interactive),
             (QKeySequence("Ctrl+F"), self._multi_section_view.focus_filter),
         ]:
             act = QAction(self)
@@ -251,7 +251,9 @@ class MainWindow(QMainWindow):
         self._multi_section_view.section_modified.connect(self._update_statusbar)
         self._multi_section_view.project_changed.connect(self._update_statusbar)
         self._multi_section_view.add_track_requested.connect(self._add_track)
-        self._multi_section_view.add_from_rekordbox_requested.connect(self._add_track_from_rekordbox)
+        self._multi_section_view.add_from_rekordbox_requested.connect(
+            self._add_track_from_rekordbox
+        )
         self._multi_section_view.track_selected.connect(self._on_track_selected)
         self._multi_section_view.fix_match_requested.connect(self._on_fix_match)
         self._multi_section_view.import_requested.connect(self._import_ctrl.import_streaming)
