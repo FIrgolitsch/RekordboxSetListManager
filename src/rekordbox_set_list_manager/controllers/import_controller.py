@@ -94,7 +94,6 @@ class ImportController(QObject):
             self._view.scroll_to_section(section.id)
 
         self._persist_playlist_id(
-            target,
             dialog.selected_spotify_playlist_id,
             dialog.selected_tidal_playlist_id,
         )
@@ -110,7 +109,6 @@ class ImportController(QObject):
 
     def _persist_playlist_id(
         self,
-        _target: Section | None,
         spotify_pl_id: str | None,
         tidal_pl_id: str | None,
     ) -> None:
