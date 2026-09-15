@@ -514,3 +514,162 @@ def test_find_track_by_path_returns_none_when_not_found(mock_cls):
 )
 def test_parse_color(name, expected):
     assert _parse_color(name) == expected
+
+
+# ---------------------------------------------------------------------------
+# export_set_to_db — running guard and pre-export backup
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _rekordbox_not_running(monkeypatch):
+    """Stub the process check so tests never depend on local machine state."""
+    monkeypatch.setattr(
+        "rekordbox_set_list_manager.services.rekordbox_db.get_rekordbox_pid",
+        lambda *a, **k: 0,
+        raising=False,
+    )
+
+
+@patch("rekordbox_set_list_manager.services.rekordbox_db.get_rekordbox_pid")
+@patch("rekordbox_set_list_manager.services.rekordbox_db._backup_db_files")
+@patch("pyrekordbox.Rekordbox6Database")
+def test_export_set_to_db_raises_when_rekordbox_running(mock_cls, mock_backup, mock_pid):
+    mock_pid.return_value = 1234
+
+    with pytest.raises(
+        RekordboxDbError, match="Rekordbox is running — close it before exporting"
+    ):
+        RekordboxDbService().export_set_to_db([], "My Set", {})
+
+    mock_backup.assert_not_called()
+    mock_cls.assert_not_called()
+
+
+@patch("rekordbox_set_list_manager.services.rekordbox_db.get_rekordbox_pid")
+@patch("rekordbox_set_list_manager.services.rekordbox_db._backup_db_files")
+@patch(
+    "rekordbox_set_list_manager.services._pyrekordbox_adapter.rekordbox_db_candidates"
+)
+@patch("pyrekordbox.Rekordbox6Database")
+def test_export_set_to_db_backs_up_before_opening_db(
+    mock_cls, mock_candidates, mock_backup, mock_pid, tmp_path
+):
+    """The backup must complete before Rekordbox6Database opens master.db."""
+    mock_pid.return_value = 0
+    db_path = tmp_path / "master.db"
+    db_path.touch()
+    mock_candidates.return_value = [db_path]
+
+    calls = []
+    mock_backup.side_effect = lambda path: calls.append("backup")
+    db = _make_export_db()
+    mock_cls.side_effect = lambda *a, **k: (calls.append("open"), db)[1]
+
+    RekordboxDbService().export_set_to_db([], "My Set", {})
+
+    assert calls == ["backup", "open"]
+    mock_backup.assert_called_once_with(db_path)
+
+
+@patch("rekordbox_set_list_manager.services.rekordbox_db.get_rekordbox_pid")
+@patch("rekordbox_set_list_manager.services.rekordbox_db._backup_db_files")
+@patch(
+    "rekordbox_set_list_manager.services._pyrekordbox_adapter.rekordbox_db_candidates"
+)
+@patch("pyrekordbox.Rekordbox6Database")
+def test_export_set_to_db_skips_backup_when_db_path_unknown(
+    mock_cls, mock_candidates, mock_backup, mock_pid
+):
+    """No detected DB path → no backup; export still proceeds to its open."""
+    mock_pid.return_value = 0
+    mock_candidates.return_value = []
+    mock_cls.return_value = _make_export_db()
+
+    exported, skipped = RekordboxDbService().export_set_to_db([], "My Set", {})
+
+    assert exported == 0
+    assert skipped == []
+    mock_backup.assert_not_called()
+    mock_cls.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# _backup_db_files
+# ---------------------------------------------------------------------------
+
+
+def _fake_user_data_dir(monkeypatch, data_dir):
+    monkeypatch.setattr("platformdirs.user_data_dir", lambda *a, **k: str(data_dir))
+
+
+def test_backup_db_files_copies_db_and_wal_siblings(tmp_path, monkeypatch):
+    from rekordbox_set_list_manager.services.rekordbox_db import _backup_db_files
+
+    db_dir = tmp_path / "rekordbox"
+    db_dir.mkdir()
+    (db_dir / "master.db").write_bytes(b"main")
+    (db_dir / "master.db-wal").write_bytes(b"wal")
+    (db_dir / "master.db-shm").write_bytes(b"shm")
+    data_dir = tmp_path / "userdata"
+    _fake_user_data_dir(monkeypatch, data_dir)
+
+    _backup_db_files(db_dir / "master.db")
+
+    backup_dir = data_dir / "backups" / "rekordbox"
+    names = sorted(p.name for p in backup_dir.iterdir())
+    assert len(names) == 3
+    assert all(name.startswith("master-") for name in names)
+    assert {name.split("Z")[-1] for name in names} == {".db", ".db-wal", ".db-shm"}
+    for src_name, suffix in [
+        ("master.db", ".db"),
+        ("master.db-wal", ".db-wal"),
+        ("master.db-shm", ".db-shm"),
+    ]:
+        copied = next(p for p in backup_dir.iterdir() if p.name.endswith(suffix))
+        assert copied.read_bytes() == (db_dir / src_name).read_bytes()
+
+
+def test_backup_db_files_handles_missing_wal_siblings(tmp_path, monkeypatch):
+    """Without WAL mode only master.db exists — the glob still works."""
+    from rekordbox_set_list_manager.services.rekordbox_db import _backup_db_files
+
+    db_dir = tmp_path / "rekordbox"
+    db_dir.mkdir()
+    (db_dir / "master.db").write_bytes(b"main")
+    data_dir = tmp_path / "userdata"
+    _fake_user_data_dir(monkeypatch, data_dir)
+
+    _backup_db_files(db_dir / "master.db")
+
+    backup_dir = data_dir / "backups" / "rekordbox"
+    names = [p.name for p in backup_dir.iterdir()]
+    assert len(names) == 1
+    assert names[0].endswith(".db")
+
+
+def test_backup_db_files_prunes_to_last_five_groups(tmp_path, monkeypatch):
+    from rekordbox_set_list_manager.services.rekordbox_db import _backup_db_files
+
+    db_dir = tmp_path / "rekordbox"
+    db_dir.mkdir()
+    (db_dir / "master.db").write_bytes(b"main")
+    data_dir = tmp_path / "userdata"
+    backup_dir = data_dir / "backups" / "rekordbox"
+    backup_dir.mkdir(parents=True)
+    # Six pre-existing timestamp-groups (db + wal each) → the new copy makes 7.
+    for i in range(6):
+        ts = f"2020010{i}T000000Z"
+        (backup_dir / f"master-{ts}.db").write_bytes(b"old")
+        (backup_dir / f"master-{ts}.db-wal").write_bytes(b"old-wal")
+    _fake_user_data_dir(monkeypatch, data_dir)
+
+    _backup_db_files(db_dir / "master.db")
+
+    groups = {p.name.split(".")[0] for p in backup_dir.iterdir()}
+    assert len(groups) == 5
+    # The two oldest groups are pruned; the four newest old groups plus the
+    # fresh one survive.
+    assert "master-20200100T000000Z" not in groups
+    assert "master-20200101T000000Z" not in groups
+    assert "master-20200105T000000Z" in groups
