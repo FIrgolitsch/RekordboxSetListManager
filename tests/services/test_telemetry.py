@@ -38,9 +38,7 @@ def _wait_drained() -> None:
 
 
 def _record_enabled(event: str, **fields: object) -> None:
-    with patch(
-        "rekordbox_set_list_manager.services.telemetry.is_enabled", return_value=True
-    ):
+    with patch("rekordbox_set_list_manager.services.telemetry.is_enabled", return_value=True):
         telemetry.record(event, **fields)
     _wait_drained()
 
@@ -51,9 +49,7 @@ def _record_enabled(event: str, **fields: object) -> None:
 
 
 def test_record_does_nothing_when_disabled(tmp_path: Path) -> None:
-    with patch(
-        "rekordbox_set_list_manager.services.telemetry.is_enabled", return_value=False
-    ):
+    with patch("rekordbox_set_list_manager.services.telemetry.is_enabled", return_value=False):
         telemetry.record("app_start")
     log = tmp_path / "events.jsonl"
     assert not log.exists()
@@ -75,9 +71,7 @@ def test_record_writes_when_enabled(tmp_path: Path) -> None:
 
 
 def test_record_appends_multiple_events(tmp_path: Path) -> None:
-    with patch(
-        "rekordbox_set_list_manager.services.telemetry.is_enabled", return_value=True
-    ):
+    with patch("rekordbox_set_list_manager.services.telemetry.is_enabled", return_value=True):
         telemetry.record("project_open")
         telemetry.record("project_save")
     _wait_drained()
@@ -137,22 +131,20 @@ def test_record_stores_allowed_fields(tmp_path: Path) -> None:
 
 
 def test_record_admits_strategy_prefixed_fields(tmp_path: Path) -> None:
-    _record_enabled(
-        "match_strategy_used", total=3, matched=2, strategy_exact=1, strategy_fuzzy=1
-    )
+    _record_enabled("match_strategy_used", total=3, matched=2, strategy_exact=1, strategy_fuzzy=1)
     event = json.loads((tmp_path / "events.jsonl").read_text(encoding="utf-8").strip())
     assert event["strategy_exact"] == 1
     assert event["strategy_fuzzy"] == 1
 
 
 def test_record_drops_fields_not_on_allowlist(tmp_path: Path) -> None:
-    _record_enabled("app_start", version="0.1.0", password="s3cret", path="/tmp/x")
+    _record_enabled("app_start", version="0.1.0", playlist_name="Top Tracks", artist="DJ")
     raw = (tmp_path / "events.jsonl").read_text(encoding="utf-8").strip()
     event = json.loads(raw)
     assert event["version"] == "0.1.0"
-    assert "password" not in event
-    assert "path" not in event
-    assert "s3cret" not in raw
+    assert "playlist_name" not in event
+    assert "artist" not in event
+    assert "Top Tracks" not in raw
 
 
 # ---------------------------------------------------------------------------
@@ -161,9 +153,7 @@ def test_record_drops_fields_not_on_allowlist(tmp_path: Path) -> None:
 
 
 def test_multiple_records_share_one_consumer() -> None:
-    with patch(
-        "rekordbox_set_list_manager.services.telemetry.is_enabled", return_value=True
-    ):
+    with patch("rekordbox_set_list_manager.services.telemetry.is_enabled", return_value=True):
         telemetry.record("project_open")
         first = tel_mod._CONSUMER
         telemetry.record("project_save")
@@ -178,11 +168,13 @@ def test_multiple_records_share_one_consumer() -> None:
 
 
 def test_record_does_not_spawn_thread_per_event() -> None:
-    with patch(
-        "rekordbox_set_list_manager.services.telemetry.is_enabled", return_value=True
-    ), patch.object(
-        tel_mod.threading, "Thread", wraps=threading.Thread
-    ) as thread_spy:
+    # Stop any consumer left running by an earlier test so exactly one fresh
+    # consumer start can be observed here.
+    tel_mod._flush(timeout=5.0)
+    with (
+        patch("rekordbox_set_list_manager.services.telemetry.is_enabled", return_value=True),
+        patch.object(tel_mod.threading, "Thread", wraps=threading.Thread) as thread_spy,
+    ):
         telemetry.record("project_open")
         telemetry.record("project_save")
         telemetry.record("project_open")
@@ -222,9 +214,7 @@ def test_http_remote_url_rejected_with_warning(
     assert (tmp_path / "events.jsonl").exists()
 
 
-def test_https_remote_url_is_posted(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_https_remote_url_is_posted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SET_MANAGER_TELEMETRY_URL", "https://telemetry.example.com/x")
     post = Mock()
     monkeypatch.setattr(tel_mod, "_post", post)
@@ -278,9 +268,7 @@ def test_flush_join_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
         time.sleep(0.3)
 
     monkeypatch.setattr(tel_mod, "_write_local", _slow_write)
-    with patch(
-        "rekordbox_set_list_manager.services.telemetry.is_enabled", return_value=True
-    ):
+    with patch("rekordbox_set_list_manager.services.telemetry.is_enabled", return_value=True):
         telemetry.record("app_start")
 
     start = time.monotonic()

@@ -195,6 +195,9 @@ extend-select = [
 "src/rekordbox_set_list_manager/utils/config.py" = [
     "PLW0603", # module-level cache via global is intentional here
 ]
+"src/rekordbox_set_list_manager/services/telemetry.py" = [
+    "PLW0603", # module-level queue/consumer singleton state is intentional here
+]
 "src/rekordbox_set_list_manager/utils/constants.py" = [
     "ERA001",  # phase notes in comments are not dead code
 ]

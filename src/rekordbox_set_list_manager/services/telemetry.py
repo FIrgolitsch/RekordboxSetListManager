@@ -10,32 +10,48 @@ Events are written as newline-delimited JSON to
 ``events.1.jsonl``) when it reaches ``_MAX_LOG_BYTES`` (5 MB).  Only one
 rotation backup is kept.
 
+Queue
+-----
+``record()`` enqueues each event onto a single module-level ``queue.Queue``
+drained by one lazily started daemon consumer thread — never a thread per event.
+An ``atexit`` hook enqueues a sentinel and joins the consumer with a bounded
+timeout; any undelivered events are dropped rather than delaying interpreter
+exit.  Telemetry must never affect the main application.
+
 Remote sink (optional)
------------------------
-If the environment variable ``SET_MANAGER_TELEMETRY_URL`` is set and non-empty,
-batches of events are POSTed as ``application/x-ndjson`` to that URL in a
-background thread.  Failures are silently ignored — telemetry must never affect
-the main application.
+----------------------
+If the environment variable ``SET_MANAGER_TELEMETRY_URL`` is set to a non-empty
+**https** URL, events are POSTed as ``application/x-ndjson`` by the consumer
+thread.  Non-https URLs are rejected with a logged warning — telemetry may only
+leave the machine over TLS.
 
 Privacy
 -------
-No PII is collected.  File paths, playlist names, track titles, artist names,
-and user identifiers are **never** recorded.
+No PII is collected.  ``record()`` drops any field whose name is not on the
+allowlist (``version``, ``track_count``, ``total``, ``matched``, and
+``strategy_*``-prefixed names).  File paths, playlist names, track titles,
+artist names, and user identifiers are **never** recorded.
 """
 
 from __future__ import annotations
 
+import atexit
 import contextlib
 import datetime
 import json
+import logging
 import os
+import queue
 import threading
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import platformdirs
 
 from rekordbox_set_list_manager.utils.config import get as config_get
+
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Internal constants
@@ -47,6 +63,69 @@ _LOG_BACKUP = _LOG_DIR / "events.1.jsonl"
 _MAX_LOG_BYTES = 5 * 1024 * 1024  # 5 MB
 
 _CONFIG_KEY = "telemetry_enabled"
+
+# Field names observed at every record() call site, plus the strategy_ prefix
+# used for per-strategy match counts.
+_ALLOWED_FIELDS = frozenset({"version", "track_count", "total", "matched"})
+
+_FLUSH_TIMEOUT = 2.0  # seconds — upper bound on exit-time drain
+
+
+# ---------------------------------------------------------------------------
+# Event queue + single consumer thread
+# ---------------------------------------------------------------------------
+
+_QUEUE: queue.Queue[dict[str, Any] | None] = queue.Queue()
+_CONSUMER: threading.Thread | None = None
+_CONSUMER_LOCK = threading.Lock()
+_FLUSHED = False
+_FLUSH_REGISTERED = False
+_HTTPS_WARNED = False
+
+
+def _ensure_consumer() -> None:
+    global _CONSUMER, _FLUSHED, _FLUSH_REGISTERED
+    with _CONSUMER_LOCK:
+        # A queued shutdown sentinel dooms the current consumer even while it
+        # is still alive — anything enqueued after it would be stranded, so a
+        # pending flush always means start a new generation.
+        if _CONSUMER is None or not _CONSUMER.is_alive() or _FLUSHED:
+            _CONSUMER = threading.Thread(
+                target=_drain,
+                name="telemetry-consumer",
+                daemon=True,
+            )
+            _CONSUMER.start()
+            _FLUSHED = False
+        if not _FLUSH_REGISTERED:
+            atexit.register(_flush)
+            _FLUSH_REGISTERED = True
+
+
+def _drain() -> None:
+    while True:
+        payload = _QUEUE.get()
+        try:
+            if payload is None:  # sentinel — clean shutdown
+                return
+            _write_local(payload)
+            _maybe_send_remote(payload)
+        finally:
+            _QUEUE.task_done()
+
+
+def _flush(timeout: float = _FLUSH_TIMEOUT) -> None:
+    """Enqueue the shutdown sentinel and join the consumer, bounded by *timeout*."""
+    global _FLUSHED
+    with _CONSUMER_LOCK:
+        consumer = _CONSUMER
+        # One sentinel per consumer generation: enqueue only while the consumer
+        # is alive so no orphan sentinel can strand in the queue.
+        if _FLUSHED or consumer is None or not consumer.is_alive():
+            return
+        _FLUSHED = True
+        _QUEUE.put(None)
+    consumer.join(timeout=timeout)
 
 
 # ---------------------------------------------------------------------------
@@ -67,19 +146,25 @@ def record(event: str, **fields: Any) -> None:  # noqa: ANN401
     event:
         Short snake_case event name, e.g. ``"app_start"``.
     **fields:
-        Additional scalar metadata — counts, enum values, booleans.
-        No strings containing user content (paths, names, etc.).
+        Scalar metadata limited to the allowlist (``version``,
+        ``track_count``, ``total``, ``matched``, ``strategy_*``); anything
+        else is dropped.  No strings containing user content.
 
     """
     if not is_enabled():
         return
+    safe_fields = {
+        name: value
+        for name, value in fields.items()
+        if name in _ALLOWED_FIELDS or name.startswith("strategy_")
+    }
     payload: dict[str, Any] = {
         "event": event,
         "ts": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
-        **fields,
+        **safe_fields,
     }
-    _write_local(payload)
-    _maybe_send_remote(payload)
+    _ensure_consumer()
+    _QUEUE.put_nowait(payload)
 
 
 # ---------------------------------------------------------------------------
@@ -104,13 +189,23 @@ def _write_local(payload: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _maybe_send_remote(payload: dict[str, Any]) -> None:
+def _remote_url() -> str | None:
+    global _HTTPS_WARNED
     url = os.environ.get("SET_MANAGER_TELEMETRY_URL", "").strip()
     if not url:
-        return
-    # Fire-and-forget in a daemon thread — never block the UI.
-    t = threading.Thread(target=_post, args=(url, payload), daemon=True)
-    t.start()
+        return None
+    if urlparse(url).scheme != "https":
+        if not _HTTPS_WARNED:
+            _HTTPS_WARNED = True
+            log.warning("Ignoring SET_MANAGER_TELEMETRY_URL: telemetry sink must use https")
+        return None
+    return url
+
+
+def _maybe_send_remote(payload: dict[str, Any]) -> None:
+    url = _remote_url()
+    if url is not None:
+        _post(url, payload)
 
 
 def _post(url: str, payload: dict[str, Any]) -> None:
