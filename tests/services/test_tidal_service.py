@@ -97,7 +97,8 @@ def test_authenticate_logs_warning_when_session_load_fails(mock_cls, caplog):
 
     assert name == "DJ Test"
     warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
-    assert warnings and all(r.exc_info for r in warnings)
+    assert len(warnings) >= 1
+    assert all(r.exc_info for r in warnings)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file permissions")

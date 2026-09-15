@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -15,7 +16,10 @@ if TYPE_CHECKING:
 
 from rekordbox_set_list_manager.models.enums import MatchStatus, TrackSource
 from rekordbox_set_list_manager.models.track import Track
+from rekordbox_set_list_manager.services.skipped_item import SkippedItem
 from rekordbox_set_list_manager.services.streaming_base import PlaylistResult, StreamingService
+
+log = logging.getLogger(__name__)
 
 _CACHE_DIR = Path(platformdirs.user_cache_dir("rekordbox_set_list_manager"))
 _SESSION_FILE = _CACHE_DIR / "tidal_session.json"
@@ -69,10 +73,13 @@ class TidalService(StreamingService):
         _CACHE_DIR.mkdir(parents=True, exist_ok=True)
         session = tidalapi.Session()
 
-        # Fast path: load existing session from disk.
+        # Fast path: load existing session from disk; tighten a loose file first.
+        if _SESSION_FILE.exists():
+            _restrict_session_permissions()
         try:
             loaded = session.load_session_from_file(_SESSION_FILE) and session.check_login()
-        except Exception:  # noqa: BLE001
+        except Exception:
+            log.warning("Cached Tidal session could not be restored", exc_info=True)
             loaded = False
 
         if not loaded:
@@ -80,6 +87,7 @@ class TidalService(StreamingService):
             try:
                 session.login_oauth_simple(fn_print=fn)
                 session.save_session_to_file(_SESSION_FILE)
+                _restrict_session_permissions()
             except Exception as exc:
                 raise TidalServiceError(f"Authentication failed: {exc}") from exc
 
@@ -152,8 +160,9 @@ class TidalService(StreamingService):
         Returns
         -------
         PlaylistResult
-            ``(tracks, skipped)`` — Tidal does not skip items the way Spotify
-            does, so ``skipped`` is normally empty.
+            ``tracks`` holds the converted tracks; ``skipped`` holds a
+            :class:`SkippedItem` for each playlist entry that could not be
+            converted.
 
         Raises
         ------
@@ -167,8 +176,9 @@ class TidalService(StreamingService):
             raw_tracks: list = []
             limit = 100
             offset = 0
-            total = playlist.num_tracks
-            while offset < total:
+            # num_tracks is unreliable (tidalapi defaults it to -1), so keep
+            # fetching until the API returns an empty or short page.
+            while True:
                 batch = playlist.tracks(limit=limit, offset=offset)
                 if not batch:
                     break
@@ -178,7 +188,8 @@ class TidalService(StreamingService):
                     break
         except Exception as exc:
             raise TidalServiceError(f"Failed to fetch playlist tracks: {exc}") from exc
-        return PlaylistResult(tracks=[_tidal_to_track(t) for t in raw_tracks])
+        tracks, skipped = _convert_tracks(raw_tracks)
+        return PlaylistResult(tracks=tracks, skipped=skipped)
 
     def try_silent_authenticate(self) -> str | None:
         """Load a cached Tidal session without initiating device-code flow.
@@ -191,6 +202,7 @@ class TidalService(StreamingService):
         """
         if not _SESSION_FILE.exists():
             return None
+        _restrict_session_permissions()
         try:
             _CACHE_DIR.mkdir(parents=True, exist_ok=True)
             session = tidalapi.Session()
@@ -200,7 +212,9 @@ class TidalService(StreamingService):
             self._session = session
             user = cast("LoggedInUser", session.user)
             return user.username or str(user.id)
-        except Exception:  # noqa: BLE001
+        except Exception:
+            # Silent path: any failure just means "no session to restore".
+            log.debug("Silent Tidal session restore failed", exc_info=True)
             return None
 
     # ------------------------------------------------------------------
@@ -216,6 +230,29 @@ class TidalService(StreamingService):
 # ---------------------------------------------------------------------------
 # Module-level helpers
 # ---------------------------------------------------------------------------
+
+
+def _restrict_session_permissions() -> None:
+    """Restrict the OAuth session file to owner-only (0600)."""
+    try:
+        _SESSION_FILE.chmod(0o600)
+    except OSError:
+        log.debug("Could not restrict Tidal session file permissions", exc_info=True)
+
+
+def _convert_tracks(raw_tracks: list) -> tuple[list[Track], list[SkippedItem]]:
+    """Convert raw tidalapi tracks, collecting a SkippedItem per unreadable entry."""
+    tracks: list[Track] = []
+    skipped: list[SkippedItem] = []
+    for index, raw in enumerate(raw_tracks):
+        try:
+            tracks.append(_tidal_to_track(raw))
+        except Exception:  # a malformed item must not sink the whole import
+            raw_id = getattr(raw, "id", None)
+            label = str(raw_id) if raw_id is not None else f"Track at position {index + 1}"
+            skipped.append(SkippedItem(label=label, reason="could not be converted"))
+            log.debug("Skipping unreadable Tidal playlist item", exc_info=True)
+    return tracks, skipped
 
 
 def _fetch_all_playlists(session: tidalapi.Session) -> list:
