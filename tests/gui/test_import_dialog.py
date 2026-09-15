@@ -115,7 +115,7 @@ def test_import_dialog_itemizes_skipped_items(qtbot, project, monkeypatch):
 
     dialog._on_tracks_loaded()
 
-    assert dialog._details_btn.isVisible()
+    assert not dialog._details_btn.isHidden()
     assert "2 skipped" in dialog._match_label.text()
 
     captured = {}
@@ -138,7 +138,7 @@ def test_import_dialog_hides_details_button_without_skips(qtbot, project):
 
     dialog._on_tracks_loaded()
 
-    assert not dialog._details_btn.isVisible()
+    assert dialog._details_btn.isHidden()
     assert dialog._match_label.text() == "1 track(s) loaded."
 
 
@@ -157,16 +157,14 @@ def test_on_match_merges_isrc_duplicates_into_details(qtbot, project):
     dialog = ImportDialog(project)
     qtbot.addWidget(dialog)
     dialog._playlist_tracks = [Track(title="Song", artist="Artist")]
-    dialog._collection_browser._collection = [
-        Track(title="Song", artist="Artist", rekordbox_id=1)
-    ]
+    dialog._collection_browser._collection = [Track(title="Song", artist="Artist", rekordbox_id=1)]
     dialog._matcher = _StubMatcher(
         [SkippedItem(label="USX1", reason="3 tracks share this ISRC; lowest Rekordbox ID used")]
     )
 
     dialog._on_match()
 
-    assert dialog._details_btn.isVisible()
+    assert not dialog._details_btn.isHidden()
     detail = dialog._skipped_details_text()
     assert "USX1" in detail
     assert "lowest Rekordbox ID" in detail

@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMessageBox,
     QPushButton,
     QSplitter,
     QTableWidget,
@@ -26,6 +27,7 @@ from rekordbox_set_list_manager.gui.widgets.streaming.collection_browser import 
 from rekordbox_set_list_manager.gui.widgets.streaming.service_tab import StreamingServiceTab
 from rekordbox_set_list_manager.models.project import Project
 from rekordbox_set_list_manager.models.track import Track
+from rekordbox_set_list_manager.services.skipped_item import SkippedItem
 from rekordbox_set_list_manager.services.spotify_service import SpotifyService
 from rekordbox_set_list_manager.services.tidal_service import TidalService
 from rekordbox_set_list_manager.services.track_matcher import (
@@ -61,7 +63,8 @@ class ImportDialog(QDialog):
         self._playlist_tracks: list[Track] = []
         self._match_results: list[MatchResult] = []
         self._accepted: list[Track] = []
-        self._skipped_count: int = 0
+        self._skipped_items: list[SkippedItem] = []
+        self._isrc_duplicates: list[SkippedItem] = []
         self._selected_spotify_playlist_id: str | None = None
         self._selected_tidal_playlist_id: str | None = None
 
@@ -139,10 +142,17 @@ class ImportDialog(QDialog):
         self._match_btn.clicked.connect(self._on_match)
         self._match_btn.setEnabled(False)
         self._match_label = QLabel("")
+        self._details_btn = QPushButton("Skipped details…")
+        self._details_btn.setToolTip(
+            "Show which playlist entries were skipped and which duplicate ISRCs were resolved."
+        )
+        self._details_btn.setVisible(False)
+        self._details_btn.clicked.connect(self._show_skipped_details)
 
         match_row = QHBoxLayout()
         match_row.addWidget(self._match_btn)
         match_row.addWidget(self._match_label)
+        match_row.addWidget(self._details_btn)
         match_row.addStretch()
 
         # --- Sync checkbox (only useful when re-importing a known playlist) ---
@@ -151,9 +161,7 @@ class ImportDialog(QDialog):
             "When checked, only tracks not already in this project will be added."
         )
         # Show the checkbox when the project has a stored playlist ID.
-        has_stored = bool(
-            self._project.spotify_playlist_id or self._project.tidal_playlist_id
-        )
+        has_stored = bool(self._project.spotify_playlist_id or self._project.tidal_playlist_id)
         self._sync_cb.setVisible(has_stored)
         self._sync_cb.setChecked(has_stored)  # default ON when re-importing
         self._sync_cb.stateChanged.connect(self._update_import_button)
@@ -198,10 +206,12 @@ class ImportDialog(QDialog):
     # Slots
     # ------------------------------------------------------------------
 
-    def _on_spotify_tracks(self, tracks: list[Track], skipped: int, playlist_id: str) -> None:
+    def _on_spotify_tracks(
+        self, tracks: list[Track], skipped: list[SkippedItem], playlist_id: str
+    ) -> None:
         self._selected_spotify_playlist_id = playlist_id
         self._selected_tidal_playlist_id = None
-        self._skipped_count = skipped
+        self._skipped_items = skipped
         self._playlist_tracks = tracks
         # Show the sync checkbox when this is the playlist the project was imported from.
         is_known = playlist_id == self._project.spotify_playlist_id
@@ -209,10 +219,12 @@ class ImportDialog(QDialog):
         self._sync_cb.setChecked(is_known)
         self._on_tracks_loaded()
 
-    def _on_tidal_tracks(self, tracks: list[Track], skipped: int, playlist_id: str) -> None:
+    def _on_tidal_tracks(
+        self, tracks: list[Track], skipped: list[SkippedItem], playlist_id: str
+    ) -> None:
         self._selected_tidal_playlist_id = playlist_id
         self._selected_spotify_playlist_id = None
-        self._skipped_count = skipped
+        self._skipped_items = skipped
         self._playlist_tracks = tracks
         # Show the sync checkbox when this is the playlist the project was imported from.
         is_known = playlist_id == self._project.tidal_playlist_id
@@ -223,14 +235,17 @@ class ImportDialog(QDialog):
     def _on_tracks_loaded(self) -> None:
         """Refresh the track table after any service tab populates self._playlist_tracks."""
         self._match_results = []
+        self._isrc_duplicates = []
         self._refresh_track_table(self._playlist_tracks)
         count = len(self._playlist_tracks)
-        if self._skipped_count:
+        skipped_count = len(self._skipped_items)
+        if skipped_count:
             self._match_label.setText(
-                f"{count} track(s) loaded, {self._skipped_count} skipped (no title / null)."
+                f"{count} track(s) loaded, {skipped_count} skipped — see Skipped details."
             )
         else:
             self._match_label.setText(f"{count} track(s) loaded.")
+        self._update_details_button()
         self._update_import_button()
         if self._collection_browser.collection:
             self._match_btn.setEnabled(True)
@@ -246,11 +261,16 @@ class ImportDialog(QDialog):
         self._match_results = self._matcher.match(
             self._playlist_tracks, self._collection_browser.collection
         )
+        # Ambiguous-but-resolved ISRC groups go on the same details surface as
+        # fetch-time skips so the user sees exactly what the matcher decided.
+        self._isrc_duplicates = list(self._matcher.isrc_duplicates)
         matched = sum(1 for r in self._match_results if r.strategy != MatchStrategy.NONE)
         unmatched = len(self._match_results) - matched
-        self._match_label.setText(
-            f"{matched} matched, {unmatched} unmatched (imported without local file)"
-        )
+        label = f"{matched} matched, {unmatched} unmatched (imported without local file)"
+        if self._isrc_duplicates:
+            label += f" — {len(self._isrc_duplicates)} duplicate ISRC group(s), see Skipped details"
+        self._match_label.setText(label)
+        self._update_details_button()
         merged = [
             r.local_track if r.local_track is not None else r.spotify_track
             for r in self._match_results
@@ -288,6 +308,44 @@ class ImportDialog(QDialog):
     # Helpers
     # ------------------------------------------------------------------
 
+    def _update_details_button(self) -> None:
+        self._details_btn.setVisible(bool(self._skipped_items or self._isrc_duplicates))
+
+    def _skipped_details_text(self) -> str:
+        """Itemized label — reason lines for the skipped/resolved report."""
+        lines: list[str] = []
+        if self._skipped_items:
+            lines.append("Skipped playlist entries:")
+            lines.extend(f"  {item.label} — {item.reason}" for item in self._skipped_items)
+        if self._isrc_duplicates:
+            if lines:
+                lines.append("")
+            lines.append("Duplicate ISRCs in collection:")
+            lines.extend(f"  {item.label} — {item.reason}" for item in self._isrc_duplicates)
+        return "\n".join(lines)
+
+    def _show_skipped_details(self) -> None:
+        """Show the itemized skipped/resolved report in a detailed-text message box."""
+        if not (self._skipped_items or self._isrc_duplicates):
+            return
+        parts = []
+        if self._skipped_items:
+            parts.append(f"{len(self._skipped_items)} playlist entries were skipped")
+        if self._isrc_duplicates:
+            parts.append(
+                f"{len(self._isrc_duplicates)} duplicate ISRC group(s) were resolved "
+                "to the lowest Rekordbox ID"
+            )
+        msg_box = QMessageBox(
+            QMessageBox.Icon.Information,
+            "Skipped and resolved items",
+            " and ".join(parts) + ".\nExpand below for the itemized list.",
+            QMessageBox.StandardButton.Ok,
+            self,
+        )
+        msg_box.setDetailedText(self._skipped_details_text())
+        msg_box.exec()
+
     def _refresh_track_table(
         self, tracks: list[Track], matched_files: list[str | None] | None = None
     ) -> None:
@@ -316,9 +374,7 @@ class ImportDialog(QDialog):
         if self._sync_cb.isVisible() and self._sync_cb.isChecked():
             new_count = self._count_new_tracks()
             self._ok_btn.setEnabled(new_count > 0)
-            self._ok_btn.setText(
-                f"Add {new_count} new track(s)" if new_count else "No new tracks"
-            )
+            self._ok_btn.setText(f"Add {new_count} new track(s)" if new_count else "No new tracks")
         else:
             self._ok_btn.setEnabled(total > 0)
             self._ok_btn.setText(f"Import {total} track(s)" if total else "Import")
@@ -349,9 +405,7 @@ def _existing_streaming_ids(project: Project) -> tuple[set[str], set[str], set[s
     return spotify_ids, tidal_ids, isrcs
 
 
-def _is_known(
-    track: Track, known: tuple[set[str], set[str], set[str]]
-) -> bool:
+def _is_known(track: Track, known: tuple[set[str], set[str], set[str]]) -> bool:
     """Return True if *track* is already represented in the project."""
     spotify_ids, tidal_ids, isrcs = known
     if track.spotify_id and track.spotify_id in spotify_ids:

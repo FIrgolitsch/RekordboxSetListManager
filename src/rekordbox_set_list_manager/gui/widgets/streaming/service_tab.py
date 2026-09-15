@@ -20,18 +20,20 @@ from rekordbox_set_list_manager.gui.widgets.common.busy_dialog import BusyDialog
 from rekordbox_set_list_manager.gui.widgets.streaming.auth_worker import StreamingAuthWorker
 
 if TYPE_CHECKING:
-    from rekordbox_set_list_manager.models.track import Track
-    from rekordbox_set_list_manager.services.streaming_base import StreamingService
+    from rekordbox_set_list_manager.services.streaming_base import (
+        PlaylistResult,
+        StreamingService,
+    )
 
 
 class StreamingServiceTab(QWidget):
     """Reusable tab for a single streaming service (Spotify or Tidal).
 
     Emits :attr:`tracks_loaded` when the user selects a playlist, passing
-    ``(tracks, skipped_count, playlist_id)``.
+    ``(tracks, skipped_items, playlist_id)``.
     """
 
-    tracks_loaded = Signal(list, int, str)  # tracks, skipped, playlist_id
+    tracks_loaded = Signal(list, list, str)  # tracks, skipped items, playlist_id
 
     def __init__(self, service: StreamingService, parent: QWidget | None = None) -> None:
         """Initialise the streaming service tab for *service*."""
@@ -167,7 +169,5 @@ class StreamingServiceTab(QWidget):
             if error:
                 show_error_dialog(self, "Error loading tracks", error)
             return
-        tracks: list[Track]
-        skipped: int
-        tracks, skipped = result  # type: ignore[assignment]
-        self.tracks_loaded.emit(tracks, skipped, pl_id)
+        playlist_result: PlaylistResult = result  # type: ignore[assignment]
+        self.tracks_loaded.emit(playlist_result.tracks, playlist_result.skipped, pl_id)

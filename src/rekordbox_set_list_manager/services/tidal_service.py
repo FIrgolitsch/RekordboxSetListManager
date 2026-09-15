@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 from rekordbox_set_list_manager.models.enums import MatchStatus, TrackSource
 from rekordbox_set_list_manager.models.track import Track
-from rekordbox_set_list_manager.services.streaming_base import StreamingService
+from rekordbox_set_list_manager.services.streaming_base import PlaylistResult, StreamingService
 
 _CACHE_DIR = Path(platformdirs.user_cache_dir("rekordbox_set_list_manager"))
 _SESSION_FILE = _CACHE_DIR / "tidal_session.json"
@@ -141,7 +141,7 @@ class TidalService(StreamingService):
     # Tracks
     # ------------------------------------------------------------------
 
-    def get_playlist_tracks(self, playlist_id: str) -> tuple[list[Track], int]:
+    def get_playlist_tracks(self, playlist_id: str) -> PlaylistResult:
         """Fetch all tracks from *playlist_id* and return as Track objects.
 
         Parameters
@@ -151,9 +151,9 @@ class TidalService(StreamingService):
 
         Returns
         -------
-        tuple[list[Track], int]
-            ``(tracks, 0)`` — Tidal does not skip items the way Spotify does,
-            so the skipped count is always ``0``.
+        PlaylistResult
+            ``(tracks, skipped)`` — Tidal does not skip items the way Spotify
+            does, so ``skipped`` is normally empty.
 
         Raises
         ------
@@ -178,7 +178,7 @@ class TidalService(StreamingService):
                     break
         except Exception as exc:
             raise TidalServiceError(f"Failed to fetch playlist tracks: {exc}") from exc
-        return [_tidal_to_track(t) for t in raw_tracks], 0
+        return PlaylistResult(tracks=[_tidal_to_track(t) for t in raw_tracks])
 
     def try_silent_authenticate(self) -> str | None:
         """Load a cached Tidal session without initiating device-code flow.

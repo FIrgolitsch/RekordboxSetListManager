@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -14,8 +15,14 @@ if TYPE_CHECKING:
 
 from rekordbox_set_list_manager.models.enums import MatchStatus, TrackSource
 from rekordbox_set_list_manager.models.track import Track
-from rekordbox_set_list_manager.services.streaming_base import StreamingService
+from rekordbox_set_list_manager.services._spotify_adapter import (
+    SecureCacheFileHandler,
+    fetch_playlist_items,
+)
+from rekordbox_set_list_manager.services.streaming_base import PlaylistResult, StreamingService
 from rekordbox_set_list_manager.utils import config
+
+log = logging.getLogger(__name__)
 
 _CACHE_DIR = Path(platformdirs.user_cache_dir("rekordbox_set_list_manager"))
 
@@ -83,7 +90,7 @@ class SpotifyService(StreamingService):
             client_id=str(client_id),
             redirect_uri=self.REDIRECT_URI,
             scope=self.SCOPES,
-            cache_path=str(self._CACHE_PATH),
+            cache_handler=SecureCacheFileHandler(cache_path=str(self._CACHE_PATH)),
             open_browser=True,
         )
         self._sp = spotipy.Spotify(auth_manager=auth_manager)
@@ -148,7 +155,7 @@ class SpotifyService(StreamingService):
     # Tracks
     # ------------------------------------------------------------------
 
-    def get_playlist_tracks(self, playlist_id: str) -> tuple[list[Track], int]:
+    def get_playlist_tracks(self, playlist_id: str) -> PlaylistResult:
         """Fetch all tracks from *playlist_id* and return as :class:`Track` objects.
 
         Parameters
@@ -158,11 +165,12 @@ class SpotifyService(StreamingService):
 
         Returns
         -------
-        tuple[list[Track], int]
-            ``(tracks, skipped)`` where *skipped* is the count of items that
-            could not be imported (local files without a Spotify ID, null entries,
-            etc.).  Each track has ``source=SPOTIFY``, ``spotify_id``, ``isrc``
-            (if available), and ``match_status=UNMATCHED``.
+        PlaylistResult
+            ``tracks`` holds the importable tracks — each with
+            ``source=SPOTIFY``, ``spotify_id``, ``isrc`` (if available), and
+            ``match_status=UNMATCHED``.  ``skipped`` holds a
+            :class:`SkippedItem` per dropped entry (null slots, episodes,
+            nameless tracks).
 
         Raises
         ------
@@ -171,42 +179,15 @@ class SpotifyService(StreamingService):
 
         """
         sp = self._require_auth()
-        tracks: list[Track] = []
-        skipped = 0
         try:
-            # Use sp._get() directly to avoid spotipy's additional_types default
-            # ("track,episode"), which causes the Spotify API to nullify track fields
-            # for some playlists. Without additional_types only track items are returned.
-            offset = 0
-            while True:
-                page = sp._get(  # type: ignore[attr-defined]
-                    f"playlists/{playlist_id}/items",
-                    limit=100,
-                    offset=offset,
-                    market="from_token",
-                )
-                items = page.get("items") or []
-                if offset == 0 and not items:
-                    break
-                for item in items:
-                    # Spotify API (post-2025) returns track data under "item";
-                    # older responses used "track". Try "item" first.
-                    track_data = (item.get("item") or item.get("track")) if item else None
-                    if not track_data or track_data.get("type") == "episode":
-                        skipped += 1
-                        continue
-                    # Tracks with no name are unresolvable (e.g. unavailable in region).
-                    if not track_data.get("name"):
-                        skipped += 1
-                        continue
-                    tracks.append(_item_to_track(track_data))
-                if not page.get("next"):
-                    break
-                offset += 100
+            track_dicts, skipped = fetch_playlist_items(sp, playlist_id)
         except spotipy.SpotifyException as exc:
             raise SpotifyServiceError(f"Failed to fetch playlist tracks: {exc}") from exc
 
-        return tracks, skipped
+        return PlaylistResult(
+            tracks=[_item_to_track(data) for data in track_dicts],
+            skipped=skipped,
+        )
 
     def replace_playlist_tracks(self, playlist_id: str, spotify_uris: list[str]) -> str:
         """Replace all tracks in *playlist_id* with *spotify_uris* in order.
@@ -255,13 +236,14 @@ class SpotifyService(StreamingService):
                 client_id=str(client_id),
                 redirect_uri=self.REDIRECT_URI,
                 scope=self.SCOPES,
-                cache_path=str(self._CACHE_PATH),
+                cache_handler=SecureCacheFileHandler(cache_path=str(self._CACHE_PATH)),
                 open_browser=False,
             )
             self._sp = spotipy.Spotify(auth_manager=auth_manager)
             user = self._sp.current_user()
             return user.get("display_name") or user.get("id") or "Unknown user"
-        except Exception:  # noqa: BLE001
+        except Exception:
+            log.warning("Cached Spotify session could not be restored", exc_info=True)
             self._sp = None
             return None
 

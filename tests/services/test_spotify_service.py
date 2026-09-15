@@ -255,9 +255,7 @@ def test_get_playlist_tracks_skips_nameless_tracks(mock_spotify_cls, mock_pkce_c
 @patch("rekordbox_set_list_manager.services.spotify_service.fetch_playlist_items")
 @patch("rekordbox_set_list_manager.services.spotify_service.SpotifyPKCE")
 @patch("rekordbox_set_list_manager.services.spotify_service.spotipy.Spotify")
-def test_get_playlist_tracks_uses_adapter(
-    mock_spotify_cls, mock_pkce_cls, mock_fetch, service
-):
+def test_get_playlist_tracks_uses_adapter(mock_spotify_cls, mock_pkce_cls, mock_fetch, service):
     """The service delegates pagination to the adapter and converts its dicts."""
     config.set_value("spotify_client_id", "test-client-id")
     mock_sp = MagicMock()

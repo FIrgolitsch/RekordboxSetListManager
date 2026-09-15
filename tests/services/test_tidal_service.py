@@ -209,11 +209,11 @@ def test_get_playlist_tracks_returns_tracks(mock_cls):
 
     svc = TidalService()
     svc.authenticate()
-    tracks, skipped = svc.get_playlist_tracks("pl-uuid")
+    result = svc.get_playlist_tracks("pl-uuid")
 
-    assert skipped == 0
-    assert len(tracks) == 1
-    t = tracks[0]
+    assert result.skipped == []
+    assert len(result.tracks) == 1
+    t = result.tracks[0]
     assert t.title == "Hey Jude"
     assert t.artist == "The Beatles"
     assert t.duration == 300
@@ -233,9 +233,9 @@ def test_get_playlist_tracks_handles_missing_isrc(mock_cls):
 
     svc = TidalService()
     svc.authenticate()
-    tracks, _ = svc.get_playlist_tracks("pl-uuid")
+    result = svc.get_playlist_tracks("pl-uuid")
 
-    assert tracks[0].isrc is None
+    assert result.tracks[0].isrc is None
 
 
 @patch("tidalapi.Session")

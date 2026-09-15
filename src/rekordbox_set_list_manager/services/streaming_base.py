@@ -3,12 +3,32 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from rekordbox_set_list_manager.models.track import Track
+    from rekordbox_set_list_manager.services.skipped_item import SkippedItem
+
+
+@dataclass
+class PlaylistResult:
+    """Outcome of fetching a playlist's tracks from a streaming service.
+
+    Attributes
+    ----------
+    tracks : list[Track]
+        Playlist entries that could be imported as :class:`Track` objects.
+    skipped : list[SkippedItem]
+        Entries that were dropped (null slots, episodes, nameless or
+        unreadable items), each carrying a label and the reason why.
+
+    """
+
+    tracks: list[Track] = field(default_factory=list)
+    skipped: list[SkippedItem] = field(default_factory=list)
 
 
 class StreamingService(ABC):
@@ -82,7 +102,7 @@ class StreamingService(ABC):
         """
 
     @abstractmethod
-    def get_playlist_tracks(self, playlist_id: str) -> tuple[list[Track], int]:
+    def get_playlist_tracks(self, playlist_id: str) -> PlaylistResult:
         """Fetch all tracks from *playlist_id*.
 
         Parameters
@@ -92,9 +112,9 @@ class StreamingService(ABC):
 
         Returns
         -------
-        tuple[list[Track], int]
-            ``(tracks, skipped)`` where *skipped* is the count of items that
-            could not be imported.  For services that do not track skipped items,
-            *skipped* is ``0``.
+        PlaylistResult
+            The importable tracks plus one :class:`SkippedItem` per playlist
+            entry that could not be imported.  For services that do not track
+            skipped items, ``skipped`` is empty.
 
         """
