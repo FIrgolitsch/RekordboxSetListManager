@@ -537,9 +537,7 @@ def _rekordbox_not_running(monkeypatch):
 def test_export_set_to_db_raises_when_rekordbox_running(mock_cls, mock_backup, mock_pid):
     mock_pid.return_value = 1234
 
-    with pytest.raises(
-        RekordboxDbError, match="Rekordbox is running — close it before exporting"
-    ):
+    with pytest.raises(RekordboxDbError, match="Rekordbox is running — close it before exporting"):
         RekordboxDbService().export_set_to_db([], "My Set", {})
 
     mock_backup.assert_not_called()
@@ -548,9 +546,7 @@ def test_export_set_to_db_raises_when_rekordbox_running(mock_cls, mock_backup, m
 
 @patch("rekordbox_set_list_manager.services.rekordbox_db.get_rekordbox_pid")
 @patch("rekordbox_set_list_manager.services.rekordbox_db._backup_db_files")
-@patch(
-    "rekordbox_set_list_manager.services._pyrekordbox_adapter.rekordbox_db_candidates"
-)
+@patch("rekordbox_set_list_manager.services._pyrekordbox_adapter.rekordbox_db_candidates")
 @patch("pyrekordbox.Rekordbox6Database")
 def test_export_set_to_db_backs_up_before_opening_db(
     mock_cls, mock_candidates, mock_backup, mock_pid, tmp_path
@@ -574,9 +570,7 @@ def test_export_set_to_db_backs_up_before_opening_db(
 
 @patch("rekordbox_set_list_manager.services.rekordbox_db.get_rekordbox_pid")
 @patch("rekordbox_set_list_manager.services.rekordbox_db._backup_db_files")
-@patch(
-    "rekordbox_set_list_manager.services._pyrekordbox_adapter.rekordbox_db_candidates"
-)
+@patch("rekordbox_set_list_manager.services._pyrekordbox_adapter.rekordbox_db_candidates")
 @patch("pyrekordbox.Rekordbox6Database")
 def test_export_set_to_db_skips_backup_when_db_path_unknown(
     mock_cls, mock_candidates, mock_backup, mock_pid

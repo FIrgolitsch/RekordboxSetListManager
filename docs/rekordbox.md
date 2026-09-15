@@ -74,6 +74,20 @@ The match status changes to `manually_matched`.  The fix is preserved through re
 
 ---
 
+## Exporting directly to the Rekordbox database
+
+**Project → Export to Rekordbox…** can also write your set list straight into the Rekordbox database (`master.db`) as a playlist folder — no XML import step needed.
+
+This is a write operation against your Rekordbox library, so two safeguards apply:
+
+- **Rekordbox must be closed.** If Rekordbox is running when you export, the export is refused with *"Rekordbox is running — close it before exporting"* and nothing is written. The background `rekordboxAgent` process does not count — only the main Rekordbox application blocks the export.
+- **A backup is taken first.** Immediately before the database is opened, `master.db` and its `-wal`/`-shm` siblings are copied to the app data directory under `backups/rekordbox/` as a `master-<UTC timestamp>.db*` file set. Only the five most recent backups are kept; older ones are pruned automatically.
+  - macOS: `~/Library/Application Support/rekordbox_set_list_manager/backups/rekordbox/`
+
+After the export, the completion message reports how many tracks were written. Any tracks that could not be resolved in your Rekordbox collection are listed item-by-item (name and reason) under the message's **Show Details** section — nothing is silently dropped.
+
+---
+
 ## Exporting to Rekordbox XML
 
 **Project → Export to Rekordbox…** generates a `DJ_PLAYLISTS` XML file.

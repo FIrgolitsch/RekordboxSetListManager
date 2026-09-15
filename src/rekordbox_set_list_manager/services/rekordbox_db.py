@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import logging
+import shutil
+from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING, Any
+
+import platformdirs
 
 from rekordbox_set_list_manager.models.enums import MatchStatus, RekordboxColor, TrackSource
 from rekordbox_set_list_manager.models.track import Track
@@ -16,6 +20,10 @@ if TYPE_CHECKING:
     from rekordbox_set_list_manager.models.section import Section
 
 log = logging.getLogger(__name__)
+
+# Number of pre-export backup timestamp-groups kept under
+# ``<user data dir>/backups/rekordbox/``; older groups are pruned.
+_BACKUP_KEEP = 5
 
 # Map DjmdColor.Commnt values (case-insensitive) to RekordboxColor
 _COLOR_NAME_MAP: dict[str, RekordboxColor] = {
@@ -216,9 +224,14 @@ class RekordboxDbService:
         Raises
         ------
         RekordboxDbError
-            If the database cannot be opened, written, or committed.
+            If Rekordbox is running, the pre-export backup fails, or the
+            database cannot be opened, written, or committed.
 
         """
+        # Guard + backup run before the try so their RekordboxDbErrors reach
+        # the caller unwrapped and unambiguous.
+        self._prepare_export()
+
         try:
             from pyrekordbox import Rekordbox6Database  # noqa: PLC0415
 
@@ -270,10 +283,82 @@ class RekordboxDbService:
         else:
             return exported, skipped
 
+    def _prepare_export(self) -> None:
+        """Guard against a running Rekordbox and back up the DB files.
+
+        Raises
+        ------
+        RekordboxDbError
+            If Rekordbox is running, if the running check itself fails
+            (fail closed — exporting without the guard is unsafe), or if the
+            pre-export backup cannot be completed.
+        """
+        try:
+            pid = get_rekordbox_pid()
+        except Exception as exc:
+            raise RekordboxDbError(f"Could not check whether Rekordbox is running: {exc}") from exc
+        if pid:
+            raise RekordboxDbError("Rekordbox is running — close it before exporting")
+
+        # Snapshot master.db (and its WAL/SHM siblings) before opening so a
+        # failed export can never leave the library unrecoverable.
+        db_path = self.get_db_path()
+        if db_path is None:
+            return
+        try:
+            _backup_db_files(db_path)
+        except Exception as exc:
+            raise RekordboxDbError(f"Could not back up Rekordbox database: {exc}") from exc
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def get_rekordbox_pid() -> int:
+    """Return the Rekordbox process ID, or 0 when it is not running.
+
+    Thin wrapper around ``pyrekordbox.utils.get_rekordbox_pid`` so the heavy
+    pyrekordbox package import stays deferred to call time.  pyrekordbox
+    matches the process name exactly (``.exe`` stripped), so the always-on
+    ``rekordboxAgent`` background process does not count.
+    """
+    from pyrekordbox import utils  # noqa: PLC0415
+
+    return utils.get_rekordbox_pid()
+
+
+def _backup_db_files(db_path: Path) -> None:
+    """Snapshot ``master.db`` and its WAL/SHM siblings into the backup dir.
+
+    Every sibling matching ``master.db*`` in the database's directory is
+    copied to ``<user data dir>/backups/rekordbox/master-<UTC ts>.db*`` with
+    permissions preserved.  Afterwards only the newest ``_BACKUP_KEEP``
+    timestamp-groups are kept; older ones are deleted.
+
+    Parameters
+    ----------
+    db_path : Path
+        Path to the Rekordbox ``master.db`` file.
+    """
+    backup_dir = (
+        Path(platformdirs.user_data_dir("rekordbox_set_list_manager")) / "backups" / "rekordbox"
+    )
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    for src in sorted(db_path.parent.glob("master.db*")):
+        shutil.copy2(src, backup_dir / f"master-{timestamp}{src.suffix}")
+
+    # A backup is a file set: group by the timestamp prefix and drop whole
+    # groups so a pruned set never loses its WAL/SHM siblings.
+    groups: dict[str, list[Path]] = {}
+    for file in backup_dir.glob("master-*.db*"):
+        groups.setdefault(file.name.split(".")[0], []).append(file)
+    for key in sorted(groups)[:-_BACKUP_KEEP]:
+        for file in groups[key]:
+            file.unlink()
 
 
 def _content_to_track(content: Any) -> Track | None:  # noqa: ANN401
