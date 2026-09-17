@@ -34,14 +34,15 @@ def _fingerprint(dump: str) -> bytes:
 class EditController(QObject):
     """Routes all model mutations through a single controller with undo/redo.
 
-    Every public method:
-      1. Pushes a JSON snapshot onto the undo stack.
-      2. Mutates the project.
-      3. Emits ``project_changed``.
+    Every public method delegates to :meth:`apply_mutation`, which
+    fingerprints the project before and after the mutation: a changed
+    fingerprint pushes the pre-state snapshot onto the undo stack, marks
+    the project dirty, and emits ``project_changed``; an unchanged
+    fingerprint records nothing.
 
     Signals
     -------
-    project_changed : emitted after every mutation.
+    project_changed : emitted after every effective mutation.
     """
 
     project_changed = Signal()
@@ -484,25 +485,11 @@ class EditController(QObject):
         self._pending_merge = None
         self._stack.clear()
 
-    def push_snapshot(self) -> None:
-        """Push current project state onto undo stack (for external callers)."""
-        proj = self._require()
-        if proj is not None:
-            self._push(proj)
-
-    def notify_changed(self) -> None:
-        """Mark project dirty and emit project_changed (for external callers).
-
-        Use when a mutation was performed outside the EditController but should
-        still be reflected in the undo stack bookkeeping and UI state.
-        """
-        self._emit()
-
     def set_transition_note(self, section_id: UUID, track_id: UUID, text: str) -> None:
-        """Update a transition note without pushing a snapshot.
+        """Update a transition note through the mutation funnel.
 
-        The caller is responsible for pushing a snapshot beforehand
-        (typically via :meth:`push_snapshot` triggered by ``about_to_modify``).
+        Every call is funneled with a per-note merge key so consecutive
+        edits to the same note coalesce into a single undo entry.
 
         Parameters
         ----------
@@ -514,18 +501,18 @@ class EditController(QObject):
             The note text.  An empty string removes the note.
 
         """
-        proj = self._require()
-        if proj is None:
-            return
-        sec = proj.get_section(section_id)
-        if sec is None:
-            return
-        key = str(track_id)
-        if text:
-            sec.transition_notes[key] = text
-        else:
-            sec.transition_notes.pop(key, None)
-        self._emit()
+
+        def _mutate(proj: Project) -> None:
+            sec = proj.get_section(section_id)
+            if sec is None:
+                return
+            key = str(track_id)
+            if text:
+                sec.transition_notes[key] = text
+            else:
+                sec.transition_notes.pop(key, None)
+
+        self.apply_mutation(_mutate, merge_key=f"note:{section_id}:{track_id}")
 
     def move_tracks_batch(
         self,
@@ -567,9 +554,6 @@ class EditController(QObject):
 
     def _require(self) -> Project | None:
         return self._ctrl.project
-
-    def _push(self, proj: Project) -> None:
-        self._stack.push(proj.model_dump_json())
 
     def _emit(self) -> None:
         self._ctrl.mark_dirty()

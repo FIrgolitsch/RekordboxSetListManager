@@ -18,16 +18,13 @@ class TransitionNoteWidget(QWidget):
     route the write through :class:`EditController` without holding a stale
     Section reference.
 
-    :attr:`about_to_modify` is emitted once per editing session (first
-    keystroke after a new track is selected) so the MainWindow can push an
-    undo snapshot before any text is changed.
-
     :attr:`note_edit` carries ``(section_id, track_id, text)`` on every
     keystroke; the receiver should call
-    ``EditController.set_transition_note(section_id, track_id, text)``.
+    ``EditController.set_transition_note(section_id, track_id, text)``,
+    which funnels each write with a per-note merge key so consecutive
+    edits to the same note coalesce into one undo entry.
     """
 
-    about_to_modify = Signal()  # emitted once per edit session, before first change
     note_edit = Signal(object, object, str)  # (section_id: UUID, track_id: UUID, text: str)
 
     def __init__(self, parent=None) -> None:
@@ -35,7 +32,6 @@ class TransitionNoteWidget(QWidget):
         super().__init__(parent)
         self._track_id: UUID | None = None
         self._updating = False
-        self._edit_in_progress = False  # True after first keystroke of a session
 
         label = QLabel("Transition note (after this track):")
         self._edit = QTextEdit()
@@ -57,7 +53,6 @@ class TransitionNoteWidget(QWidget):
         """Load the note for *track_id* / *section* into the editor."""
         self._section_id = section.id if section is not None else None
         self._track_id = track_id
-        self._edit_in_progress = False  # reset: a new track starts a new edit session
         self._updating = True
         if track_id is not None and section is not None:
             note = section.transition_notes.get(str(track_id), "")
@@ -73,9 +68,5 @@ class TransitionNoteWidget(QWidget):
     def _on_text_changed(self) -> None:
         if self._updating or self._section_id is None or self._track_id is None:
             return
-        if not self._edit_in_progress:
-            # First keystroke of this session — capture undo state before writing.
-            self._edit_in_progress = True
-            self.about_to_modify.emit()
         text = self._edit.toPlainText()
         self.note_edit.emit(self._section_id, self._track_id, text)

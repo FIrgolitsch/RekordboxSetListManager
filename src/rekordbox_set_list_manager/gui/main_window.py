@@ -260,7 +260,6 @@ class MainWindow(QMainWindow):
         self._multi_section_view.import_requested.connect(self._import_ctrl.import_streaming)
 
         self._transition_note.note_edit.connect(self._on_note_edit)
-        self._transition_note.about_to_modify.connect(self._push_undo_state)
 
         # File controller
         self._file_ctrl.recent_changed.connect(self._update_recent_menu)
@@ -363,10 +362,6 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"{name}{dirty} — {_APP_NAME}")
 
     # ----------------------------------------------------------------- undo / redo
-
-    def _push_undo_state(self) -> None:
-        self._edit_ctrl.push_snapshot()
-        self._update_undo_actions()
 
     def _undo(self) -> None:
         self._edit_ctrl.undo()

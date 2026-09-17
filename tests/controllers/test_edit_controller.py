@@ -422,23 +422,6 @@ class TestUndoRedo:
 
 
 # ---------------------------------------------------------------------------
-# notify_changed
-# ---------------------------------------------------------------------------
-
-
-class TestNotifyChanged:
-    def test_emits_project_changed(self, project: Project) -> None:
-        ec, _ = _make_ctrl(project)
-        ec.notify_changed()
-        ec.project_changed.emit.assert_called()
-
-    def test_marks_dirty(self, project: Project) -> None:
-        ec, pc = _make_ctrl(project)
-        ec.notify_changed()
-        pc.mark_dirty.assert_called()
-
-
-# ---------------------------------------------------------------------------
 # set_transition_note
 # ---------------------------------------------------------------------------
 
