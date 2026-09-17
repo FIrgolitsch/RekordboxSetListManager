@@ -293,6 +293,8 @@ class EditController(QObject):
         """
 
         def _mutate(proj: Project) -> None:
+            if proj.get_section(section_id) is None:
+                return
             proj.move_section(section_id, new_index)
 
         self.apply_mutation(_mutate)
@@ -308,6 +310,8 @@ class EditController(QObject):
         """
 
         def _mutate(proj: Project) -> None:
+            if proj.get_theme(theme_name) is None:
+                return
             proj.apply_theme(theme_name)
 
         self.apply_mutation(_mutate)
