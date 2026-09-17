@@ -115,3 +115,189 @@ def test_relative_imports_resolve_against_owning_package(tmp_path) -> None:
     names = set(_iter_imports(mod, root))
     assert "pkg.gui" in names
     assert "pkg.sub" in names
+
+
+# ---------------------------------------------------------------------------
+# Mutation-discipline enforcement
+#
+# Every model mutation must reach the project through
+# ``EditController.apply_mutation`` so undo/redo and dirty tracking stay
+# consistent.  The collector walks ``src/`` and flags mutation-shaped
+# constructs outside a small per-module allowlist.  It cannot see through
+# ``getattr``/``setattr`` indirection or renamed receivers — a documented
+# heuristic limit, backstopped by the planted-probe tests below.
+#
+# ``Project.touch`` is deliberately absent from the ban list: the pre-save
+# ``updated_at`` bookkeeping stamp in ``project_controller.save`` must never
+# produce an undo step, and it is neither a banned method nor a model-field
+# write, so no special-casing is needed.
+# ---------------------------------------------------------------------------
+
+_PKG_ROOT = _SRC_ROOT / _PKG
+
+_MUTATION_ALLOWLIST = (
+    ("models",),
+    ("controllers", "edit_controller.py"),
+    ("controllers", "track_match.py"),
+    ("gui", "widgets", "dialogs", "theme_dialog.py"),
+)
+
+_BANNED_MUTATORS = frozenset(
+    {
+        "add_track",
+        "add_section",
+        "remove_section",
+        "remove_track",
+        "move_section",
+        "move_track",
+        "apply_theme",
+        "add_theme",
+        "remove_theme",
+    }
+)
+
+_FUNNEL_RECEIVERS = frozenset({"_edit", "_edit_ctrl", "edit_ctrl"})
+
+_MODEL_RECEIVERS = frozenset(
+    {
+        "proj",
+        "project",
+        "section",
+        "sec",
+        "track",
+        "theme",
+        "target",
+        "_project",
+    }
+)
+
+_MODEL_FIELDS = frozenset(
+    {
+        "name",
+        "names",
+        "color",
+        "section_type",
+        "track_ids",
+        "transition_notes",
+        "themes",
+        "tracks",
+        "sections",
+        "match_status",
+        "match_strategy",
+        "match_score",
+        "filepath",
+        "bpm",
+        "key",
+        "rekordbox_id",
+        "duration",
+        "isrc",
+        "source",
+        "spotify_id",
+        "tidal_id",
+        "spotify_playlist_id",
+        "tidal_playlist_id",
+        "updated_at",
+        "section_color_map",
+        "title",
+        "artist",
+    }
+)
+
+_LIST_MUTATORS = frozenset({"append", "insert", "remove", "pop", "clear", "extend"})
+
+_PRIVATE_INTERNALS = frozenset({"_stack", "_emit"})
+
+_FUNNEL_CANARIES = frozenset({"push_snapshot", "notify_changed"})
+
+
+def _allowlisted(path: Path) -> bool:
+    """True when *path* sits under a module exempt from the mutation ban."""
+    try:
+        parts = path.resolve().relative_to(_PKG_ROOT).parts
+    except ValueError:
+        return False
+    return any(parts[: len(item)] == item for item in _MUTATION_ALLOWLIST)
+
+
+def _mutation_violations(path: Path, label: str | None = None) -> list[str]:
+    """Mutation-ban violations in one non-allowlisted module, sorted by line."""
+    ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    hits: list[str] = []
+    label = label or path.name
+    return [f"{label}:{hit}" for hit in sorted(hits)]
+
+
+def test_all_mutations_route_through_the_funnel() -> None:
+    violations = [
+        hit
+        for path in sorted(_PKG_ROOT.rglob("*.py"))
+        if not _allowlisted(path)
+        for hit in _mutation_violations(path, label=str(path.relative_to(_SRC_ROOT)))
+    ]
+    assert violations == [], "\n".join(violations)
+
+
+def test_mutation_collector_flags_bypasses(tmp_path) -> None:
+    """Every unsanctioned mutation shape is reported, none is missed."""
+    probe = tmp_path / "bad.py"
+    probe.write_text(
+        "class Widget:\n"
+        "    def plain(self, project, t, tid, section, x):\n"
+        "        project.add_track(t)\n"
+        "        project.name = 'x'\n"
+        "        self._edit_ctrl._stack.push(x)\n"
+        "        notify_changed()\n"
+        "        section.track_ids.append(tid)\n"
+        "\n"
+        "    def helpers(self, track, local, other):\n"
+        "        apply_track_match(track, local)\n"
+        "        other._push(track)\n"
+        "        self._edit_ctrl._emit()\n"
+        "\n"
+        "    def orphan(self, proj, t):\n"
+        "        def _helper(p):\n"
+        "            p.add_track(t)\n"
+        "        _helper(proj)\n"
+        "\n"
+        "    def sneaky(self):\n"
+        "        def _fn(proj):\n"
+        "            self._edit_ctrl._stack.push('x')\n"
+        "        self._edit_ctrl.apply_mutation(_fn)\n",
+        encoding="utf-8",
+    )
+    hits = _mutation_violations(probe)
+    expected = [
+        "banned mutator 'add_track'",
+        "model field write 'name'",
+        "private internals '_stack'",
+        "escape hatch 'notify_changed'",
+        "mutating call 'append' on field 'track_ids'",
+        "bare 'apply_track_match'",
+        "private '_push' on non-self receiver",
+        "private internals '_emit'",
+        "banned mutator 'add_track'",
+        "private internals '_stack'",
+    ]
+    descriptions = sorted(hit.split(": ", 1)[1] for hit in hits)
+    assert descriptions == sorted(expected), "\n".join(hits)
+
+
+def test_mutation_collector_allows_sanctioned_shapes(tmp_path) -> None:
+    """Funnel-arg closures, EditController delegation, own ``_push``, ``touch`` pass."""
+    probe = tmp_path / "good.py"
+    probe.write_text(
+        "class Widget:\n"
+        "    def funneled(self, t, sid, track):\n"
+        "        def _fn(proj):\n"
+        "            proj.add_track(t)\n"
+        "            proj.name = 'x'\n"
+        "            proj.tracks[t.id] = t\n"
+        "\n"
+        "        self._edit_ctrl.apply_mutation(_fn)\n"
+        "        self._edit_ctrl.apply_mutation(lambda proj: proj.add_track(track))\n"
+        "        self._edit.add_track(track, sid)\n"
+        "        self._push('playlist', [])\n"
+        "        self._project.touch()\n",
+        encoding="utf-8",
+    )
+    assert _mutation_violations(probe) == []
