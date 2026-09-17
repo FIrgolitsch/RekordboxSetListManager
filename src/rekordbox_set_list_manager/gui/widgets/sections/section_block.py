@@ -69,7 +69,6 @@ def _header_hex(color: RekordboxColor | None) -> str:
 class SectionBlock(QFrame):
     """A collapsible frame displaying a single set-list section with its tracks."""
 
-    about_to_modify = Signal()
     section_modified = Signal()
     track_selected = Signal(object)
     add_track_requested = Signal()

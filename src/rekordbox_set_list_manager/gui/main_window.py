@@ -447,14 +447,12 @@ class MainWindow(QMainWindow):
     def _open_theme_dialog(self) -> None:
         if self._project is None:
             return
-        snap_before = self._project.model_dump_json()
-        ThemeDialog(self._project, self).exec()
-        snap_after = self._project.model_dump_json()
-        if snap_after != snap_before:
-            self._edit_ctrl._stack.push(snap_before)  # noqa: SLF001
-            self._edit_ctrl.notify_changed()
-            # The dialog may have renamed sections — repaint the view.
-            self._multi_section_view.refresh()
+        # The dialog live-mutates project.themes inside exec(); the funnel
+        # fingerprints before/after and records one undo step iff it changed.
+        self._edit_ctrl.apply_mutation(lambda proj: ThemeDialog(proj, self).exec())
+        # Repaint unconditionally — the dialog may have renamed sections and
+        # a repaint is idempotent.
+        self._multi_section_view.refresh()
 
     def _open_settings(self) -> None:
         SettingsDialog(self).exec()

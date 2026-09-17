@@ -46,14 +46,12 @@ class MultiSectionView(QWidget):
 
     Signals
     -------
-    about_to_modify   — before any mutation (MainWindow pushes undo snapshot)
     project_changed   — structural change (section added / renamed / deleted)
     section_modified  — track content change
     track_selected    — (UUID | None, Section | None)
     add_track_requested — Section
     """
 
-    about_to_modify = Signal()
     project_changed = Signal()
     import_requested = Signal()  # user clicked Import from Streaming Service
     section_modified = Signal()
@@ -170,9 +168,7 @@ class MultiSectionView(QWidget):
 
     def add_track_to_section(self, track: Track, section: Section) -> None:
         """Add *track* to *section* and refresh the corresponding block."""
-        if self._project:
-            self._project.tracks[track.id] = track
-        section.add_track(track.id)
+        self._edit.add_track(track, section.id)
         self.refresh_section(section)
         self.section_modified.emit()
 
