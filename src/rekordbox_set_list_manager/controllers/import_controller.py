@@ -14,7 +14,10 @@ from rekordbox_set_list_manager.services import telemetry
 if TYPE_CHECKING:
     from rekordbox_set_list_manager.controllers.edit_controller import EditController
     from rekordbox_set_list_manager.controllers.project_controller import ProjectController
+    from rekordbox_set_list_manager.gui.widgets.dialogs.import_dialog import ImportDialog
     from rekordbox_set_list_manager.gui.widgets.sections.multi_section_view import MultiSectionView
+    from rekordbox_set_list_manager.models.project import Project
+    from rekordbox_set_list_manager.models.track import Track
 
 
 class ImportController(QObject):
@@ -73,49 +76,54 @@ class ImportController(QObject):
             return
 
         telemetry.record("import_started", track_count=len(tracks))
-        self._edit_ctrl.push_snapshot()
-
-        for track in new_tracks:
-            project.add_track(track)
-
-        target = self._view.current_section()
-        section_label = "New tracks" if dialog.sync_mode else "Imported"
-        if target is not None:
-            for track in new_tracks:
-                target.add_track(track.id)
-            self._view.refresh_section(target)
-        else:
-            color = project.default_color_for(SectionType.GENERAL)
-            section = Section(name=section_label, section_type=SectionType.GENERAL, color=color)
-            for track in new_tracks:
-                section.add_track(track.id)
-            project.add_section(section)
-            self._view.refresh()
-            self._view.scroll_to_section(section.id)
-
-        self._persist_playlist_id(
-            dialog.selected_spotify_playlist_id,
-            dialog.selected_tidal_playlist_id,
-        )
-
-        self._edit_ctrl.notify_changed()
-        telemetry.record("import_finished", track_count=len(new_tracks))
-        verb = "synced" if dialog.sync_mode else "imported"
-        QMessageBox.information(self._w, "Import complete", f"{len(new_tracks)} track(s) {verb}.")
+        self._commit_import(new_tracks, dialog)
 
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _persist_playlist_id(
-        self,
-        spotify_pl_id: str | None,
-        tidal_pl_id: str | None,
-    ) -> None:
-        proj = self._ctrl.project
-        if proj is None:
+    def _commit_import(self, new_tracks: list[Track], dialog: ImportDialog) -> None:
+        """Funnel the whole import batch through one audited mutation.
+
+        Parameters
+        ----------
+        new_tracks : list[Track]
+            Tracks confirmed by the dialog to add to the project.
+        dialog : ImportDialog
+            The accepted import dialog; supplies sync mode and playlist IDs.
+
+        """
+        target = self._view.current_section()
+        section_label = "New tracks" if dialog.sync_mode else "Imported"
+
+        def _apply(proj: Project) -> Section:
+            for track in new_tracks:
+                proj.add_track(track)
+            # Playlist-ID sync must run ahead of both return paths below.
+            if dialog.selected_spotify_playlist_id:
+                proj.spotify_playlist_id = dialog.selected_spotify_playlist_id
+            if dialog.selected_tidal_playlist_id:
+                proj.tidal_playlist_id = dialog.selected_tidal_playlist_id
+            if target is not None:
+                for track in new_tracks:
+                    target.add_track(track.id)
+                return target
+            color = proj.default_color_for(SectionType.GENERAL)
+            section = Section(name=section_label, section_type=SectionType.GENERAL, color=color)
+            for track in new_tracks:
+                section.add_track(track.id)
+            proj.add_section(section)
+            return section
+
+        section = self._edit_ctrl.apply_mutation(_apply)
+        if section is None:
             return
-        if spotify_pl_id:
-            proj.spotify_playlist_id = spotify_pl_id
-        if tidal_pl_id:
-            proj.tidal_playlist_id = tidal_pl_id
+        if target is not None:
+            self._view.refresh_section(section)
+        else:
+            self._view.refresh()
+            self._view.scroll_to_section(section.id)
+
+        telemetry.record("import_finished", track_count=len(new_tracks))
+        verb = "synced" if dialog.sync_mode else "imported"
+        QMessageBox.information(self._w, "Import complete", f"{len(new_tracks)} track(s) {verb}.")

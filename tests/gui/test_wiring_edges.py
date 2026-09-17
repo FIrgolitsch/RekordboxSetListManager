@@ -302,9 +302,7 @@ def test_import_batch_routes_through_funnel(window, monkeypatch):
         "rekordbox_set_list_manager.gui.widgets.dialogs.import_dialog.ImportDialog",
         _FakeImportDialog,
     )
-    monkeypatch.setattr(
-        QMessageBox, "information", lambda *a, **k: QMessageBox.StandardButton.Ok
-    )
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: QMessageBox.StandardButton.Ok)
     calls = []
     original = window._edit_ctrl.apply_mutation
 
