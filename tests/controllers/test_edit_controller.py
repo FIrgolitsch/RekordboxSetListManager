@@ -6,9 +6,9 @@ from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
+from PySide6.QtTest import QSignalSpy
 
 from rekordbox_set_list_manager.controllers.edit_controller import EditController
-from rekordbox_set_list_manager.controllers.undo_stack import UndoStack
 from rekordbox_set_list_manager.models.enums import MatchStatus, RekordboxColor, SectionType
 from rekordbox_set_list_manager.models.project import Project
 from rekordbox_set_list_manager.models.section import Section
@@ -19,8 +19,17 @@ from rekordbox_set_list_manager.models.track import Track
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _app(qapp):
+    """Real QObjects and QSignalSpy need a QApplication instance."""
+
+
 def _make_ctrl(project: Project) -> tuple[EditController, MagicMock]:
-    """Return an EditController backed by a mock ProjectController."""
+    """Return an EditController backed by a mock ProjectController.
+
+    The controller is constructed normally; emissions of
+    ``project_changed`` are recorded by ``ec._signal_spy``.
+    """
     pc = MagicMock()
     pc.project = project
 
@@ -29,12 +38,8 @@ def _make_ctrl(project: Project) -> tuple[EditController, MagicMock]:
 
     pc.restore.side_effect = _restore
 
-    ec = EditController.__new__(EditController)
-    ec._ctrl = pc
-    ec._stack = UndoStack()
-    ec._pending_merge = None
-    ec.project_changed = MagicMock()
-    ec.project_changed.emit = MagicMock()
+    ec = EditController(pc)
+    ec._signal_spy = QSignalSpy(ec.project_changed)
     return ec, pc
 
 
@@ -61,7 +66,7 @@ class TestApplyMutation:
         assert result == "fn-result"
         assert len(ec._stack._undo) == depth_before + 1
         pc.mark_dirty.assert_called_once()
-        ec.project_changed.emit.assert_called_once()
+        assert ec._signal_spy.count() == 1
 
     def test_noop_fn_records_nothing_but_returns(self, project: Project) -> None:
         ec, pc = _make_ctrl(project)
@@ -72,7 +77,7 @@ class TestApplyMutation:
         assert result == "noop-result"
         assert len(ec._stack._undo) == depth_before
         pc.mark_dirty.assert_not_called()
-        ec.project_changed.emit.assert_not_called()
+        assert ec._signal_spy.count() == 0
 
     def test_exception_after_mutation_records_partial(self, project: Project) -> None:
         ec, pc = _make_ctrl(project)
@@ -87,7 +92,7 @@ class TestApplyMutation:
 
         assert len(ec._stack._undo) == depth_before + 1
         pc.mark_dirty.assert_called_once()
-        ec.project_changed.emit.assert_called_once()
+        assert ec._signal_spy.count() == 1
         assert pc.project.name == "Partial"
 
     def test_exception_with_net_zero_change_records_nothing(self, project: Project) -> None:
@@ -102,7 +107,7 @@ class TestApplyMutation:
 
         assert len(ec._stack._undo) == depth_before
         pc.mark_dirty.assert_not_called()
-        ec.project_changed.emit.assert_not_called()
+        assert ec._signal_spy.count() == 0
 
     def test_none_project_returns_none_without_calling_fn(self) -> None:
         ec, _ = _make_ctrl(None)
@@ -126,7 +131,7 @@ class TestMergeKey:
         ec.apply_mutation(self._mutate_sections, merge_key="k")
 
         assert len(ec._stack._undo) == depth_before + 1
-        assert ec.project_changed.emit.call_count == 2
+        assert ec._signal_spy.count() == 2
         assert pc.mark_dirty.call_count == 2
 
     def test_different_keys_create_separate_entries(self, project: Project) -> None:
@@ -195,14 +200,14 @@ class TestMergeKey:
         ec, pc = _make_ctrl(project)
         ec.apply_mutation(self._mutate_sections, merge_key="k")
         depth_before = len(ec._stack._undo)
-        ec.project_changed.emit.reset_mock()
+        ec._signal_spy = QSignalSpy(ec.project_changed)
         pc.mark_dirty.reset_mock()
 
         result = ec.apply_mutation(lambda proj: "noop", merge_key="k")
 
         assert result == "noop"
         assert len(ec._stack._undo) == depth_before
-        ec.project_changed.emit.assert_not_called()
+        assert ec._signal_spy.count() == 0
         pc.mark_dirty.assert_not_called()
         assert ec._pending_merge is not None  # run still open
 
@@ -210,7 +215,7 @@ class TestMergeKey:
         ec, pc = _make_ctrl(project)
         ec.apply_mutation(self._mutate_sections, merge_key="k")
         depth = len(ec._stack._undo)
-        ec.project_changed.emit.reset_mock()
+        ec._signal_spy = QSignalSpy(ec.project_changed)
         pc.mark_dirty.reset_mock()
 
         def _fn(proj: Project) -> None:
@@ -221,7 +226,7 @@ class TestMergeKey:
             ec.apply_mutation(_fn, merge_key="k")
 
         assert len(ec._stack._undo) == depth  # still the run's single entry
-        ec.project_changed.emit.assert_called_once()
+        assert ec._signal_spy.count() == 1
         pc.mark_dirty.assert_called_once()
         assert ec._pending_merge is None
 
@@ -244,7 +249,7 @@ class TestAddSection:
     def test_project_changed_emitted(self, project: Project) -> None:
         ec, _ = _make_ctrl(project)
         ec.add_section(_new_section())
-        ec.project_changed.emit.assert_called()
+        assert ec._signal_spy.count() > 0
 
     def test_undo_restores_count(self, project: Project) -> None:
         ec, _ = _make_ctrl(project)
@@ -450,7 +455,7 @@ class TestSetTransitionNote:
     def test_emits_project_changed(self, project: Project, section: Section, track: Track) -> None:
         ec, _ = _make_ctrl(project)
         ec.set_transition_note(section.id, track.id, "note")
-        ec.project_changed.emit.assert_called()
+        assert ec._signal_spy.count() > 0
 
     def test_marks_dirty(self, project: Project, section: Section, track: Track) -> None:
         ec, pc = _make_ctrl(project)
