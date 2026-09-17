@@ -151,16 +151,21 @@ class EditController(QObject):
             # undo-reachable, then propagate the failure to the caller.
             if _fingerprint(proj.model_dump_json()) != fp_before:
                 self._stack.push(before, fingerprint=fp_before)
-                self._emit()
+                # Settle the merge baseline before emitting so a reentrant
+                # slot sees the final funnel state.
                 self._pending_merge = None
+                self._emit()
             raise
         fp_after = _fingerprint(proj.model_dump_json())
         if fp_after == fp_before:
             return result  # fingerprint no-op: discard, return result
         self._stack.push(before, fingerprint=fp_before)
-        self._emit()
+        # Record the merge baseline before emitting: a reentrant slot
+        # mutating with the same key must coalesce against this run, and
+        # its own baseline update must not be overwritten afterwards.
         if merge_key is not None:
             self._pending_merge = (merge_key, proj, fp_after)
+        self._emit()
         return result
 
     # --------------------------------------------------------- section methods
