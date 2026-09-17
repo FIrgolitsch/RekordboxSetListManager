@@ -94,6 +94,7 @@ class ImportController(QObject):
 
         """
         target = self._view.current_section()
+        target_id = target.id if target is not None else None
         section_label = "New tracks" if dialog.sync_mode else "Imported"
 
         def _apply(proj: Project) -> Section:
@@ -104,10 +105,14 @@ class ImportController(QObject):
                 proj.spotify_playlist_id = dialog.selected_spotify_playlist_id
             if dialog.selected_tidal_playlist_id:
                 proj.tidal_playlist_id = dialog.selected_tidal_playlist_id
-            if target is not None:
+            # Resolve the target inside the funnel: the captured Section
+            # belongs to the view's project reference, which may diverge
+            # from the controller's live project.
+            section = proj.get_section(target_id) if target_id is not None else None
+            if section is not None:
                 for track in new_tracks:
-                    target.add_track(track.id)
-                return target
+                    section.add_track(track.id)
+                return section
             color = proj.default_color_for(SectionType.GENERAL)
             section = Section(name=section_label, section_type=SectionType.GENERAL, color=color)
             for track in new_tracks:
@@ -118,7 +123,7 @@ class ImportController(QObject):
         section = self._edit_ctrl.apply_mutation(_apply)
         if section is None:
             return
-        if target is not None:
+        if target_id is not None and section.id == target_id:
             self._view.refresh_section(section)
         else:
             self._view.refresh()
