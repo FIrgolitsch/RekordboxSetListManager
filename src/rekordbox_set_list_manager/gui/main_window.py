@@ -248,7 +248,7 @@ class MainWindow(QMainWindow):
         self._ctrl.project_changed.connect(self._on_project_changed)
         self._ctrl.dirty_changed.connect(self._refresh_title)
         self._edit_ctrl.project_changed.connect(self._update_undo_actions)
-        self._edit_ctrl.project_changed.connect(self._mark_dirty)
+        self._edit_ctrl.project_changed.connect(self._refresh_after_edit)
         self._multi_section_view.section_modified.connect(self._update_statusbar)
         self._multi_section_view.project_changed.connect(self._update_statusbar)
         self._multi_section_view.add_track_requested.connect(self._add_track)
@@ -351,8 +351,9 @@ class MainWindow(QMainWindow):
         if ok and name.strip():
             self._edit_ctrl.rename_project(name.strip())
 
-    def _mark_dirty(self) -> None:
-        self._ctrl.mark_dirty()
+    def _refresh_after_edit(self) -> None:
+        # Dirty marking already happened in EditController._emit (or via
+        # ProjectController.restore on undo/redo); this slot only repaints.
         self._update_statusbar()
         self._refresh_title()
 
