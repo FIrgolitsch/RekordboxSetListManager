@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 from uuid import uuid4
 
@@ -11,11 +10,9 @@ import pytest
 from rekordbox_set_list_manager.controllers.edit_controller import EditController
 from rekordbox_set_list_manager.controllers.undo_stack import UndoStack
 from rekordbox_set_list_manager.models.enums import MatchStatus, RekordboxColor, SectionType
+from rekordbox_set_list_manager.models.project import Project
 from rekordbox_set_list_manager.models.section import Section
 from rekordbox_set_list_manager.models.track import Track
-
-if TYPE_CHECKING:
-    from rekordbox_set_list_manager.models.project import Project
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -113,6 +110,123 @@ class TestApplyMutation:
 
         assert ec.apply_mutation(fn) is None
         fn.assert_not_called()
+
+
+class TestMergeKey:
+    """Merge-key coalescing: consecutive same-key calls share one undo entry."""
+
+    def _mutate_sections(self, proj: Project) -> None:
+        proj.add_section(_new_section(str(uuid4())))
+
+    def test_same_key_coalesces_into_one_entry(self, project: Project) -> None:
+        ec, pc = _make_ctrl(project)
+        depth_before = len(ec._stack._undo)
+
+        ec.apply_mutation(self._mutate_sections, merge_key="k")
+        ec.apply_mutation(self._mutate_sections, merge_key="k")
+
+        assert len(ec._stack._undo) == depth_before + 1
+        assert ec.project_changed.emit.call_count == 2
+        assert pc.mark_dirty.call_count == 2
+
+    def test_different_keys_create_separate_entries(self, project: Project) -> None:
+        ec, _ = _make_ctrl(project)
+        depth_before = len(ec._stack._undo)
+
+        ec.apply_mutation(self._mutate_sections, merge_key="a")
+        ec.apply_mutation(self._mutate_sections, merge_key="b")
+        ec.apply_mutation(self._mutate_sections, merge_key="a")
+
+        assert len(ec._stack._undo) == depth_before + 3
+
+    def test_keyless_mutation_closes_run(self, project: Project) -> None:
+        ec, _ = _make_ctrl(project)
+        depth_before = len(ec._stack._undo)
+
+        ec.apply_mutation(self._mutate_sections, merge_key="a")
+        ec.apply_mutation(self._mutate_sections)
+        ec.apply_mutation(self._mutate_sections, merge_key="a")
+
+        assert len(ec._stack._undo) == depth_before + 3
+
+    def test_undo_resets_run(self, project: Project) -> None:
+        ec, _ = _make_ctrl(project)
+        ec.apply_mutation(self._mutate_sections, merge_key="k")
+        ec.undo()
+        depth_before = len(ec._stack._undo)
+
+        ec.apply_mutation(self._mutate_sections, merge_key="k")
+
+        assert len(ec._stack._undo) == depth_before + 1
+        assert ec._pending_merge is not None
+
+    def test_redo_resets_run(self, project: Project) -> None:
+        ec, _ = _make_ctrl(project)
+        ec.apply_mutation(self._mutate_sections, merge_key="k")
+        ec.undo()
+        ec.redo()
+        depth_before = len(ec._stack._undo)
+
+        ec.apply_mutation(self._mutate_sections, merge_key="k")
+
+        assert len(ec._stack._undo) == depth_before + 1
+
+    def test_clear_resets_run(self, project: Project) -> None:
+        ec, _ = _make_ctrl(project)
+        ec.apply_mutation(self._mutate_sections, merge_key="k")
+        ec.clear()
+
+        assert ec._pending_merge is None
+
+        ec.apply_mutation(self._mutate_sections, merge_key="k")
+        assert len(ec._stack._undo) == 1  # fresh run pushed a new entry
+
+    def test_project_swap_resets_run(self, project: Project) -> None:
+        ec, pc = _make_ctrl(project)
+        ec.apply_mutation(self._mutate_sections, merge_key="k")
+        pc.restore(Project(name="Other"))
+        depth_before = len(ec._stack._undo)
+
+        ec.apply_mutation(self._mutate_sections, merge_key="k")
+
+        assert len(ec._stack._undo) == depth_before + 1
+
+    def test_continuation_noop_emits_nothing(self, project: Project) -> None:
+        ec, pc = _make_ctrl(project)
+        ec.apply_mutation(self._mutate_sections, merge_key="k")
+        depth_before = len(ec._stack._undo)
+        ec.project_changed.emit.reset_mock()
+        pc.mark_dirty.reset_mock()
+
+        result = ec.apply_mutation(lambda proj: "noop", merge_key="k")
+
+        assert result == "noop"
+        assert len(ec._stack._undo) == depth_before
+        ec.project_changed.emit.assert_not_called()
+        pc.mark_dirty.assert_not_called()
+        assert ec._pending_merge is not None  # run still open
+
+    def test_continuation_exception_emits_without_push(self, project: Project) -> None:
+        ec, pc = _make_ctrl(project)
+        ec.apply_mutation(self._mutate_sections, merge_key="k")
+        depth = len(ec._stack._undo)
+        ec.project_changed.emit.reset_mock()
+        pc.mark_dirty.reset_mock()
+
+        def _fn(proj: Project) -> None:
+            proj.name = "Partial"
+            raise RuntimeError("boom")
+
+        with pytest.raises(RuntimeError, match="boom"):
+            ec.apply_mutation(_fn, merge_key="k")
+
+        assert len(ec._stack._undo) == depth  # still the run's single entry
+        ec.project_changed.emit.assert_called_once()
+        pc.mark_dirty.assert_called_once()
+        assert ec._pending_merge is None
+
+        ec.apply_mutation(self._mutate_sections, merge_key="k")
+        assert len(ec._stack._undo) == depth + 1  # fresh run
 
 
 # ---------------------------------------------------------------------------
