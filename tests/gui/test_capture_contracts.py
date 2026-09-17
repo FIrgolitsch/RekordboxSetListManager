@@ -9,9 +9,9 @@ four-part contract:
 4. exactly one ``project_changed`` signal is emitted.
 
 Assertions bind to model state and signals only — never widget internals.
-Two known bypass sites (the view-level ``add_track_to_section`` and the theme
-dialog path) are marked expected-change: they assert the intended funnel
-contract so they turn green once the bypasses are migrated onto it.
+The two former bypass sites (the view-level ``add_track_to_section`` and the
+theme dialog path) have been migrated onto the funnel; their tests now pin
+the contract unconditionally.
 """
 
 from __future__ import annotations
@@ -278,10 +278,10 @@ def test_transition_note_edit_contract(window, track, section):
     assert section.transition_notes[str(track.id)] == "smooth blend"
 
 
-# ----------------------------------------------------------------- bypass sites
-# These mutations currently bypass the funnel. The tests assert the intended
-# contract (undoable + dirty + emitted) and are expected-change: they go green
-# once the bypasses are migrated onto EditController.
+# ----------------------------------------------------- former bypass sites
+# These mutations once bypassed the funnel; both are now routed through
+# EditController and the tests pin the contract (undoable + dirty + emitted)
+# unconditionally.
 
 
 def test_view_add_track_to_section_contract(window, track, section):
@@ -294,10 +294,10 @@ def test_view_add_track_to_section_contract(window, track, section):
         lambda: window._multi_section_view.add_track_to_section(new_track, section),
     )
 
-    # Model end-state (holds today)
+    # Model end-state
     assert new_track.id in section.track_ids
     assert window._project.get_track(new_track.id) is new_track
-    # Intended funnel contract (not met while the view bypasses EditController)
+    # Funnel contract — the view path delegates to EditController.
     _assert_funnel_contract(window, undo_before, spy)
 
 
@@ -310,7 +310,7 @@ def test_theme_dialog_mutation_contract(window, monkeypatch):
 
     undo_before, spy = _observe_mutation(window, window._open_theme_dialog)
 
-    # Model end-state (holds today)
+    # Model end-state
     assert window._project.get_theme("Festival") is not None
-    # Intended funnel contract (fails today: no project_changed emission)
+    # Funnel contract — the dialog runs inside apply_mutation.
     _assert_funnel_contract(window, undo_before, spy)
