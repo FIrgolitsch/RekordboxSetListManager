@@ -74,7 +74,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(splitter)
 
         # Action controllers
-        self._file_ctrl = FileController(self._ctrl, self, self)
+        self._file_ctrl = FileController(self._ctrl, self._edit_ctrl, self, self)
         self._import_ctrl = ImportController(
             self._ctrl, self._edit_ctrl, self._multi_section_view, self, self
         )

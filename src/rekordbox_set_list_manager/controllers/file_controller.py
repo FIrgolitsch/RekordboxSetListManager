@@ -14,7 +14,9 @@ from rekordbox_set_list_manager.utils.config import add_recent_file
 from rekordbox_set_list_manager.utils.constants import PROJECT_FILE_EXTENSION
 
 if TYPE_CHECKING:
+    from rekordbox_set_list_manager.controllers.edit_controller import EditController
     from rekordbox_set_list_manager.controllers.project_controller import ProjectController
+    from rekordbox_set_list_manager.models.project import Project
 
 _DEFAULT_PROJECT_NAME = "Untitled"
 
@@ -33,12 +35,14 @@ class FileController(QObject):
     def __init__(
         self,
         ctrl: ProjectController,
+        edit_ctrl: EditController,
         parent_widget: QWidget,
         parent: QObject | None = None,
     ) -> None:
-        """Initialise the file controller backed by *ctrl*."""
+        """Initialise the file controller backed by *ctrl* and *edit_ctrl*."""
         super().__init__(parent)
         self._ctrl = ctrl
+        self._edit_ctrl = edit_ctrl
         self._w = parent_widget
 
     # ------------------------------------------------------------------
@@ -128,13 +132,15 @@ class FileController(QObject):
         path = Path(path_str)
         if path.suffix.lower() != PROJECT_FILE_EXTENSION:
             path = path.with_suffix(PROJECT_FILE_EXTENSION)
-        # Sync project name from the chosen filename so the title bar reflects it.
+        # Sync project name from the chosen filename inside the mutation
+        # funnel — the emitted project_changed drives the title refresh.
         if project is not None:
-            project.name = path.stem
+
+            def _rename(proj: Project) -> None:
+                proj.name = path.stem
+
+            self._edit_ctrl.apply_mutation(_rename)
         self._do_save(path)
-        # Notify listeners so the title bar refreshes with the new name.
-        if project is not None:
-            self._ctrl.project_changed.emit(project)
 
     # ------------------------------------------------------------------
     # Private helpers
