@@ -164,7 +164,10 @@ _MODEL_RECEIVERS = frozenset(
         "project",
         "section",
         "sec",
+        "src",
+        "dst",
         "track",
+        "local",
         "theme",
         "target",
         "_project",
@@ -219,9 +222,11 @@ _LIST_MUTATORS = frozenset(
     }
 )
 
-_PRIVATE_INTERNALS = frozenset({"_stack", "_emit"})
+_PRIVATE_INTERNALS = frozenset(
+    {"_stack", "_emit", "_push_undo_state", "_edit_in_progress"}
+)
 
-_FUNNEL_CANARIES = frozenset({"push_snapshot", "notify_changed"})
+_FUNNEL_CANARIES = frozenset({"push_snapshot", "notify_changed", "about_to_modify"})
 
 
 def _allowlisted(path: Path) -> bool:
@@ -450,10 +455,16 @@ def test_mutation_collector_flags_bypasses(tmp_path) -> None:
         "        del section.track_ids[0]\n"
         "        del project.tracks[tid]\n"
         "\n"
-        "    def helpers(self, track, local, other):\n"
+        "    def helpers(self, track, local, other, src, dst):\n"
         "        apply_track_match(track, local)\n"
         "        other._push(track)\n"
         "        self._edit_ctrl._emit()\n"
+        "        self._edit_ctrl.about_to_modify()\n"
+        "        self._edit_ctrl._push_undo_state()\n"
+        "        self._edit_ctrl._edit_in_progress = True\n"
+        "        src.name = 'x'\n"
+        "        dst.track_ids.insert(0, track.id)\n"
+        "        local.match_status = 'x'\n"
         "\n"
         "    def orphan(self, proj, t):\n"
         "        def _helper(p):\n"
@@ -483,6 +494,12 @@ def test_mutation_collector_flags_bypasses(tmp_path) -> None:
         "bare 'apply_track_match'",
         "private '_push' on non-self receiver",
         "private internals '_emit'",
+        "escape hatch 'about_to_modify'",
+        "private internals '_push_undo_state'",
+        "private internals '_edit_in_progress'",
+        "model field write 'name' on 'src'",
+        "mutating call 'insert' on field 'track_ids'",
+        "model field write 'match_status' on 'local'",
         "banned mutator 'add_track' on 'p'",
         "private internals '_stack'",
     ]
