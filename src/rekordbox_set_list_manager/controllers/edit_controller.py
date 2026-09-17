@@ -555,11 +555,15 @@ class EditController(QObject):
             dst = proj.get_section(to_section_id)
             if src is None or dst is None:
                 return
+            # Only move what was actually in the source — inserting
+            # non-members would duplicate IDs or reference ghost tracks.
+            removed = []
             for tid in track_ids:
                 if tid in src.track_ids:
                     src.track_ids.remove(tid)
+                    removed.append(tid)
             clamped = max(0, min(dest_index, len(dst.track_ids)))
-            for i, tid in enumerate(track_ids):
+            for i, tid in enumerate(removed):
                 dst.track_ids.insert(clamped + i, tid)
 
         self.apply_mutation(_mutate)
