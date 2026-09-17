@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from rekordbox_set_list_manager.controllers.edit_controller import EditController
     from rekordbox_set_list_manager.controllers.project_controller import ProjectController
     from rekordbox_set_list_manager.gui.widgets.sections.multi_section_view import MultiSectionView
+    from rekordbox_set_list_manager.models.project import Project
     from rekordbox_set_list_manager.models.track import Track
 
 
@@ -94,16 +95,19 @@ class RematchController(QObject):
         pending = dialog.pending_matches()
         if not pending:
             return
-        self._edit_ctrl.push_snapshot()
-        changed = 0
-        for track_id, local_track in pending.items():
-            track = project.get_track(track_id)
-            if track is None:
-                continue
-            apply_track_match(track, local_track)
-            changed += 1
+
+        def _apply(proj: Project) -> int:
+            changed = 0
+            for track_id, local_track in pending.items():
+                track = proj.get_track(track_id)
+                if track is None:
+                    continue
+                apply_track_match(track, local_track)
+                changed += 1
+            return changed
+
+        changed = self._edit_ctrl.apply_mutation(_apply) or 0
         self._view.refresh_tracks(project.tracks)
-        self._edit_ctrl.notify_changed()
         QMessageBox.information(self._w, "Manual re-match complete", f"{changed} track(s) updated.")
 
     # ------------------------------------------------------------------
@@ -116,20 +120,26 @@ class RematchController(QObject):
             return
         all_tracks = list(project.tracks.values())
         results = TrackMatcher().match(all_tracks, collection)
-        self._edit_ctrl.push_snapshot()
-        newly_matched = 0
-        strategy_counts: dict[str, int] = {}
-        for result in results:
-            if result.local_track is not None:
-                track = project.tracks.get(result.spotify_track.id)
-                if track is not None and track.match_status == MatchStatus.MANUALLY_MATCHED:
-                    continue
-                project.tracks[result.spotify_track.id] = result.local_track
-                newly_matched += 1
-                strat = result.local_track.match_strategy or "none"
-                strategy_counts[strat] = strategy_counts.get(strat, 0) + 1
+
+        def _apply(proj: Project) -> tuple[int, dict[str, int]]:
+            newly_matched = 0
+            strategy_counts: dict[str, int] = {}
+            for result in results:
+                if result.local_track is not None:
+                    track = proj.tracks.get(result.spotify_track.id)
+                    if track is not None and track.match_status == MatchStatus.MANUALLY_MATCHED:
+                        continue
+                    proj.tracks[result.spotify_track.id] = result.local_track
+                    newly_matched += 1
+                    strat = result.local_track.match_strategy or "none"
+                    strategy_counts[strat] = strategy_counts.get(strat, 0) + 1
+            return newly_matched, strategy_counts
+
+        outcome = self._edit_ctrl.apply_mutation(_apply)
+        if outcome is None:
+            return
+        newly_matched, strategy_counts = outcome
         self._view.refresh_tracks(project.tracks)
-        self._edit_ctrl.notify_changed()
         telemetry.record(
             "match_strategy_used",
             total=len(all_tracks),
