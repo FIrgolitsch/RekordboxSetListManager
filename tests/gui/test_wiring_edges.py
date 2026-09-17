@@ -9,9 +9,10 @@ maps, scroll position, or collapse flags.
 from __future__ import annotations
 
 import pytest
-from PySide6.QtWidgets import QDialog, QMessageBox
+from PySide6.QtWidgets import QDialog, QFileDialog, QMessageBox
 
 from rekordbox_set_list_manager.gui.main_window import MainWindow
+from rekordbox_set_list_manager.gui.widgets.common.busy_dialog import BusyDialog
 from rekordbox_set_list_manager.gui.widgets.dialogs.add_track_dialog import (
     AddTrackDialog,
 )
@@ -303,6 +304,17 @@ def test_import_batch_routes_through_funnel(window, monkeypatch):
         _FakeImportDialog,
     )
     monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: QMessageBox.StandardButton.Ok)
+    calls = _spy_apply_mutation(window, monkeypatch)
+
+    window._import_ctrl.import_streaming()
+
+    assert len(calls) == 1
+    assert window._project.spotify_playlist_id == "pl-1"
+    assert window._project.sections[0].track_ids == [t.id for t in tracks]
+
+
+def _spy_apply_mutation(window, monkeypatch):
+    """Wrap apply_mutation so tests can count funneled calls."""
     calls = []
     original = window._edit_ctrl.apply_mutation
 
@@ -311,9 +323,73 @@ def test_import_batch_routes_through_funnel(window, monkeypatch):
         return original(fn, **kwargs)
 
     monkeypatch.setattr(window._edit_ctrl, "apply_mutation", _spy)
+    return calls
 
-    window._import_ctrl.import_streaming()
+
+def test_rematch_manual_routes_through_funnel(window, monkeypatch):
+    """The manual re-match batch field-merges inside one funneled mutation."""
+    track = Track(title="Sundown", artist="DJ Koze")
+    window._project.add_track(track)
+    local = Track(
+        title="Sundown",
+        artist="DJ Koze",
+        filepath="/music/sundown.mp3",
+        rekordbox_id=42,
+    )
+
+    class _FakeRematchDialog:
+        DialogCode = QDialog.DialogCode
+
+        def __init__(self, project, parent=None) -> None:
+            pass
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+        def pending_matches(self):
+            return {track.id: local}
+
+    monkeypatch.setattr(
+        "rekordbox_set_list_manager.gui.widgets.dialogs.rematch_dialog.RematchDialog",
+        _FakeRematchDialog,
+    )
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: QMessageBox.StandardButton.Ok)
+    calls = _spy_apply_mutation(window, monkeypatch)
+
+    window._rematch_ctrl.rematch_manual()
 
     assert len(calls) == 1
-    assert window._project.spotify_playlist_id == "pl-1"
-    assert window._project.sections[0].track_ids == [t.id for t in tracks]
+    assert window._project.get_track(track.id).rekordbox_id == 42
+
+
+def test_rematch_xml_routes_through_funnel(window, monkeypatch, tmp_path):
+    """The collection re-match wholesale-replaces tracks inside one funneled mutation."""
+    track = Track(title="Sundown", artist="DJ Koze", isrc="US-RC1-00-00001")
+    window._project.add_track(track)
+
+    collection = [
+        Track(
+            title="Sundown",
+            artist="DJ Koze",
+            isrc="US-RC1-00-00001",
+            rekordbox_id=42,
+            filepath="/music/sundown.mp3",
+        )
+    ]
+    monkeypatch.setattr(
+        QFileDialog,
+        "getOpenFileName",
+        lambda *a, **k: (str(tmp_path / "rekordbox.xml"), ""),
+    )
+    # The busy dialog normally parses XML on a worker — hand back the
+    # fabricated collection directly so no file or DB is needed.
+    monkeypatch.setattr(BusyDialog, "run", lambda self, fn: (True, collection, None))
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: QMessageBox.StandardButton.Ok)
+    calls = _spy_apply_mutation(window, monkeypatch)
+
+    window._rematch_ctrl.rematch_xml()
+
+    assert len(calls) == 1
+    matched = window._project.get_track(track.id)
+    assert matched.rekordbox_id == 42
+    assert matched.match_strategy == "isrc"
