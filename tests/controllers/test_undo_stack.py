@@ -90,7 +90,7 @@ def test_push_honours_supplied_fingerprint():
     s: UndoStack[str] = UndoStack()
     s.push("a")
     top_fp = s._undo[-1][0]
-    s.push("different", fingerprint=top_fp)
+    s.push("different", digest=top_fp)
     assert len(s._undo) == 1  # caller fingerprint deduped without rehash
 
 

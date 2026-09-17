@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import hashlib
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QObject, Signal
 
 from rekordbox_set_list_manager.controllers.track_match import apply_track_match
-from rekordbox_set_list_manager.controllers.undo_stack import UndoStack
+from rekordbox_set_list_manager.controllers.undo_stack import UndoStack, fingerprint
 from rekordbox_set_list_manager.models.project import Project
 
 if TYPE_CHECKING:
@@ -19,16 +18,6 @@ if TYPE_CHECKING:
     from rekordbox_set_list_manager.models.enums import RekordboxColor, SectionType
     from rekordbox_set_list_manager.models.section import Section
     from rekordbox_set_list_manager.models.track import Track
-
-
-def _fingerprint(dump: str) -> bytes:
-    """Return the sha256 fingerprint of a serialised project dump.
-
-    ``model_dump_json`` output is deterministic, so equal project content
-    always yields equal fingerprints — the digest is a cheap change
-    detector, not a security control.
-    """
-    return hashlib.sha256(dump.encode("utf-8")).digest()
 
 
 class EditController(QObject):
@@ -130,11 +119,11 @@ class EditController(QObject):
                 # second push would add a phantom undo entry — emit only, so
                 # the partial continuation stays undo-reachable via that
                 # snapshot.  The exception breaks the run either way.
-                if _fingerprint(proj.model_dump_json()) != pending[2]:
+                if fingerprint(proj.model_dump_json()) != pending[2]:
                     self._emit()
                 self._pending_merge = None
                 raise
-            fp_after = _fingerprint(proj.model_dump_json())
+            fp_after = fingerprint(proj.model_dump_json())
             if fp_after == pending[2]:
                 return result  # no-op continuation: nothing changed
             self._pending_merge = (merge_key, proj, fp_after)
@@ -143,23 +132,23 @@ class EditController(QObject):
 
         self._pending_merge = None  # non-matching call closes any open run
         before = proj.model_dump_json()
-        fp_before = _fingerprint(before)
+        fp_before = fingerprint(before)
         try:
             result = fn(proj)
         except Exception:
             # Record the partial mutation so every changed state stays
             # undo-reachable, then propagate the failure to the caller.
-            if _fingerprint(proj.model_dump_json()) != fp_before:
-                self._stack.push(before, fingerprint=fp_before)
+            if fingerprint(proj.model_dump_json()) != fp_before:
+                self._stack.push(before, digest=fp_before)
                 # Settle the merge baseline before emitting so a reentrant
                 # slot sees the final funnel state.
                 self._pending_merge = None
                 self._emit()
             raise
-        fp_after = _fingerprint(proj.model_dump_json())
+        fp_after = fingerprint(proj.model_dump_json())
         if fp_after == fp_before:
             return result  # fingerprint no-op: discard, return result
-        self._stack.push(before, fingerprint=fp_before)
+        self._stack.push(before, digest=fp_before)
         # Record the merge baseline before emitting: a reentrant slot
         # mutating with the same key must coalesce against this run, and
         # its own baseline update must not be overwritten afterwards.

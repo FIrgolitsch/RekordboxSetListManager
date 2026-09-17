@@ -7,11 +7,13 @@ import hashlib
 _DEFAULT_MAX = 50
 
 
-def _fp(snapshot: object) -> bytes:
+def fingerprint(snapshot: object) -> bytes:
     """Return the sha256 fingerprint of *snapshot*'s string form.
 
     Snapshots are deterministic serialisations, so equal content always
     produces equal fingerprints; the digest doubles as the no-op detector.
+    Shared by the mutation funnel so pushed and compared digests can
+    never drift apart.
     """
     return hashlib.sha256(str(snapshot).encode("utf-8")).digest()
 
@@ -54,20 +56,20 @@ class UndoStack[T]:
         """Return True if there are redo steps available."""
         return bool(self._redo)
 
-    def push(self, snapshot: T, *, fingerprint: bytes | None = None) -> None:
+    def push(self, snapshot: T, *, digest: bytes | None = None) -> None:
         """Record *snapshot* before a mutation.  Clears the redo stack.
 
         Parameters
         ----------
         snapshot : T
             The serialised project state to push onto the undo history.
-        fingerprint : bytes | None, optional
-            Precomputed digest of *snapshot*.  When supplied the digest is
-            stored (and compared) as-is, so callers that already hashed the
-            state avoid a second hash.
+        digest : bytes | None, optional
+            Precomputed fingerprint of *snapshot*.  When supplied the digest
+            is stored (and compared) as-is, so callers that already hashed
+            the state avoid a second hash.
 
         """
-        fp = fingerprint if fingerprint is not None else _fp(snapshot)
+        fp = digest if digest is not None else fingerprint(snapshot)
         if self._undo and self._undo[-1][0] == fp:
             return  # no-op: nothing changed
         self._undo.append((fp, snapshot))
@@ -95,7 +97,7 @@ class UndoStack[T]:
         """
         if not self._undo:
             return None
-        self._redo.append((_fp(current), current))
+        self._redo.append((fingerprint(current), current))
         return self._undo.pop()[1]
 
     def redo(self, current: T) -> T | None:
@@ -118,7 +120,7 @@ class UndoStack[T]:
         """
         if not self._redo:
             return None
-        self._undo.append((_fp(current), current))
+        self._undo.append((fingerprint(current), current))
         return self._redo.pop()[1]
 
     def clear(self) -> None:
