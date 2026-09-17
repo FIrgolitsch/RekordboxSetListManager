@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterable, Iterator
 
 _SRC_ROOT = Path(__file__).resolve().parent.parent / "src"
 _PKG = "rekordbox_set_list_manager"
@@ -219,12 +219,186 @@ def _allowlisted(path: Path) -> bool:
     return any(parts[: len(item)] == item for item in _MUTATION_ALLOWLIST)
 
 
+def _terminal_name(expr: ast.expr) -> str:
+    """Outermost name of a receiver chain: ``a.b.c`` -> ``"c"``, ``x`` -> ``"x"``."""
+    if isinstance(expr, ast.Attribute):
+        return expr.attr
+    if isinstance(expr, ast.Name):
+        return expr.id
+    return ""
+
+
+def _scope_nodes(scope: ast.AST) -> Iterator[ast.AST]:
+    """Yield nodes in *scope* without crossing nested def/lambda bodies."""
+    stack = list(ast.iter_child_nodes(scope))
+    while stack:
+        node = stack.pop()
+        yield node
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            continue  # the header belongs to this scope; the body is a new one
+        stack.extend(ast.iter_child_nodes(node))
+
+
+def _flat_names(targets: Iterable[ast.expr]) -> Iterator[str]:
+    """Names bound by assignment targets, flattening tuple/starred unpacking."""
+    for target in targets:
+        if isinstance(target, ast.Name):
+            yield target.id
+        elif isinstance(target, (ast.Tuple, ast.List)):
+            yield from _flat_names(target.elts)
+        elif isinstance(target, ast.Starred):
+            yield from _flat_names([target.value])
+
+
+def _local_callables(scope: ast.AST) -> dict[str, ast.AST]:
+    """Names bound to ``def``/``lambda`` bodies directly inside *scope*."""
+    local: dict[str, ast.AST] = {}
+    for node in _scope_nodes(scope):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            local.setdefault(node.name, node)
+        elif isinstance(node, ast.Assign) and isinstance(node.value, ast.Lambda):
+            for name in _flat_names(node.targets):
+                local.setdefault(name, node.value)
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.value, ast.Lambda)
+            and isinstance(node.target, ast.Name)
+        ):
+            local.setdefault(node.target.id, node.value)
+    return local
+
+
+def _funnel_args(call: ast.Call) -> list[ast.expr]:
+    """Call arguments when *call* invokes ``*.apply_mutation``, else empty."""
+    if not (isinstance(call.func, ast.Attribute) and call.func.attr == "apply_mutation"):
+        return []
+    return [*call.args, *(kw.value for kw in call.keywords)]
+
+
+def _sanctioned_bodies(tree: ast.AST) -> set[int]:
+    """Ids of def/lambda bodies passed to ``apply_mutation`` in the same scope.
+
+    A local ``def``/``lambda`` is a sanctioned mutation closure iff its name
+    appears as an argument to a ``*.apply_mutation(...)`` call in the same
+    enclosing function; inline lambda args are sanctioned directly.
+    """
+    sanctioned: set[int] = set()
+    scopes = [tree]
+    while scopes:
+        scope = scopes.pop()
+        local = _local_callables(scope)
+        for node in _scope_nodes(scope):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                scopes.append(node)
+            elif isinstance(node, ast.Call):
+                for arg in _funnel_args(node):
+                    if isinstance(arg, ast.Name) and arg.id in local:
+                        sanctioned.add(id(local[arg.id]))
+                    elif isinstance(arg, ast.Lambda):
+                        sanctioned.add(id(arg))
+    return sanctioned
+
+
+def _field_write(target: ast.expr) -> str | None:
+    """Description when *target* stores into a model field on a model receiver."""
+    if isinstance(target, ast.Attribute):
+        base, field = target.value, target.attr
+    elif isinstance(target, ast.Subscript) and isinstance(target.value, ast.Attribute):
+        base, field = target.value.value, target.value.attr
+    else:
+        return None
+    if field in _MODEL_FIELDS and _terminal_name(base) in _MODEL_RECEIVERS:
+        return f"model field write '{field}' on '{_terminal_name(base)}'"
+    return None
+
+
+def _flat_targets(target: ast.expr) -> Iterator[ast.expr]:
+    """Leaf targets of an assignment, flattening tuple/starred unpacking."""
+    if isinstance(target, (ast.Tuple, ast.List)):
+        for elt in target.elts:
+            yield from _flat_targets(elt)
+    elif isinstance(target, ast.Starred):
+        yield from _flat_targets(target.value)
+    else:
+        yield target
+
+
+def _call_violation(node: ast.Call) -> str | None:
+    """Description when *node* is a banned or field-mutating call."""
+    func = node.func
+    if isinstance(func, ast.Name):
+        return "bare 'apply_track_match'" if func.id == "apply_track_match" else None
+    if not isinstance(func, ast.Attribute):
+        return None
+    if func.attr in _BANNED_MUTATORS:
+        receiver = _terminal_name(func.value) or "?"
+        if receiver not in _FUNNEL_RECEIVERS:
+            return f"banned mutator '{func.attr}' on '{receiver}'"
+    elif (
+        func.attr in _LIST_MUTATORS
+        and isinstance(func.value, ast.Attribute)
+        and func.value.attr in _MODEL_FIELDS
+        and _terminal_name(func.value.value) in _MODEL_RECEIVERS
+    ):
+        return f"mutating call '{func.attr}' on field '{func.value.attr}'"
+    return None
+
+
+def _internals_violation(node: ast.AST) -> str | None:
+    """Description when *node* touches funnel internals or the deleted escape hatch.
+
+    Checked even inside sanctioned funnel closures — private internals and
+    the deleted ``push_snapshot``/``notify_changed`` protocol are banned
+    anywhere in the module.
+    """
+    if isinstance(node, ast.Attribute):
+        if node.attr in _FUNNEL_CANARIES:
+            return f"escape hatch '{node.attr}'"
+        if node.attr in _PRIVATE_INTERNALS:
+            return f"private internals '{node.attr}'"
+        if node.attr == "_push" and not (
+            isinstance(node.value, ast.Name) and node.value.id == "self"
+        ):
+            return "private '_push' on non-self receiver"
+    elif isinstance(node, ast.Name) and node.id in _FUNNEL_CANARIES:
+        return f"escape hatch '{node.id}'"
+    elif (
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in _FUNNEL_CANARIES
+    ):
+        return f"escape hatch '{node.name}'"
+    return None
+
+
 def _mutation_violations(path: Path, label: str | None = None) -> list[str]:
     """Mutation-ban violations in one non-allowlisted module, sorted by line."""
-    ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    hits: list[str] = []
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    sanctioned = _sanctioned_bodies(tree)
+    hits: list[tuple[int, str]] = []
+
+    def visit(node: ast.AST, inside_funnel: bool) -> None:
+        if id(node) in sanctioned:
+            inside_funnel = True
+        desc = _internals_violation(node)
+        if desc is not None:
+            hits.append((getattr(node, "lineno", 0), desc))
+        if not inside_funnel:
+            if isinstance(node, ast.Call):
+                desc = _call_violation(node)
+                if desc is not None:
+                    hits.append((node.lineno, desc))
+            elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                for target in targets:
+                    for leaf in _flat_targets(target):
+                        desc = _field_write(leaf)
+                        if desc is not None:
+                            hits.append((node.lineno, desc))
+        for child in ast.iter_child_nodes(node):
+            visit(child, inside_funnel)
+
+    visit(tree, inside_funnel=False)
     label = label or path.name
-    return [f"{label}:{hit}" for hit in sorted(hits)]
+    return [f"{label}:{lineno}: {desc}" for lineno, desc in sorted(hits)]
 
 
 def test_all_mutations_route_through_the_funnel() -> None:
@@ -267,15 +441,15 @@ def test_mutation_collector_flags_bypasses(tmp_path) -> None:
     )
     hits = _mutation_violations(probe)
     expected = [
-        "banned mutator 'add_track'",
-        "model field write 'name'",
+        "banned mutator 'add_track' on 'project'",
+        "model field write 'name' on 'project'",
         "private internals '_stack'",
         "escape hatch 'notify_changed'",
         "mutating call 'append' on field 'track_ids'",
         "bare 'apply_track_match'",
         "private '_push' on non-self receiver",
         "private internals '_emit'",
-        "banned mutator 'add_track'",
+        "banned mutator 'add_track' on 'p'",
         "private internals '_stack'",
     ]
     descriptions = sorted(hit.split(": ", 1)[1] for hit in hits)
@@ -296,6 +470,7 @@ def test_mutation_collector_allows_sanctioned_shapes(tmp_path) -> None:
         "        self._edit_ctrl.apply_mutation(_fn)\n"
         "        self._edit_ctrl.apply_mutation(lambda proj: proj.add_track(track))\n"
         "        self._edit.add_track(track, sid)\n"
+        "        self._edit_ctrl.add_track(track, sid)\n"
         "        self._push('playlist', [])\n"
         "        self._project.touch()\n",
         encoding="utf-8",
