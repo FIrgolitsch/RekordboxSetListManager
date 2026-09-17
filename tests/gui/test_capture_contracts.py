@@ -265,16 +265,13 @@ def test_apply_match_contract(window, track):
 
 
 def test_transition_note_edit_contract(window, track, section):
-    """The wired note-edit path: about_to_modify pushes one snapshot, then the
-    note_edit write emits without pushing — one undo step for the whole edit."""
+    """The wired note-edit path: a single ``note_edit`` emission is funneled
+    with a per-note merge key — one undo step for the whole edit."""
     _seed(window, section, tracks=[track])
 
     undo_before, spy = _observe_mutation(
         window,
-        lambda: (
-            window._transition_note.about_to_modify.emit(),
-            window._transition_note.note_edit.emit(section.id, track.id, "smooth blend"),
-        ),
+        lambda: window._transition_note.note_edit.emit(section.id, track.id, "smooth blend"),
     )
 
     _assert_funnel_contract(window, undo_before, spy)

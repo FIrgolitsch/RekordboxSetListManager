@@ -138,8 +138,7 @@ def test_import_note_undo_save_reload(window, monkeypatch, tmp_path):
     assert section.track_ids == [t.id for t in tracks]
     assert window._project.spotify_playlist_id == "pl-1"
 
-    # ── note leg: wired about_to_modify → note_edit writes one undo step ─
-    window._transition_note.about_to_modify.emit()
+    # ── note leg: a single note_edit emit merges into one undo step ──────
     window._transition_note.note_edit.emit(section.id, tracks[0].id, "smooth blend")
 
     assert section.transition_notes[str(tracks[0].id)] == "smooth blend"
