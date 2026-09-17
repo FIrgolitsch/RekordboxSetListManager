@@ -9,6 +9,7 @@ maps, scroll position, or collapse flags.
 from __future__ import annotations
 
 import pytest
+from PySide6.QtTest import QSignalSpy
 from PySide6.QtWidgets import QDialog, QFileDialog, QMessageBox
 
 from rekordbox_set_list_manager.gui.main_window import MainWindow
@@ -263,6 +264,29 @@ def test_undo_cleared_disables_undo(window):
 
     assert not window._edit_ctrl.can_undo
     assert not window._act_undo.isEnabled()
+
+
+def test_save_as_routes_name_sync_through_funnel(window, monkeypatch, tmp_path):
+    """Save-As renames the project inside the funnel and emits EditController's signal."""
+    # Keep the test hermetic: a real save would record the temp path in the
+    # user config's recent-files list.
+    monkeypatch.setattr(
+        "rekordbox_set_list_manager.controllers.project_controller.add_recent_file",
+        lambda path: None,
+    )
+    monkeypatch.setattr(
+        QFileDialog,
+        "getSaveFileName",
+        lambda *a, **k: (str(tmp_path / "renamed.setmgr"), ""),
+    )
+    spy = QSignalSpy(window._edit_ctrl.project_changed)
+
+    window._file_ctrl.save_as()
+
+    assert window._project.name == "renamed"
+    assert spy.count() >= 1
+    assert window._ctrl.save_path == tmp_path / "renamed.setmgr"
+    assert "renamed" in window.windowTitle()
 
 
 # -------------------------------------------------------------- funnel routing
