@@ -413,9 +413,18 @@ class EditController(QObject):
         def _mutate(proj: Project) -> None:
             src = proj.get_section(from_section_id)
             dst = proj.get_section(to_section_id)
-            if src is None or dst is None:
+            if src is None or dst is None or track_id not in src.track_ids:
                 return
-            src.remove_track(track_id)
+            if src is dst:
+                # Reposition without touching transition_notes — a
+                # remove/reinsert through Section.remove_track would drop
+                # the note even though the track never left the section.
+                clamped = max(0, min(index, len(src.track_ids) - 1))
+                src.move_track(track_id, clamped)
+                return
+            # track_ids.remove (not Section.remove_track) keeps the note
+            # alive, matching move_tracks_batch.
+            src.track_ids.remove(track_id)
             dst.track_ids.insert(max(0, min(index, len(dst.track_ids))), track_id)
 
         self.apply_mutation(_mutate)
