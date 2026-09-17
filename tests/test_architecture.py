@@ -203,7 +203,21 @@ _MODEL_FIELDS = frozenset(
     }
 )
 
-_LIST_MUTATORS = frozenset({"append", "insert", "remove", "pop", "clear", "extend"})
+_LIST_MUTATORS = frozenset(
+    {
+        "append",
+        "insert",
+        "remove",
+        "pop",
+        "clear",
+        "extend",
+        "sort",
+        "reverse",
+        "update",
+        "setdefault",
+        "popitem",
+    }
+)
 
 _PRIVATE_INTERNALS = frozenset({"_stack", "_emit"})
 
@@ -393,6 +407,12 @@ def _mutation_violations(path: Path, label: str | None = None) -> list[str]:
                         desc = _field_write(leaf)
                         if desc is not None:
                             hits.append((node.lineno, desc))
+            elif isinstance(node, ast.Delete):
+                for target in node.targets:
+                    for leaf in _flat_targets(target):
+                        desc = _field_write(leaf)
+                        if desc is not None:
+                            hits.append((node.lineno, desc))
         for child in ast.iter_child_nodes(node):
             visit(child, inside_funnel)
 
@@ -422,6 +442,13 @@ def test_mutation_collector_flags_bypasses(tmp_path) -> None:
         "        self._edit_ctrl._stack.push(x)\n"
         "        notify_changed()\n"
         "        section.track_ids.append(tid)\n"
+        "        section.track_ids.sort()\n"
+        "        section.track_ids.reverse()\n"
+        "        project.tracks.update({})\n"
+        "        section.transition_notes.setdefault(str(tid), 'x')\n"
+        "        section.transition_notes.popitem()\n"
+        "        del section.track_ids[0]\n"
+        "        del project.tracks[tid]\n"
         "\n"
         "    def helpers(self, track, local, other):\n"
         "        apply_track_match(track, local)\n"
@@ -446,6 +473,13 @@ def test_mutation_collector_flags_bypasses(tmp_path) -> None:
         "private internals '_stack'",
         "escape hatch 'notify_changed'",
         "mutating call 'append' on field 'track_ids'",
+        "mutating call 'sort' on field 'track_ids'",
+        "mutating call 'reverse' on field 'track_ids'",
+        "mutating call 'update' on field 'tracks'",
+        "mutating call 'setdefault' on field 'transition_notes'",
+        "mutating call 'popitem' on field 'transition_notes'",
+        "model field write 'track_ids' on 'section'",
+        "model field write 'tracks' on 'project'",
         "bare 'apply_track_match'",
         "private '_push' on non-self receiver",
         "private internals '_emit'",
