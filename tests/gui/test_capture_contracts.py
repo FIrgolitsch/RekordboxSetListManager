@@ -287,14 +287,6 @@ def test_transition_note_edit_contract(window, track, section):
 # once the bypasses are migrated onto EditController.
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "add_track_to_section mutates the project outside the edit funnel "
-        "(no undo step, no dirty flag, no project_changed emission) — "
-        "expected to change when the view is migrated onto the funnel"
-    ),
-)
 def test_view_add_track_to_section_contract(window, track, section):
     _seed(window, section, tracks=[track])
     window._ctrl.project_changed.emit(window._project)  # view tracks the project
@@ -312,14 +304,6 @@ def test_view_add_track_to_section_contract(window, track, section):
     _assert_funnel_contract(window, undo_before, spy)
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "theme dialog mutates project.themes directly and pushes the undo "
-        "stack by hand (no project_changed emission) — expected to change "
-        "when the dialog is migrated onto the funnel"
-    ),
-)
 def test_theme_dialog_mutation_contract(window, monkeypatch):
     def _exec_with_mutation(dialog):
         dialog._project.add_theme(SectionNameTheme(name="Festival"))
