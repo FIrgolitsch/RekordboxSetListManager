@@ -222,9 +222,7 @@ _LIST_MUTATORS = frozenset(
     }
 )
 
-_PRIVATE_INTERNALS = frozenset(
-    {"_stack", "_emit", "_push_undo_state", "_edit_in_progress"}
-)
+_PRIVATE_INTERNALS = frozenset({"_stack", "_emit", "_push_undo_state", "_edit_in_progress"})
 
 _FUNNEL_CANARIES = frozenset({"push_snapshot", "notify_changed", "about_to_modify"})
 
@@ -342,6 +340,26 @@ def _flat_targets(target: ast.expr) -> Iterator[ast.expr]:
         yield target
 
 
+def _field_write_hits(node: ast.AST, lineno: int) -> list[tuple[int, str]]:
+    """(lineno, description) pairs for model-field writes in *node*'s targets.
+
+    Covers assignment statements (``=``, annotated, augmented) and ``del``
+    statements — all statement shapes that write a model field.
+    """
+    if isinstance(node, (ast.Assign, ast.Delete)):
+        targets = node.targets
+    elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+        targets = [node.target]
+    else:
+        return []
+    return [
+        (lineno, desc)
+        for target in targets
+        for leaf in _flat_targets(target)
+        if (desc := _field_write(leaf)) is not None
+    ]
+
+
 def _call_violation(node: ast.Call) -> str | None:
     """Description when *node* is a banned or field-mutating call."""
     func = node.func
@@ -405,19 +423,8 @@ def _mutation_violations(path: Path, label: str | None = None) -> list[str]:
                 desc = _call_violation(node)
                 if desc is not None:
                     hits.append((node.lineno, desc))
-            elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
-                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-                for target in targets:
-                    for leaf in _flat_targets(target):
-                        desc = _field_write(leaf)
-                        if desc is not None:
-                            hits.append((node.lineno, desc))
-            elif isinstance(node, ast.Delete):
-                for target in node.targets:
-                    for leaf in _flat_targets(target):
-                        desc = _field_write(leaf)
-                        if desc is not None:
-                            hits.append((node.lineno, desc))
+            elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.Delete)):
+                hits.extend(_field_write_hits(node, node.lineno))
         for child in ast.iter_child_nodes(node):
             visit(child, inside_funnel)
 
