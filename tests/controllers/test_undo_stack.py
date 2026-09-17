@@ -79,6 +79,21 @@ def test_no_duplicate_consecutive_pushes():
     assert not s.can_undo  # only one entry was stored
 
 
+def test_dedupes_equal_content_distinct_objects():
+    s: UndoStack[list] = UndoStack()
+    s.push(["a", "b"])
+    s.push(["a", "b"])  # distinct object, identical content
+    assert len(s._undo) == 1
+
+
+def test_push_honours_supplied_fingerprint():
+    s: UndoStack[str] = UndoStack()
+    s.push("a")
+    top_fp = s._undo[-1][0]
+    s.push("different", fingerprint=top_fp)
+    assert len(s._undo) == 1  # caller fingerprint deduped without rehash
+
+
 def test_clear_resets_everything():
     s: UndoStack[str] = UndoStack()
     s.push("a")

@@ -2,11 +2,25 @@
 
 from __future__ import annotations
 
+import hashlib
+
 _DEFAULT_MAX = 50
+
+
+def _fp(snapshot: object) -> bytes:
+    """Return the sha256 fingerprint of *snapshot*'s string form.
+
+    Snapshots are deterministic serialisations, so equal content always
+    produces equal fingerprints; the digest doubles as the no-op detector.
+    """
+    return hashlib.sha256(str(snapshot).encode("utf-8")).digest()
 
 
 class UndoStack[T]:
     """Undo/redo stack that stores serialised snapshots of type *T*.
+
+    Entries are stored as ``(fingerprint, snapshot)`` pairs so the no-op
+    check compares digests instead of whole snapshots.
 
     Usage::
 
@@ -25,8 +39,8 @@ class UndoStack[T]:
     def __init__(self, max_size: int = _DEFAULT_MAX) -> None:
         """Initialise an empty undo/redo stack with *max_size* capacity."""
         self._max = max_size
-        self._undo: list[T] = []
-        self._redo: list[T] = []
+        self._undo: list[tuple[bytes, T]] = []
+        self._redo: list[tuple[bytes, T]] = []
 
     # ---------------------------------------------------------------- public
 
@@ -40,18 +54,23 @@ class UndoStack[T]:
         """Return True if there are redo steps available."""
         return bool(self._redo)
 
-    def push(self, snapshot: T) -> None:
+    def push(self, snapshot: T, *, fingerprint: bytes | None = None) -> None:
         """Record *snapshot* before a mutation.  Clears the redo stack.
 
         Parameters
         ----------
         snapshot : T
             The serialised project state to push onto the undo history.
+        fingerprint : bytes | None, optional
+            Precomputed digest of *snapshot*.  When supplied the digest is
+            stored (and compared) as-is, so callers that already hashed the
+            state avoid a second hash.
 
         """
-        if self._undo and self._undo[-1] == snapshot:
+        fp = fingerprint if fingerprint is not None else _fp(snapshot)
+        if self._undo and self._undo[-1][0] == fp:
             return  # no-op: nothing changed
-        self._undo.append(snapshot)
+        self._undo.append((fp, snapshot))
         if len(self._undo) > self._max:
             self._undo.pop(0)
         self._redo.clear()
@@ -76,8 +95,8 @@ class UndoStack[T]:
         """
         if not self._undo:
             return None
-        self._redo.append(current)
-        return self._undo.pop()
+        self._redo.append((_fp(current), current))
+        return self._undo.pop()[1]
 
     def redo(self, current: T) -> T | None:
         """Redo one step.  Returns the next snapshot, or *None* if empty.
@@ -99,8 +118,8 @@ class UndoStack[T]:
         """
         if not self._redo:
             return None
-        self._undo.append(current)
-        return self._redo.pop()
+        self._undo.append((_fp(current), current))
+        return self._redo.pop()[1]
 
     def clear(self) -> None:
         """Discard all undo and redo history."""

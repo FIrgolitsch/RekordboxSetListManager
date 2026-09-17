@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QObject, Signal
@@ -11,12 +12,23 @@ from rekordbox_set_list_manager.controllers.undo_stack import UndoStack
 from rekordbox_set_list_manager.models.project import Project
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from uuid import UUID
 
     from rekordbox_set_list_manager.controllers.project_controller import ProjectController
     from rekordbox_set_list_manager.models.enums import RekordboxColor, SectionType
     from rekordbox_set_list_manager.models.section import Section
     from rekordbox_set_list_manager.models.track import Track
+
+
+def _fingerprint(dump: str) -> bytes:
+    """Return the sha256 fingerprint of a serialised project dump.
+
+    ``model_dump_json`` output is deterministic, so equal project content
+    always yields equal fingerprints — the digest is a cheap change
+    detector, not a security control.
+    """
+    return hashlib.sha256(dump.encode("utf-8")).digest()
 
 
 class EditController(QObject):
@@ -43,6 +55,7 @@ class EditController(QObject):
         super().__init__(parent)
         self._ctrl = ctrl
         self._stack: UndoStack[str] = UndoStack()
+        self._pending_merge: tuple[str, Project, bytes] | None = None
 
     # ------------------------------------------------------------------ props
 
@@ -56,6 +69,99 @@ class EditController(QObject):
         """Return True if there are redo steps available."""
         return self._stack.can_redo
 
+    # ---------------------------------------------------------------- funnel
+
+    def apply_mutation[T](
+        self, fn: Callable[[Project], T], *, merge_key: str | None = None
+    ) -> T | None:
+        """Run *fn* on the project through the single audited mutation funnel.
+
+        Ordering: fingerprint the current state, run ``fn``, fingerprint
+        again.  An unchanged fingerprint discards the call — no snapshot,
+        no dirty flag, no ``project_changed`` emission — but *fn*'s result
+        is still returned.  A changed fingerprint pushes the pre-state
+        snapshot, marks the project dirty, and emits ``project_changed``.
+
+        If *fn* raises after mutating, the partial state is recorded (the
+        pre-state snapshot is pushed and ``project_changed`` emitted) before
+        the exception re-raises unchanged; a raise with net-zero change
+        records nothing.
+
+        Consecutive calls sharing *merge_key* reuse the pending undo entry
+        instead of pushing one per call — the ``QUndoCommand.mergeWith``
+        analogue.  Coalescing is key-based, not session-based: returning to
+        the same key with no intervening mutation merges into the old run.
+        The run resets on undo/redo/clear, on any different-key or keyless
+        call, and whenever the ``Project`` instance is swapped (undo/redo/
+        restore/new/load) via identity comparison — a stale run can never
+        write back an old project's snapshot.
+
+        Parameters
+        ----------
+        fn : Callable[[Project], T]
+            The mutation to run against the live ``Project``.  Its return
+            value is passed through to the caller.
+        merge_key : str | None, optional
+            Coalescing key.  Consecutive calls with the same key share one
+            undo entry instead of pushing one entry per call.
+
+        Returns
+        -------
+        T | None
+            *fn*'s return value, or ``None`` when no project is loaded.
+
+        """
+        proj = self._require()
+        if proj is None:
+            return None
+
+        pending = self._pending_merge
+        if (
+            pending is not None
+            and merge_key is not None
+            and pending[0] == merge_key
+            and pending[1] is proj
+        ):
+            try:
+                result = fn(proj)
+            except Exception:
+                # The run's pre-state snapshot is already on the stack, so a
+                # second push would add a phantom undo entry — emit only, so
+                # the partial continuation stays undo-reachable via that
+                # snapshot.  The exception breaks the run either way.
+                if _fingerprint(proj.model_dump_json()) != pending[2]:
+                    self._emit()
+                self._pending_merge = None
+                raise
+            fp_after = _fingerprint(proj.model_dump_json())
+            if fp_after == pending[2]:
+                return result  # no-op continuation: nothing changed
+            self._pending_merge = (merge_key, proj, fp_after)
+            self._emit()
+            return result
+
+        self._pending_merge = None  # non-matching call closes any open run
+        before = proj.model_dump_json()
+        fp_before = _fingerprint(before)
+        try:
+            result = fn(proj)
+        except Exception:
+            # Record the partial mutation so every changed state stays
+            # undo-reachable, then propagate the failure to the caller.
+            if _fingerprint(proj.model_dump_json()) != fp_before:
+                self._stack.push(before, fingerprint=fp_before)
+                self._emit()
+                self._pending_merge = None
+            raise
+        fp_after = _fingerprint(proj.model_dump_json())
+        if fp_after == fp_before:
+            return result  # fingerprint no-op: discard, return result
+        self._stack.push(before, fingerprint=fp_before)
+        self._emit()
+        if merge_key is not None:
+            self._pending_merge = (merge_key, proj, fp_after)
+        return result
+
     # --------------------------------------------------------- section methods
 
     def add_section(self, section: Section) -> None:
@@ -67,12 +173,11 @@ class EditController(QObject):
             The section to append.
 
         """
-        proj = self._require()
-        if proj is None:
-            return
-        self._push(proj)
-        proj.add_section(section)
-        self._emit()
+
+        def _mutate(proj: Project) -> None:
+            proj.add_section(section)
+
+        self.apply_mutation(_mutate)
 
     def remove_section(self, section_id: UUID) -> None:
         """Remove the section identified by *section_id* from the project.

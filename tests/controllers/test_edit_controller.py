@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 from uuid import uuid4
 
+import pytest
+
 from rekordbox_set_list_manager.controllers.edit_controller import EditController
 from rekordbox_set_list_manager.controllers.undo_stack import UndoStack
 from rekordbox_set_list_manager.models.enums import MatchStatus, RekordboxColor, SectionType
@@ -33,6 +35,7 @@ def _make_ctrl(project: Project) -> tuple[EditController, MagicMock]:
     ec = EditController.__new__(EditController)
     ec._ctrl = pc
     ec._stack = UndoStack()
+    ec._pending_merge = None
     ec.project_changed = MagicMock()
     ec.project_changed.emit = MagicMock()
     return ec, pc
@@ -40,6 +43,76 @@ def _make_ctrl(project: Project) -> tuple[EditController, MagicMock]:
 
 def _new_section(name: str = "Extra") -> Section:
     return Section(name=name, section_type=SectionType.GENERAL, color=RekordboxColor.NONE)
+
+
+# ---------------------------------------------------------------------------
+# apply_mutation funnel
+# ---------------------------------------------------------------------------
+
+
+class TestApplyMutation:
+    def test_mutating_fn_pushes_emits_and_returns(self, project: Project) -> None:
+        ec, pc = _make_ctrl(project)
+        depth_before = len(ec._stack._undo)
+
+        def _fn(proj: Project) -> str:
+            proj.name = "Renamed"
+            return "fn-result"
+
+        result = ec.apply_mutation(_fn)
+
+        assert result == "fn-result"
+        assert len(ec._stack._undo) == depth_before + 1
+        pc.mark_dirty.assert_called_once()
+        ec.project_changed.emit.assert_called_once()
+
+    def test_noop_fn_records_nothing_but_returns(self, project: Project) -> None:
+        ec, pc = _make_ctrl(project)
+        depth_before = len(ec._stack._undo)
+
+        result = ec.apply_mutation(lambda proj: "noop-result")
+
+        assert result == "noop-result"
+        assert len(ec._stack._undo) == depth_before
+        pc.mark_dirty.assert_not_called()
+        ec.project_changed.emit.assert_not_called()
+
+    def test_exception_after_mutation_records_partial(self, project: Project) -> None:
+        ec, pc = _make_ctrl(project)
+        depth_before = len(ec._stack._undo)
+
+        def _fn(proj: Project) -> None:
+            proj.name = "Partial"
+            raise RuntimeError("boom")
+
+        with pytest.raises(RuntimeError, match="boom"):
+            ec.apply_mutation(_fn)
+
+        assert len(ec._stack._undo) == depth_before + 1
+        pc.mark_dirty.assert_called_once()
+        ec.project_changed.emit.assert_called_once()
+        assert pc.project.name == "Partial"
+
+    def test_exception_with_net_zero_change_records_nothing(self, project: Project) -> None:
+        ec, pc = _make_ctrl(project)
+        depth_before = len(ec._stack._undo)
+
+        def _fn(proj: Project) -> None:
+            raise RuntimeError("boom")
+
+        with pytest.raises(RuntimeError, match="boom"):
+            ec.apply_mutation(_fn)
+
+        assert len(ec._stack._undo) == depth_before
+        pc.mark_dirty.assert_not_called()
+        ec.project_changed.emit.assert_not_called()
+
+    def test_none_project_returns_none_without_calling_fn(self) -> None:
+        ec, _ = _make_ctrl(None)
+        fn = MagicMock()
+
+        assert ec.apply_mutation(fn) is None
+        fn.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
