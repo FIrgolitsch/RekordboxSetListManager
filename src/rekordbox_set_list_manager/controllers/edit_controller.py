@@ -188,12 +188,11 @@ class EditController(QObject):
             The ID of the section to remove.
 
         """
-        proj = self._require()
-        if proj is None:
-            return
-        self._push(proj)
-        proj.remove_section(section_id)
-        self._emit()
+
+        def _mutate(proj: Project) -> None:
+            proj.remove_section(section_id)
+
+        self.apply_mutation(_mutate)
 
     def rename_project(self, name: str) -> None:
         """Rename the project.
@@ -204,12 +203,11 @@ class EditController(QObject):
             The new project name.
 
         """
-        proj = self._require()
-        if proj is None:
-            return
-        self._push(proj)
-        proj.name = name
-        self._emit()
+
+        def _mutate(proj: Project) -> None:
+            proj.name = name
+
+        self.apply_mutation(_mutate)
 
     def rename_section(self, section_id: UUID, name: str) -> None:
         """Rename the section identified by *section_id*.
@@ -222,15 +220,14 @@ class EditController(QObject):
             The new display name.
 
         """
-        proj = self._require()
-        if proj is None:
-            return
-        sec = proj.get_section(section_id)
-        if sec is None:
-            return
-        self._push(proj)
-        sec.name = name
-        self._emit()
+
+        def _mutate(proj: Project) -> None:
+            sec = proj.get_section(section_id)
+            if sec is None:
+                return
+            sec.name = name
+
+        self.apply_mutation(_mutate)
 
     def set_section_color(self, section_id: UUID, color: RekordboxColor) -> None:
         """Set the display color of the section identified by *section_id*.
@@ -243,15 +240,14 @@ class EditController(QObject):
             The new color to assign.
 
         """
-        proj = self._require()
-        if proj is None:
-            return
-        sec = proj.get_section(section_id)
-        if sec is None:
-            return
-        self._push(proj)
-        sec.color = color
-        self._emit()
+
+        def _mutate(proj: Project) -> None:
+            sec = proj.get_section(section_id)
+            if sec is None:
+                return
+            sec.color = color
+
+        self.apply_mutation(_mutate)
 
     def edit_section(
         self,
@@ -275,20 +271,19 @@ class EditController(QObject):
             An explicit color override, or ``None`` to use the type default.
 
         """
-        proj = self._require()
-        if proj is None:
-            return
-        sec = proj.get_section(section_id)
-        if sec is None:
-            return
-        self._push(proj)
-        sec.name = name
-        if section_type != sec.section_type:
-            sec.section_type = section_type
-            sec.color = proj.default_color_for(section_type)
-        if color is not None and color != sec.color:
-            sec.color = color
-        self._emit()
+
+        def _mutate(proj: Project) -> None:
+            sec = proj.get_section(section_id)
+            if sec is None:
+                return
+            sec.name = name
+            if section_type != sec.section_type:
+                sec.section_type = section_type
+                sec.color = proj.default_color_for(section_type)
+            if color is not None and color != sec.color:
+                sec.color = color
+
+        self.apply_mutation(_mutate)
 
     def move_section(self, section_id: UUID, new_index: int) -> None:
         """Move the section identified by *section_id* to *new_index*.
@@ -301,12 +296,11 @@ class EditController(QObject):
             Target zero-based position in the sections list.
 
         """
-        proj = self._require()
-        if proj is None:
-            return
-        self._push(proj)
-        proj.move_section(section_id, new_index)
-        self._emit()
+
+        def _mutate(proj: Project) -> None:
+            proj.move_section(section_id, new_index)
+
+        self.apply_mutation(_mutate)
 
     def apply_theme(self, theme_name: str) -> None:
         """Apply the named colour/name theme to all sections.
@@ -317,12 +311,11 @@ class EditController(QObject):
             Name of the theme preset to apply.
 
         """
-        proj = self._require()
-        if proj is None:
-            return
-        self._push(proj)
-        proj.apply_theme(theme_name)
-        self._emit()
+
+        def _mutate(proj: Project) -> None:
+            proj.apply_theme(theme_name)
+
+        self.apply_mutation(_mutate)
 
     def recolor_all_by_type(self) -> int:
         """Recolor every section to its type's default color; returns sections changed.
@@ -333,22 +326,18 @@ class EditController(QObject):
             The number of sections whose color was updated.
 
         """
-        proj = self._require()
-        if proj is None:
-            return 0
-        # Compute changes before touching the model
-        updates = [
-            (sec, proj.default_color_for(sec.section_type))
-            for sec in proj.sections
-            if sec.color != proj.default_color_for(sec.section_type)
-        ]
-        if not updates:
-            return 0
-        self._push(proj)
-        for sec, color in updates:
-            sec.color = color
-        self._emit()
-        return len(updates)
+
+        def _mutate(proj: Project) -> int:
+            changed = 0
+            for sec in proj.sections:
+                color = proj.default_color_for(sec.section_type)
+                if sec.color != color:
+                    sec.color = color
+                    changed += 1
+            return changed
+
+        result = self.apply_mutation(_mutate)
+        return result if result is not None else 0
 
     # ---------------------------------------------------------- track methods
 
@@ -363,16 +352,15 @@ class EditController(QObject):
             The ID of the section to append the track to.
 
         """
-        proj = self._require()
-        if proj is None:
-            return
-        sec = proj.get_section(section_id)
-        if sec is None:
-            return
-        self._push(proj)
-        proj.add_track(track)
-        sec.add_track(track.id)
-        self._emit()
+
+        def _mutate(proj: Project) -> None:
+            sec = proj.get_section(section_id)
+            if sec is None:
+                return
+            proj.add_track(track)
+            sec.add_track(track.id)
+
+        self.apply_mutation(_mutate)
 
     def remove_track(self, track_id: UUID, section_id: UUID) -> None:
         """Remove *track_id* from the specified section.
@@ -385,15 +373,14 @@ class EditController(QObject):
             The ID of the section containing the track.
 
         """
-        proj = self._require()
-        if proj is None:
-            return
-        sec = proj.get_section(section_id)
-        if sec is None:
-            return
-        self._push(proj)
-        sec.remove_track(track_id)
-        self._emit()
+
+        def _mutate(proj: Project) -> None:
+            sec = proj.get_section(section_id)
+            if sec is None:
+                return
+            sec.remove_track(track_id)
+
+        self.apply_mutation(_mutate)
 
     def move_track(
         self,
@@ -416,17 +403,16 @@ class EditController(QObject):
             Target zero-based insertion index in the destination section.
 
         """
-        proj = self._require()
-        if proj is None:
-            return
-        src = proj.get_section(from_section_id)
-        dst = proj.get_section(to_section_id)
-        if src is None or dst is None:
-            return
-        self._push(proj)
-        src.remove_track(track_id)
-        dst.track_ids.insert(max(0, min(index, len(dst.track_ids))), track_id)
-        self._emit()
+
+        def _mutate(proj: Project) -> None:
+            src = proj.get_section(from_section_id)
+            dst = proj.get_section(to_section_id)
+            if src is None or dst is None:
+                return
+            src.remove_track(track_id)
+            dst.track_ids.insert(max(0, min(index, len(dst.track_ids))), track_id)
+
+        self.apply_mutation(_mutate)
 
     def reorder_section_tracks(self, section_id: UUID, track_ids: list[UUID]) -> None:
         """Replace the track order in a section with the supplied *track_ids* list.
@@ -439,15 +425,14 @@ class EditController(QObject):
             The new ordered list of track IDs for the section.
 
         """
-        proj = self._require()
-        if proj is None:
-            return
-        sec = proj.get_section(section_id)
-        if sec is None:
-            return
-        self._push(proj)
-        sec.track_ids = list(track_ids)
-        self._emit()
+
+        def _mutate(proj: Project) -> None:
+            sec = proj.get_section(section_id)
+            if sec is None:
+                return
+            sec.track_ids = list(track_ids)
+
+        self.apply_mutation(_mutate)
 
     def apply_match(self, track_id: UUID, local: Track | None) -> None:
         """Apply a local-track match result to *track_id* in the project.
@@ -461,20 +446,20 @@ class EditController(QObject):
             clear the existing match.
 
         """
-        proj = self._require()
-        if proj is None:
-            return
-        track = proj.get_track(track_id)
-        if track is None:
-            return
-        self._push(proj)
-        apply_track_match(track, local)
-        self._emit()
+
+        def _mutate(proj: Project) -> None:
+            track = proj.get_track(track_id)
+            if track is None:
+                return
+            apply_track_match(track, local)
+
+        self.apply_mutation(_mutate)
 
     # --------------------------------------------------------------- undo/redo
 
     def undo(self) -> None:
         """Restore the project to the previous snapshot."""
+        self._pending_merge = None
         proj = self._require()
         if proj is None or not self._stack.can_undo:
             return
@@ -485,6 +470,7 @@ class EditController(QObject):
 
     def redo(self) -> None:
         """Re-apply the next snapshot after an undo."""
+        self._pending_merge = None
         proj = self._require()
         if proj is None or not self._stack.can_redo:
             return
@@ -495,6 +481,7 @@ class EditController(QObject):
 
     def clear(self) -> None:
         """Clear the undo/redo history."""
+        self._pending_merge = None
         self._stack.clear()
 
     def push_snapshot(self) -> None:
@@ -561,21 +548,20 @@ class EditController(QObject):
             Target zero-based insertion index in the destination section.
 
         """
-        proj = self._require()
-        if proj is None:
-            return
-        src = proj.get_section(from_section_id)
-        dst = proj.get_section(to_section_id)
-        if src is None or dst is None:
-            return
-        self._push(proj)
-        for tid in track_ids:
-            if tid in src.track_ids:
-                src.track_ids.remove(tid)
-        clamped = max(0, min(dest_index, len(dst.track_ids)))
-        for i, tid in enumerate(track_ids):
-            dst.track_ids.insert(clamped + i, tid)
-        self._emit()
+
+        def _mutate(proj: Project) -> None:
+            src = proj.get_section(from_section_id)
+            dst = proj.get_section(to_section_id)
+            if src is None or dst is None:
+                return
+            for tid in track_ids:
+                if tid in src.track_ids:
+                    src.track_ids.remove(tid)
+            clamped = max(0, min(dest_index, len(dst.track_ids)))
+            for i, tid in enumerate(track_ids):
+                dst.track_ids.insert(clamped + i, tid)
+
+        self.apply_mutation(_mutate)
 
     # ---------------------------------------------------------------- private
 
