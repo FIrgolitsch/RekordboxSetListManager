@@ -9,7 +9,7 @@ maps, scroll position, or collapse flags.
 from __future__ import annotations
 
 import pytest
-from PySide6.QtWidgets import QDialog
+from PySide6.QtWidgets import QDialog, QMessageBox
 
 from rekordbox_set_list_manager.gui.main_window import MainWindow
 from rekordbox_set_list_manager.gui.widgets.dialogs.add_track_dialog import (
@@ -262,3 +262,60 @@ def test_undo_cleared_disables_undo(window):
 
     assert not window._edit_ctrl.can_undo
     assert not window._act_undo.isEnabled()
+
+
+# -------------------------------------------------------------- funnel routing
+
+
+def test_import_batch_routes_through_funnel(window, monkeypatch):
+    """The whole import batch — tracks, section, playlist id — is one funneled mutation."""
+    tracks = [
+        Track(title="Sundown", artist="DJ Koze"),
+        Track(title="Atlas", artist="Bicep"),
+    ]
+
+    class _FakeImportDialog:
+        DialogCode = QDialog.DialogCode
+
+        def __init__(self, project, parent=None) -> None:
+            pass
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+        def results(self):
+            return list(tracks)
+
+        @property
+        def sync_mode(self):
+            return False
+
+        @property
+        def selected_spotify_playlist_id(self):
+            return "pl-1"
+
+        @property
+        def selected_tidal_playlist_id(self):
+            return None
+
+    monkeypatch.setattr(
+        "rekordbox_set_list_manager.gui.widgets.dialogs.import_dialog.ImportDialog",
+        _FakeImportDialog,
+    )
+    monkeypatch.setattr(
+        QMessageBox, "information", lambda *a, **k: QMessageBox.StandardButton.Ok
+    )
+    calls = []
+    original = window._edit_ctrl.apply_mutation
+
+    def _spy(fn, **kwargs):
+        calls.append(fn)
+        return original(fn, **kwargs)
+
+    monkeypatch.setattr(window._edit_ctrl, "apply_mutation", _spy)
+
+    window._import_ctrl.import_streaming()
+
+    assert len(calls) == 1
+    assert window._project.spotify_playlist_id == "pl-1"
+    assert window._project.sections[0].track_ids == [t.id for t in tracks]
