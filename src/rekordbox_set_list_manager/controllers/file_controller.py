@@ -164,5 +164,4 @@ class FileController(QObject):
             QMessageBox.critical(self._w, "Save failed", str(exc))
             return
         telemetry.record("project_save")
-        self.undo_cleared.emit()
         self.recent_changed.emit()
