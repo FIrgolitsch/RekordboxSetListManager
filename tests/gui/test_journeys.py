@@ -11,6 +11,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 
 import pytest
+from PySide6.QtGui import QTextCursor
 from PySide6.QtTest import QSignalSpy
 from PySide6.QtWidgets import QDialog, QFileDialog, QMessageBox
 
@@ -347,3 +348,65 @@ def test_fix_match_then_export_xml_journey(window, monkeypatch, tmp_path):
     # The section name is stamped into each exported track's Comments.
     comments = {el.get("Comments") for el in root.iter("TRACK")}
     assert "Peak" in comments
+
+
+def test_transition_note_typing_merge_journey(window, qtbot):
+    """Typing-cadence journey: keystrokes on one note merge into a single undo run.
+
+    Real key events through the note ``QTextEdit`` must update the note on
+    every keystroke, a pause must NOT split the run (coalescing is key-based,
+    not time-based), a different note — or returning after one — starts a new
+    run, and each undo reverts one whole editing run.
+    """
+    track_a = Track(title="Sundown", artist="DJ Koze")
+    track_b = Track(title="Atlas", artist="Bicep")
+    section = Section(name="Peak", section_type=SectionType.PEAK)
+    window._project.add_track(track_a)
+    window._project.add_track(track_b)
+    window._project.add_section(section)
+    section.track_ids.extend([track_a.id, track_b.id])
+
+    note = window._transition_note
+    undo_before = _undo_depth(window)
+
+    # ── type leg: every keystroke updates the note live ──────────────────
+    note.set_track(track_a.id, section)
+    qtbot.keyClicks(note._edit, "s")
+    assert section.transition_notes[str(track_a.id)] == "s"
+    qtbot.keyClicks(note._edit, "mooth")
+    assert section.transition_notes[str(track_a.id)] == "smooth"
+    assert _undo_depth(window) - undo_before == 1
+
+    # ── pause leg: a pause does not split the run ────────────────────────
+    qtbot.wait(150)
+    qtbot.keyClicks(note._edit, " blend")
+    assert section.transition_notes[str(track_a.id)] == "smooth blend"
+    assert _undo_depth(window) - undo_before == 1
+
+    # ── different-note leg: editing another note starts a new run ────────
+    note.set_track(track_b.id, section)
+    qtbot.keyClicks(note._edit, "lift off")
+    assert section.transition_notes[str(track_b.id)] == "lift off"
+    assert _undo_depth(window) - undo_before == 2
+
+    # ── return leg: the intervening note closed run 1 — a NEW entry ─────
+    note.set_track(track_a.id, section)
+    note._edit.moveCursor(QTextCursor.MoveOperation.End)
+    qtbot.keyClicks(note._edit, "!")
+    assert section.transition_notes[str(track_a.id)] == "smooth blend!"
+    assert _undo_depth(window) - undo_before == 3
+
+    # ── undo legs: each undo reverts one whole editing run ───────────────
+    window._edit_ctrl.undo()
+    live = window._project.get_section(section.id)
+    assert live.transition_notes[str(track_a.id)] == "smooth blend"
+    assert live.transition_notes[str(track_b.id)] == "lift off"
+
+    window._edit_ctrl.undo()
+    live = window._project.get_section(section.id)
+    assert live.transition_notes[str(track_a.id)] == "smooth blend"
+    assert str(track_b.id) not in live.transition_notes
+
+    window._edit_ctrl.undo()
+    live = window._project.get_section(section.id)
+    assert live.transition_notes == {}
