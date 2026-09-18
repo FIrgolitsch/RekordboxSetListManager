@@ -46,6 +46,7 @@ docs/api/*
 # === OpenGSD (gsd-core) — keep ALL GSD-produced files out of git ===
 .cursor/
 .devin/
+.windsurf/
 .planning/
 .planning/tmp/
 /AGENTS.md
