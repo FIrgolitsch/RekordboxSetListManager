@@ -83,3 +83,72 @@ def test_import_controllers():
     assert ProjectController is not None
     assert RematchController is not None
     assert SpotifySyncController is not None
+
+
+def test_import_extracted_controllers():
+    from rekordbox_set_list_manager.controllers.autosave_controller import AutosaveController
+    from rekordbox_set_list_manager.controllers.project_actions_controller import (
+        ProjectActionsController,
+    )
+    from rekordbox_set_list_manager.controllers.track_controller import TrackController
+
+    assert TrackController is not None
+    for slot in ("add_track", "add_track_from_rekordbox", "fix_match", "match_fixed"):
+        assert hasattr(TrackController, slot)
+    assert ProjectActionsController is not None
+    for slot in (
+        "rename_project",
+        "export",
+        "export_setlist",
+        "open_theme_dialog",
+        "open_settings",
+        "recolor_by_type",
+    ):
+        assert hasattr(ProjectActionsController, slot)
+    assert AutosaveController is not None
+
+
+def test_import_gui_helpers():
+    from rekordbox_set_list_manager.gui.delegates.indicator_delegate import IndicatorDelegate
+    from rekordbox_set_list_manager.gui.menu_bar import build_menus, update_recent_menu
+    from rekordbox_set_list_manager.gui.widgets.dialogs.setlist_export_dialog import (
+        SetlistExportDialog,
+    )
+    from rekordbox_set_list_manager.gui.widgets.panels.project_status_bar import ProjectStatusBar
+
+    assert build_menus is not None
+    assert update_recent_menu is not None
+    assert ProjectStatusBar is not None
+    assert hasattr(ProjectStatusBar, "update_for")
+    assert IndicatorDelegate is not None
+    assert SetlistExportDialog is not None
+
+
+def test_import_harmonic_engine():
+    from rekordbox_set_list_manager.models import KeyRelation
+    from rekordbox_set_list_manager.models.harmonic import (
+        ParsedKey,
+        format_key,
+        key_relationship,
+        parse_key,
+    )
+
+    assert parse_key is not None
+    assert key_relationship is not None
+    assert format_key is not None
+    assert ParsedKey is not None
+    assert KeyRelation is not None
+
+
+def test_import_setlist_export():
+    from rekordbox_set_list_manager.services.setlist_export import (
+        SetlistExportError,
+        SetlistExportResult,
+        export_setlist,
+    )
+    from rekordbox_set_list_manager.utils.formatting import format_total_duration
+
+    assert export_setlist is not None
+    assert SetlistExportError is not None
+    assert SetlistExportResult is not None
+    assert format_total_duration is not None
