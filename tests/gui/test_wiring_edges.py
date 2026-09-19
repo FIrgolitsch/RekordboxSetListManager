@@ -147,7 +147,7 @@ def test_add_from_rekordbox_requested_routes_through_dialog(window, monkeypatch,
 
     # The real dialog probes the Rekordbox DB in its constructor — stub it out.
     monkeypatch.setattr(
-        "rekordbox_set_list_manager.gui.main_window.PickFromRekordboxDialog",
+        "rekordbox_set_list_manager.gui.widgets.dialogs.pick_from_rekordbox_dialog.PickFromRekordboxDialog",
         _FakePickDialog,
     )
     window._multi_section_view.add_from_rekordbox_requested.emit(section)
@@ -180,7 +180,7 @@ def test_fix_match_requested_applies_match(window, monkeypatch, track, section):
 
     # The real dialog builds a collection browser — stub it out.
     monkeypatch.setattr(
-        "rekordbox_set_list_manager.gui.main_window.FixMatchDialog",
+        "rekordbox_set_list_manager.gui.widgets.dialogs.fix_match_dialog.FixMatchDialog",
         _FakeFixMatchDialog,
     )
     window._multi_section_view.fix_match_requested.emit(track.id, section)

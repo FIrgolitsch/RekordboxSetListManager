@@ -309,7 +309,7 @@ def test_fix_match_then_export_xml_journey(window, monkeypatch, tmp_path):
 
     # The real dialog builds a collection browser — stub it out.
     monkeypatch.setattr(
-        "rekordbox_set_list_manager.gui.main_window.FixMatchDialog",
+        "rekordbox_set_list_manager.gui.widgets.dialogs.fix_match_dialog.FixMatchDialog",
         _FakeFixMatchDialog,
     )
 

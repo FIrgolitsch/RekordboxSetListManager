@@ -21,12 +21,8 @@ from rekordbox_set_list_manager.controllers.import_controller import ImportContr
 from rekordbox_set_list_manager.controllers.project_controller import ProjectController
 from rekordbox_set_list_manager.controllers.rematch_controller import RematchController
 from rekordbox_set_list_manager.controllers.spotify_sync_controller import SpotifySyncController
-from rekordbox_set_list_manager.gui.widgets.dialogs.add_track_dialog import AddTrackDialog
+from rekordbox_set_list_manager.controllers.track_controller import TrackController
 from rekordbox_set_list_manager.gui.widgets.dialogs.export_dialog import ExportDialog
-from rekordbox_set_list_manager.gui.widgets.dialogs.fix_match_dialog import FixMatchDialog
-from rekordbox_set_list_manager.gui.widgets.dialogs.pick_from_rekordbox_dialog import (
-    PickFromRekordboxDialog,
-)
 from rekordbox_set_list_manager.gui.widgets.dialogs.settings_dialog import SettingsDialog
 from rekordbox_set_list_manager.gui.widgets.dialogs.theme_dialog import ThemeDialog
 from rekordbox_set_list_manager.gui.widgets.panels.match_info_widget import MatchInfoWidget
@@ -82,6 +78,9 @@ class MainWindow(QMainWindow):
             self._ctrl, self._edit_ctrl, self._multi_section_view, self, self
         )
         self._spotify_sync_ctrl = SpotifySyncController(self._ctrl, self._spotify, self, self)
+        self._track_ctrl = TrackController(
+            self._ctrl, self._edit_ctrl, self._multi_section_view, self, self
+        )
 
         self._setup_menus()
         self._setup_statusbar()
@@ -172,7 +171,7 @@ class MainWindow(QMainWindow):
 
         # ── Global keyboard shortcuts (not shown in any menu) ─────────────
         for shortcut, slot in [
-            (QKeySequence("Ctrl+T"), self._add_track_shortcut),
+            (QKeySequence("Ctrl+T"), self._track_ctrl.add_track),
             (QKeySequence("Ctrl+Shift+A"), self._multi_section_view.add_section_interactive),
             (QKeySequence("Ctrl+F"), self._multi_section_view.focus_filter),
         ]:
@@ -251,12 +250,13 @@ class MainWindow(QMainWindow):
         self._edit_ctrl.project_changed.connect(self._refresh_after_edit)
         self._multi_section_view.section_modified.connect(self._update_statusbar)
         self._multi_section_view.project_changed.connect(self._update_statusbar)
-        self._multi_section_view.add_track_requested.connect(self._add_track)
+        self._multi_section_view.add_track_requested.connect(self._track_ctrl.add_track)
         self._multi_section_view.add_from_rekordbox_requested.connect(
-            self._add_track_from_rekordbox
+            self._track_ctrl.add_track_from_rekordbox
         )
         self._multi_section_view.track_selected.connect(self._on_track_selected)
-        self._multi_section_view.fix_match_requested.connect(self._on_fix_match)
+        self._multi_section_view.fix_match_requested.connect(self._track_ctrl.fix_match)
+        self._track_ctrl.match_fixed.connect(self._on_track_selected)
         self._multi_section_view.import_requested.connect(self._import_ctrl.import_streaming)
 
         self._transition_note.note_edit.connect(self._on_note_edit)
@@ -283,22 +283,6 @@ class MainWindow(QMainWindow):
         self._transition_note.set_track(track_id, section)
         track = self._project.get_track(track_id) if (self._project and track_id) else None
         self._match_info.set_track(track)
-
-    def _on_fix_match(self, track_id, section) -> None:
-        if self._project is None:
-            return
-        track = self._project.get_track(track_id)
-        if track is None:
-            return
-        dialog = FixMatchDialog(track, self)
-        if dialog.exec() != FixMatchDialog.DialogCode.Accepted:
-            return
-        local = dialog.matched_local_track()
-        if local is None:
-            return
-        self._edit_ctrl.apply_match(track_id, local)
-        self._multi_section_view.refresh_tracks(self._project.tracks)
-        self._on_track_selected(track_id, section)
 
     # ---------------------------------------------------------------- dirty state
 
@@ -397,42 +381,6 @@ class MainWindow(QMainWindow):
             self._recent_menu.addAction(act)
 
     # ----------------------------------------------------------------- actions
-
-    def _add_track_shortcut(self) -> None:
-        """Ctrl+T — add track to the currently active section."""
-        self._add_track()
-
-    def _add_track(self, section: Section | None = None) -> None:
-        if self._project is None:
-            return
-        target = section or self._multi_section_view.current_section()
-        if target is None:
-            QMessageBox.information(self, "No section", "Add a section before adding a track.")
-            return
-        dialog = AddTrackDialog(self)
-        if dialog.exec() != AddTrackDialog.DialogCode.Accepted:
-            return
-        track = dialog.track()
-        self._edit_ctrl.add_track(track, target.id)
-        self._multi_section_view.refresh_section(target)
-        self._update_statusbar()
-
-    def _add_track_from_rekordbox(self, section: Section | None = None) -> None:
-        if self._project is None:
-            return
-        target = section or self._multi_section_view.current_section()
-        if target is None:
-            QMessageBox.information(self, "No section", "Add a section before adding a track.")
-            return
-        dialog = PickFromRekordboxDialog(self)
-        if dialog.exec() != PickFromRekordboxDialog.DialogCode.Accepted:
-            return
-        track = dialog.track()
-        if track is None:
-            return
-        self._edit_ctrl.add_track(track, target.id)
-        self._multi_section_view.refresh_section(target)
-        self._update_statusbar()
 
     def _export(self) -> None:
         if self._project is None or not self._project.sections:
