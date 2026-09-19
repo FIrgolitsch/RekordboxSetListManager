@@ -56,6 +56,7 @@ class MainWindow(QMainWindow):
     _act_filter: QAction
     _act_rename: QAction
     _act_export: QAction
+    _act_export_setlist: QAction
     _act_import: QAction
     _act_settings: QAction
     _act_themes: QAction

@@ -61,6 +61,19 @@ class ProjectActionsController(QObject):
             return
         ExportDialog(project, self._w).exec()
 
+    def export_setlist(self) -> None:
+        """Open the setlist file export dialog for the current project."""
+        from rekordbox_set_list_manager.gui.widgets.dialogs.setlist_export_dialog import (  # noqa: PLC0415
+            SetlistExportDialog,
+        )
+
+        project = self._ctrl.project
+        if project is None or not project.sections:
+            QMessageBox.information(self._w, "Export", "Add sections before exporting.")
+            return
+        # Read-only export — the dialog writes files directly, so no funnel.
+        SetlistExportDialog(project, self._w).exec()
+
     def open_theme_dialog(self) -> None:
         """Open the section-name themes dialog inside one funneled mutation."""
         from rekordbox_set_list_manager.gui.widgets.dialogs.theme_dialog import (  # noqa: PLC0415

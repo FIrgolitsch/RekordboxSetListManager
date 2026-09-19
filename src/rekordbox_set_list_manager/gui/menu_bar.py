@@ -83,6 +83,12 @@ def build_menus(window: MainWindow) -> None:
     window._act_export = _action(
         window, "&Export to Rekordbox…", None, window._project_actions.export
     )
+    window._act_export_setlist = _action(
+        window,
+        "Export Setlist Files…",
+        None,
+        window._project_actions.export_setlist,
+    )
     window._act_import = _action(
         window,
         "&Import from Streaming Service…",
@@ -111,6 +117,7 @@ def build_menus(window: MainWindow) -> None:
         window._spotify_sync_ctrl.update_order,
     )
     window._project_menu.addAction(window._act_export)
+    window._project_menu.addAction(window._act_export_setlist)
     window._project_menu.addSeparator()
     window._project_menu.addAction(window._act_import)
     window._project_menu.addAction(window._act_settings)
