@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from rekordbox_set_list_manager.gui.delegates.indicator_delegate import IndicatorDelegate
 from rekordbox_set_list_manager.gui.models.track_table_model import TrackTableModel
 from rekordbox_set_list_manager.gui.widgets.common.track_table import TrackFilterProxyModel
 from rekordbox_set_list_manager.gui.widgets.sections.section_table_view import (
@@ -34,12 +35,13 @@ from rekordbox_set_list_manager.models.project import Project
 from rekordbox_set_list_manager.models.section import Section
 from rekordbox_set_list_manager.models.track import Track
 from rekordbox_set_list_manager.utils.constants import REKORDBOX_COLOR_HEX, SECTION_TYPE_LABELS
+from rekordbox_set_list_manager.utils.formatting import format_total_duration
 
 _ROW_H = 24
 _HDR_H = 30
 _FALLBACK_HDR = "#3a3a5c"
 # Default pixel widths for non-stretch columns: #, Artist, BPM, Key, Duration, Status
-_COL_WIDTHS: dict[int, int] = {0: 30, 2: 140, 3: 55, 4: 50, 5: 65, 6: 60}
+_COL_WIDTHS: dict[int, int] = {0: 30, 2: 140, 3: 55, 4: 80, 5: 65, 6: 60}
 
 
 def _reveal_command(filepath: str) -> tuple[str, list[str]]:
@@ -99,6 +101,7 @@ class SectionBlock(QFrame):
         self._project = project
         self._edit = edit_ctrl
         self._collapsed = False
+        self._dup_ids: set[UUID] = set()
 
         self._toggle_btn = QPushButton("▼")
         self._toggle_btn.setFixedWidth(24)
@@ -134,6 +137,8 @@ class SectionBlock(QFrame):
         self._view.setFrameShape(QFrame.Shape.NoFrame)
         self._view.setStyleSheet("QTableView { border: none; }")
         self._view.setModel(self._proxy)
+        self._view.setItemDelegateForColumn(1, IndicatorDelegate(self._view))
+        self._view.setItemDelegateForColumn(4, IndicatorDelegate(self._view))
         self._view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._view.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._view.setDragEnabled(True)
@@ -160,10 +165,15 @@ class SectionBlock(QFrame):
         )
         self._model.tracks_reordered.connect(self._on_tracks_reordered)
 
+        self._empty_row = QLabel("No tracks yet — press Ctrl+T or right-click to add one.")
+        self._empty_row.setStyleSheet("color: #a6adc8; padding: 4px 8px;")
+        self._empty_row.setVisible(False)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(self._hdr_frame)
+        layout.addWidget(self._empty_row)
         layout.addWidget(self._view)
 
         self._hdr_normal_css = ""
@@ -183,6 +193,15 @@ class SectionBlock(QFrame):
         """Replace the track mapping and refresh the model."""
         self._tracks = tracks
         self._sync_model()
+
+    def set_dup_ids(self, ids: set[UUID]) -> None:
+        """Store the cross-section duplicate track IDs and refresh the model."""
+        self._dup_ids = set(ids)
+        self._sync_model()
+
+    def filtered_row_count(self) -> int:
+        """Return the number of rows currently visible through the filter proxy."""
+        return self._proxy.rowCount()
 
     def refresh_model(self) -> None:
         """Re-sync the model from the current section and track data."""
@@ -218,14 +237,33 @@ class SectionBlock(QFrame):
 
     def _sync_model(self) -> None:
         self._model.set_section(
-            self._section.track_ids, self._tracks, self._section.color, self._section.id
+            self._section.track_ids,
+            self._tracks,
+            self._section.color,
+            self._section.id,
+            dup_ids=self._dup_ids,
         )
         self._update_view_height()
         self._refresh_header_text()
+        # Visibility is gated on the collapsed state so a refresh driven by
+        # dup flags or track updates can never re-show a clipped table.
+        has_tracks = bool(self._section.track_ids)
+        self._empty_row.setVisible(not has_tracks and not self._collapsed)
+        self._view.setVisible(has_tracks and not self._collapsed)
 
     def _refresh_header_text(self) -> None:
         n = len(self._section.track_ids)
-        self._hdr_label.setText(f"{self._section.name}  ({n})")
+        # Defensive .get(): a dangling track id contributes 0 rather than
+        # raising KeyError, matching the model's lookup idiom.
+        total = sum(
+            track.duration or 0
+            for tid in self._section.track_ids
+            if (track := self._tracks.get(tid)) is not None
+        )
+        if total > 0:
+            self._hdr_label.setText(f"{self._section.name}  ({n} · {format_total_duration(total)})")
+        else:
+            self._hdr_label.setText(f"{self._section.name}  ({n})")
 
     def _update_view_height(self) -> None:
         n = self._proxy.rowCount()
@@ -238,12 +276,12 @@ class SectionBlock(QFrame):
         if self._collapsed:
             self._view.setFixedHeight(0)
             self._view.setVisible(False)
+            self._empty_row.setVisible(False)
             self.setFixedHeight(_HDR_H)
         else:
             self.setMinimumHeight(0)
             self.setMaximumHeight(16777215)
-            self._view.setVisible(True)
-            self._update_view_height()
+            self._sync_model()
         self._toggle_btn.setText("▶" if self._collapsed else "▼")
         self.refresh_appearance()
         self.collapsed_changed.emit()

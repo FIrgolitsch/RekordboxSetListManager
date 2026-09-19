@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 from PySide6.QtCore import Qt
 
+from rekordbox_set_list_manager.gui.delegates.indicator_delegate import IndicatorDelegate
 from rekordbox_set_list_manager.gui.main_window import MainWindow
 from rekordbox_set_list_manager.gui.models.track_table_model import TrackTableModel
 from rekordbox_set_list_manager.models.enums import KeyRelation
@@ -113,6 +114,14 @@ def test_no_dup_flag_without_dup_ids(qapp):
 # ------------------------------------------------------ match info panel
 
 
+def _seed_blocks(window, track: Track, section: Section):
+    """Attach *track*/*section* to the project and rebuild the view blocks."""
+    window._project.add_track(track)
+    window._project.add_section(section)
+    window._ctrl.project_changed.emit(window._project)
+    return window._multi_section_view._blocks[str(section.id)]
+
+
 def test_match_info_key_row_matches_column_format(window, track, section):
     window._project.add_track(track)
     window._project.add_section(section)
@@ -120,3 +129,63 @@ def test_match_info_key_row_matches_column_format(window, track, section):
     window._multi_section_view.track_selected.emit(track.id, section)
 
     assert window._match_info._vals["Key"].text() == "Am (8A)"
+
+
+# ----------------------------------------------------- delegate install
+
+
+def test_indicator_delegate_installed_on_key_and_title_columns(window, track, section):
+    block = _seed_blocks(window, track, section)
+
+    assert isinstance(block._view.itemDelegateForColumn(4), IndicatorDelegate)
+    assert isinstance(block._view.itemDelegateForColumn(1), IndicatorDelegate)
+
+
+# ------------------------------------------------------- section header
+
+
+def test_section_header_shows_count_and_duration(window, track, section):
+    block = _seed_blocks(window, track, section)
+
+    # track fixture has duration=390 -> 6:30
+    assert block._hdr_label.text() == "Peak  (1 · 6:30)"
+
+
+def test_section_header_omits_duration_when_all_unknown(window):
+    t = Track(title="X", artist="Y")  # duration=None
+    sec = Section(name="Peak")
+    sec.add_track(t.id)
+    window._project.add_track(t)
+    window._project.add_section(sec)
+    window._ctrl.project_changed.emit(window._project)
+    block = window._multi_section_view._blocks[str(sec.id)]
+
+    assert block._hdr_label.text() == "Peak  (1)"
+    assert "·" not in block._hdr_label.text()
+
+
+# --------------------------------------------------------- empty section
+
+
+def test_empty_section_shows_inline_guidance_row(window):
+    sec = Section(name="Peak")
+    window._project.add_section(sec)
+    window._ctrl.project_changed.emit(window._project)
+    block = window._multi_section_view._blocks[str(sec.id)]
+
+    assert not block._empty_row.isHidden()
+    assert block._view.isHidden()
+    assert "No tracks yet" in block._empty_row.text()
+
+
+def test_collapsed_section_stays_hidden_across_dup_refresh(window, track, section):
+    block = _seed_blocks(window, track, section)
+
+    block._on_toggle()  # collapse
+    assert block._view.isHidden()
+
+    block.set_dup_ids({track.id})  # refresh must not re-show a clipped table
+    assert block._view.isHidden()
+
+    block._on_toggle()  # re-expand
+    assert not block._view.isHidden()
