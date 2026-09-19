@@ -146,3 +146,57 @@ def test_export_to_missing_directory_raises_with_path(project, tmp_path):
 
     assert exc_info.value.path == out_dir / "Summer Tour_2026-01-02_0304.txt"
     assert exc_info.value.__cause__ is not None
+
+
+def test_include_streaming_uris_false_skips_streaming_only(tmp_path):
+    streaming_only = Track(title="Atlas", artist="Bicep", spotify_id="sp-2")
+    proj = Project(name="P")
+    proj.add_track(streaming_only)
+    sec = Section(name="S")
+    sec.add_track(streaming_only.id)
+    proj.add_section(sec)
+
+    result = export_setlist(proj, tmp_path, {"m3u8"}, include_streaming_uris=False, now=_NOW)
+
+    lines = result.written[0].read_text(encoding="utf-8").splitlines()
+    # Opted out of URIs → no EXTINF and no URI line at all for the track.
+    assert lines == ["#EXTM3U"]
+    assert [item.label for item in result.skipped] == ["Bicep - Atlas"]
+
+
+def test_unknown_format_raises_and_writes_nothing(project, tmp_path):
+    with pytest.raises(ValueError, match="bogus"):
+        export_setlist(project, tmp_path, {"bogus"}, now=_NOW)
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_unknown_format_blocks_partial_write(project, tmp_path):
+    with pytest.raises(ValueError, match="bogus"):
+        export_setlist(project, tmp_path, {"txt", "bogus"}, now=_NOW)
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_now_injection_gives_literal_stem_on_every_format(project, tmp_path):
+    result = export_setlist(project, tmp_path, {"txt", "csv", "m3u8"}, now=_NOW)
+
+    stems = {p.name.rsplit(".", 1)[0] for p in result.written}
+    assert stems == {"Summer Tour_2026-01-02_0304"}
+
+
+def test_safe_name_matrix():
+    # Path separators and unsafe characters are replaced.
+    cleaned = _safe_name("../evil")
+    assert "/" not in cleaned
+    assert "\\" not in cleaned
+    assert ".." not in cleaned
+    # Leading dots are stripped — never a hidden-file basename.
+    assert not _safe_name("..evil").startswith(".")
+    # Control characters are removed.
+    assert "\x07" not in _safe_name("bad\x07name")
+    # Empty or all-punctuation names fall back to a default.
+    assert _safe_name("") == "setlist"
+    assert _safe_name("...") == "setlist"
+    # Overlong names are capped.
+    assert len(_safe_name("x" * 100)) <= 60

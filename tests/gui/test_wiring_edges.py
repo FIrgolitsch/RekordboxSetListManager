@@ -417,3 +417,54 @@ def test_rematch_xml_routes_through_funnel(window, monkeypatch, tmp_path):
     matched = window._project.get_track(track.id)
     assert matched.rekordbox_id == 42
     assert matched.match_strategy == "isrc"
+
+
+# ------------------------------------------------------------- setlist export
+
+
+def test_export_setlist_action_opens_dialog(window, monkeypatch, section):
+    """Export Setlist Files… → SetlistExportDialog with the window's project."""
+    window._project.add_section(section)
+    constructed = []
+
+    class _FakeSetlistExportDialog:
+        DialogCode = QDialog.DialogCode
+
+        def __init__(self, project, parent=None) -> None:
+            constructed.append(project)
+
+        def exec(self):
+            return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(
+        "rekordbox_set_list_manager.gui.widgets.dialogs.setlist_export_dialog.SetlistExportDialog",
+        _FakeSetlistExportDialog,
+    )
+
+    window._act_export_setlist.trigger()
+
+    assert constructed == [window._project]
+
+
+def test_export_setlist_action_guard_on_empty_project(window, monkeypatch):
+    """With no sections the action shows the info guard and never opens a dialog."""
+    constructed = []
+
+    class _FakeSetlistExportDialog:
+        def __init__(self, *args, **kwargs) -> None:
+            constructed.append(args)
+
+        def exec(self):
+            return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(
+        "rekordbox_set_list_manager.gui.widgets.dialogs.setlist_export_dialog.SetlistExportDialog",
+        _FakeSetlistExportDialog,
+    )
+    info_calls = []
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: info_calls.append(a))
+
+    window._act_export_setlist.trigger()
+
+    assert len(info_calls) == 1
+    assert constructed == []
