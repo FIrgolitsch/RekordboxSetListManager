@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import pytest
+from PySide6.QtWidgets import QMessageBox
 
 from rekordbox_set_list_manager.gui.main_window import MainWindow
 from rekordbox_set_list_manager.models.enums import RekordboxColor, SectionType
+from rekordbox_set_list_manager.models.project import Project
 from rekordbox_set_list_manager.models.section import Section
 from rekordbox_set_list_manager.models.track import Track
 from rekordbox_set_list_manager.services.project_io import load_project, save_project
@@ -83,3 +85,39 @@ def test_save_reload_roundtrip(window, tmp_path):
     assert reloaded.sections[0].track_ids == [track.id]
     assert reloaded.tracks[track.id].title == "Sunrise"
     assert reloaded.tracks[track.id].artist == "Lane 8"
+
+
+def test_autosave_recovery_accept_leaves_view_coherent(window, monkeypatch, tmp_path):
+    """Accepting a newer-autosave prompt leaves the view on the recovered project.
+
+    ``ctrl.restore()`` re-emits ``project_changed`` inside the recovery slot —
+    a stale outer emission must not repaint the view from the superseded
+    on-disk project.
+    """
+    # Keep the test hermetic: save/load would otherwise record the temp path
+    # in the real user config's recent-files list.
+    monkeypatch.setattr(
+        "rekordbox_set_list_manager.controllers.project_controller.add_recent_file",
+        lambda path: None,
+    )
+    save_path = tmp_path / "proj.setmgr"
+    window._ctrl.save(save_path)
+
+    recovered = Project(name="Recovered")
+    recovered.add_section(Section(name="Recovered Section", section_type=SectionType.PEAK))
+
+    monkeypatch.setattr(
+        "rekordbox_set_list_manager.controllers.autosave_controller.autosave_mtime",
+        lambda project_id: float("inf"),
+    )
+    monkeypatch.setattr(
+        "rekordbox_set_list_manager.controllers.autosave_controller.read_autosave",
+        lambda project_id: recovered,
+    )
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+
+    window._ctrl.load(save_path)
+
+    assert window._project is recovered
+    block_names = {block.section.name for block in window._multi_section_view._blocks.values()}
+    assert "Recovered Section" in block_names

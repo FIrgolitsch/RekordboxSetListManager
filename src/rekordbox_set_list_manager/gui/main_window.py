@@ -4,39 +4,32 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
-    QInputDialog,
     QLabel,
     QMainWindow,
-    QMessageBox,
     QSplitter,
     QTabWidget,
 )
 
+from rekordbox_set_list_manager.controllers.autosave_controller import AutosaveController
 from rekordbox_set_list_manager.controllers.edit_controller import EditController
 from rekordbox_set_list_manager.controllers.file_controller import FileController
 from rekordbox_set_list_manager.controllers.import_controller import ImportController
+from rekordbox_set_list_manager.controllers.project_actions_controller import (
+    ProjectActionsController,
+)
 from rekordbox_set_list_manager.controllers.project_controller import ProjectController
 from rekordbox_set_list_manager.controllers.rematch_controller import RematchController
 from rekordbox_set_list_manager.controllers.spotify_sync_controller import SpotifySyncController
 from rekordbox_set_list_manager.controllers.track_controller import TrackController
-from rekordbox_set_list_manager.gui.widgets.dialogs.export_dialog import ExportDialog
-from rekordbox_set_list_manager.gui.widgets.dialogs.settings_dialog import SettingsDialog
-from rekordbox_set_list_manager.gui.widgets.dialogs.theme_dialog import ThemeDialog
 from rekordbox_set_list_manager.gui.widgets.panels.match_info_widget import MatchInfoWidget
 from rekordbox_set_list_manager.gui.widgets.panels.transition_note import TransitionNoteWidget
 from rekordbox_set_list_manager.gui.widgets.sections.multi_section_view import MultiSectionView
 from rekordbox_set_list_manager.models.enums import MatchStatus
 from rekordbox_set_list_manager.models.project import Project
 from rekordbox_set_list_manager.models.section import Section
-from rekordbox_set_list_manager.services.autosave import (
-    autosave_mtime,
-    clear_autosave,
-    read_autosave,
-    write_autosave,
-)
 from rekordbox_set_list_manager.services.spotify_service import SpotifyService
 from rekordbox_set_list_manager.utils.config import get_recent_files
 
@@ -81,15 +74,17 @@ class MainWindow(QMainWindow):
         self._track_ctrl = TrackController(
             self._ctrl, self._edit_ctrl, self._multi_section_view, self, self
         )
+        self._project_actions = ProjectActionsController(
+            self._ctrl, self._edit_ctrl, self._multi_section_view, self, self
+        )
+        # Self-connects to ctrl.project_changed; built before
+        # _connect_signals so the recovery check runs ahead of the view
+        # refresh on every project_changed emission.
+        self._autosave_ctrl = AutosaveController(self._ctrl, self, self)
 
         self._setup_menus()
         self._setup_statusbar()
         self._connect_signals()
-
-        self._autosave_timer = QTimer(self)
-        self._autosave_timer.setInterval(30_000)
-        self._autosave_timer.timeout.connect(self._do_autosave)
-        self._autosave_timer.start()
 
         self.setWindowTitle(_APP_NAME)
         self.setMinimumSize(QSize(700, 500))
@@ -131,14 +126,18 @@ class MainWindow(QMainWindow):
         self._edit_menu.addAction(self._act_redo)
 
         self._project_menu = bar.addMenu("&Project")
-        self._act_rename = self._action("Re&name Project…", None, self._rename_project)
+        self._act_rename = self._action(
+            "Re&name Project…", None, self._project_actions.rename_project
+        )
         self._project_menu.addAction(self._act_rename)
         self._project_menu.addSeparator()
         self._act_export = self._action("&Export to Rekordbox…", None, self._export)
         self._act_import = self._action(
             "&Import from Streaming Service…", None, self._import_ctrl.import_streaming
         )
-        self._act_settings = self._action("&Service Settings…", None, self._open_settings)
+        self._act_settings = self._action(
+            "&Service Settings…", None, self._project_actions.open_settings
+        )
         self._act_themes = self._action("Section Name &Themes…", None, self._open_theme_dialog)
         self._act_rematch_xml = self._action(
             "Re-match with Rekordbox &XML…", None, self._rematch_ctrl.rematch_xml
@@ -162,7 +161,9 @@ class MainWindow(QMainWindow):
         rematch_menu.addAction(self._act_rematch_db)
         rematch_menu.addSeparator()
         rematch_menu.addAction(self._act_rematch_manual)
-        self._act_recolor = self._action("&Recolor sections by type…", None, self._recolor_by_type)
+        self._act_recolor = self._action(
+            "&Recolor sections by type…", None, self._project_actions.recolor_by_type
+        )
         self._project_menu.addSeparator()
         self._project_menu.addAction(self._act_update_spotify)
         self._project_menu.addSeparator()
@@ -270,8 +271,11 @@ class MainWindow(QMainWindow):
         # no undo_requested / dirty_requested signals to wire here.
 
     def _on_project_changed(self, project: Project | None) -> None:
-        if project is not None and self._save_path is not None and not self._dirty:
-            self._check_autosave_recovery(project)
+        # The autosave recovery slot is connected ahead of this one and may
+        # reentrantly restore() a recovered project — a stale outer emission
+        # must not repaint the view from the superseded project object.
+        if project is not self._ctrl.project:
+            return
         self._multi_section_view.set_project(project)
         self._update_statusbar()
         self._refresh_title()
@@ -286,54 +290,11 @@ class MainWindow(QMainWindow):
 
     # ---------------------------------------------------------------- dirty state
 
-    def _do_autosave(self) -> None:
-        if self._project is not None and self._dirty:
-            write_autosave(self._project)
-
-    def _check_autosave_recovery(self, project: Project) -> None:
-        if self._save_path is None:
-            return
-        try:
-            save_mtime = self._save_path.stat().st_mtime
-        except OSError:
-            return
-        if autosave_mtime(project.id) <= save_mtime:
-            return
-        recovered = read_autosave(project.id)
-        if recovered is None:
-            return
-        ans = QMessageBox.question(
-            self,
-            "Recover unsaved changes?",
-            f'An autosave of "{project.name}" exists that is newer than the saved file.\n'
-            "Restore unsaved changes?",
-        )
-        if ans == QMessageBox.StandardButton.Yes:
-            self._ctrl.restore(recovered)
-        else:
-            clear_autosave(project.id)
-
     def _save(self) -> None:
         self._file_ctrl.save()
-        if self._project is not None and not self._dirty:
-            clear_autosave(self._project.id)
 
     def _save_as(self) -> None:
         self._file_ctrl.save_as()
-        if self._project is not None and not self._dirty:
-            clear_autosave(self._project.id)
-
-    def _rename_project(self) -> None:
-        if self._project is None:
-            return
-        name, ok = QInputDialog.getText(
-            self,
-            "Rename Project",
-            "Project name:",
-            text=self._project.name,
-        )
-        if ok and name.strip():
-            self._edit_ctrl.rename_project(name.strip())
 
     def _refresh_after_edit(self) -> None:
         # Dirty marking already happened in EditController._emit (or via
@@ -383,38 +344,10 @@ class MainWindow(QMainWindow):
     # ----------------------------------------------------------------- actions
 
     def _export(self) -> None:
-        if self._project is None or not self._project.sections:
-            QMessageBox.information(self, "Export", "Add sections before exporting.")
-            return
-        ExportDialog(self._project, self).exec()
+        self._project_actions.export()
 
     def _open_theme_dialog(self) -> None:
-        if self._project is None:
-            return
-        # The dialog live-mutates project.themes inside exec(); the funnel
-        # fingerprints before/after and records one undo step iff it changed.
-        self._edit_ctrl.apply_mutation(lambda proj: ThemeDialog(proj, self).exec())
-        # Repaint unconditionally — the dialog may have renamed sections and
-        # a repaint is idempotent.
-        self._multi_section_view.refresh()
-
-    def _open_settings(self) -> None:
-        SettingsDialog(self).exec()
-
-    def _recolor_by_type(self) -> None:
-        changed = self._edit_ctrl.recolor_all_by_type()
-        if changed:
-            QMessageBox.information(
-                self,
-                "Sections recolored",
-                f"{changed} section(s) recolored to their type's default color.",
-            )
-        else:
-            QMessageBox.information(
-                self,
-                "No changes",
-                "All sections already use their type's default color.",
-            )
+        self._project_actions.open_theme_dialog()
 
     # -------------------------------------------------------- window close
 

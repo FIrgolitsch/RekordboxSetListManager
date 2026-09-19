@@ -9,6 +9,7 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QFileDialog, QMessageBox, QWidget
 
 from rekordbox_set_list_manager.services import telemetry
+from rekordbox_set_list_manager.services.autosave import clear_autosave
 from rekordbox_set_list_manager.services.project_io import ProjectIOError
 from rekordbox_set_list_manager.utils.config import add_recent_file
 from rekordbox_set_list_manager.utils.constants import PROJECT_FILE_EXTENSION
@@ -164,4 +165,7 @@ class FileController(QObject):
             QMessageBox.critical(self._w, "Save failed", str(exc))
             return
         telemetry.record("project_save")
+        project = self._ctrl.project
+        if project is not None:
+            clear_autosave(project.id)
         self.recent_changed.emit()
