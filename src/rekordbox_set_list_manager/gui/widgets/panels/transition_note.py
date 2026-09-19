@@ -40,8 +40,8 @@ class TransitionNoteWidget(QWidget):
         self._edit.textChanged.connect(self._on_text_changed)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 2)
-        layout.setSpacing(2)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(4)
         layout.addWidget(label)
         layout.addWidget(self._edit)
 

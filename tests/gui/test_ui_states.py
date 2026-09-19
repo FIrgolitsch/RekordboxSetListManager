@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QMessageBox
 
 from rekordbox_set_list_manager.gui.delegates.indicator_delegate import IndicatorDelegate
 from rekordbox_set_list_manager.gui.main_window import MainWindow
@@ -189,3 +190,69 @@ def test_collapsed_section_stays_hidden_across_dup_refresh(window, track, sectio
 
     block._on_toggle()  # re-expand
     assert not block._view.isHidden()
+
+
+# -------------------------------------------------------- filter banner
+
+
+def test_filter_no_results_banner_shows_and_hides(window, track, section):
+    _seed_blocks(window, track, section)
+    view = window._multi_section_view
+
+    assert view._filter_empty_banner.isHidden()
+
+    view._filter.setText("zzz")
+    assert not view._filter_empty_banner.isHidden()
+    assert view._filter_empty_headline.text() == 'No tracks match "zzz"'
+
+    view._filter.setText("")
+    assert view._filter_empty_banner.isHidden()
+
+    view._filter.setText(track.title[:4])  # "Sund" matches "Sundown"
+    assert view._filter_empty_banner.isHidden()
+
+
+def test_filter_placeholder_shows_shortcut_hint(window):
+    assert window._multi_section_view._filter.placeholderText() == ("Filter tracks… (Ctrl+F)")
+
+
+# ------------------------------------------------------ dup refresh (view)
+
+
+def test_dup_flags_refresh_on_membership_changes(window, track, section, monkeypatch):
+    section2 = Section(name="Build")
+    window._project.add_track(track)
+    window._project.add_section(section)
+    window._project.add_section(section2)
+    window._ctrl.project_changed.emit(window._project)
+    view = window._multi_section_view
+    block1 = view._blocks[str(section.id)]
+    block2 = view._blocks[str(section2.id)]
+
+    assert track.id not in block1._model._dup_ids
+
+    # A direct controller call fires the recompute via the
+    # project_changed wire — no manual refresh needed.
+    window._edit_ctrl.add_track(track, section2.id)
+    assert track.id in block1._model._dup_ids
+    assert track.id in block2._model._dup_ids
+
+    window._edit_ctrl.remove_track(track.id, section2.id)
+    assert track.id not in block1._model._dup_ids
+    assert track.id not in block2._model._dup_ids
+
+    # Re-add, then delete the second section — the delete path emits only
+    # the view-level project_changed, and the surviving block's flags must
+    # still clear.
+    window._edit_ctrl.add_track(track, section2.id)
+    assert track.id in block1._model._dup_ids
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    block2.delete_requested.emit()
+    assert track.id not in block1._model._dup_ids
+
+
+def test_single_section_track_never_flagged_as_dup(window, track, section):
+    block = _seed_blocks(window, track, section)
+
+    assert track.id not in block._model._dup_ids
+    assert block._model.data(block._model.index(0, 1), Qt.ItemDataRole.UserRole) is None

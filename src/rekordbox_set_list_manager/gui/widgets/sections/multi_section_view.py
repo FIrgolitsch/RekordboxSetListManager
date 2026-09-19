@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -67,10 +68,18 @@ class MultiSectionView(QWidget):
         self._edit = edit_ctrl
         self._blocks: dict[str, SectionBlock] = {}
         self._active_block: SectionBlock | None = None
+        self._dup_ids: set[UUID] = set()
+        # The edit funnel emits project_changed on every effective mutation
+        # plus undo/redo, so this one wire covers every membership-changing
+        # path (add/remove/move/cross-section drop, section delete, and
+        # direct controller calls).  The recompute is a cheap Counter over
+        # all_track_ids and set_dup_ids -> _sync_model is idempotent, so
+        # over-firing on non-membership mutations is harmless.
+        self._edit.project_changed.connect(self._refresh_dup_ids)
 
         # ── Toolbar: filter + add section ────────────────────────────────
         self._filter = QLineEdit()
-        self._filter.setPlaceholderText("Filter tracks…")
+        self._filter.setPlaceholderText("Filter tracks… (Ctrl+F)")
         self._filter.setClearButtonEnabled(True)
         self._filter.textChanged.connect(self._on_filter_changed)
 
@@ -80,8 +89,8 @@ class MultiSectionView(QWidget):
         self._btn_add_sec.clicked.connect(self._on_add_section)
 
         toolbar = QHBoxLayout()
-        toolbar.setContentsMargins(4, 2, 4, 2)
-        toolbar.setSpacing(6)
+        toolbar.setContentsMargins(4, 4, 4, 4)
+        toolbar.setSpacing(8)
         toolbar.addWidget(self._filter)
         toolbar.addWidget(self._btn_add_sec)
 
@@ -126,10 +135,15 @@ class MultiSectionView(QWidget):
         self._content_layout.insertWidget(0, self._empty_banner)
         self._empty_banner.hide()
 
+        # ── Filter-no-results banner (hidden by default) ─────────────────
+        self._filter_empty_banner = self._build_filter_empty_banner()
+        self._filter_empty_banner.hide()
+
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
         root.addLayout(toolbar)
+        root.addWidget(self._filter_empty_banner)
         root.addLayout(header_row)
         root.addWidget(self._scroll)
 
@@ -225,6 +239,58 @@ class MultiSectionView(QWidget):
         layout.addLayout(btn_row)
         return banner
 
+    def _build_filter_empty_banner(self) -> QFrame:
+        """Build the banner shown when the filter matches no tracks at all."""
+        banner = QFrame()
+        banner.setFrameShape(QFrame.Shape.StyledPanel)
+        # Deliberately distinct from _empty_banner's "empty_banner" so a
+        # future #empty_banner QSS selector styles only the no-sections banner.
+        banner.setObjectName("filter_empty_banner")
+
+        self._filter_empty_headline = QLabel()
+        self._filter_empty_headline.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        font = self._filter_empty_headline.font()
+        font.setPointSize(font.pointSize() + 3)
+        font.setBold(True)
+        self._filter_empty_headline.setFont(font)
+
+        body = QLabel("Clear the filter to see all tracks.")
+        body.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        body.setWordWrap(True)
+
+        layout = QVBoxLayout(banner)
+        layout.setContentsMargins(24, 32, 24, 32)
+        layout.setSpacing(12)
+        layout.addWidget(self._filter_empty_headline)
+        layout.addWidget(body)
+        return banner
+
+    def _update_filter_empty_state(self) -> None:
+        """Show the filter-no-results banner iff a filter hides every row."""
+        text = self._filter.text()
+        has_sections = self._project is not None and bool(self._project.sections)
+        no_results = has_sections and all(
+            block.filtered_row_count() == 0 for block in self._blocks.values()
+        )
+        if text and no_results:
+            self._filter_empty_headline.setText(f'No tracks match "{text}"')
+            self._filter_empty_banner.show()
+        else:
+            self._filter_empty_banner.hide()
+
+    def _compute_dup_ids(self) -> set[UUID]:
+        """Return the IDs of tracks that appear in more than one section."""
+        if self._project is None:
+            return set()
+        counts = Counter(self._project.all_track_ids)
+        return {tid for tid, n in counts.items() if n > 1}
+
+    def _refresh_dup_ids(self) -> None:
+        """Recompute cross-section duplicates and push the flags to every block."""
+        self._dup_ids = self._compute_dup_ids()
+        for block in self._blocks.values():
+            block.set_dup_ids(self._dup_ids)
+
     def _rebuild_blocks(self) -> None:
         self._active_block = None
         self._blocks.clear()
@@ -239,14 +305,15 @@ class MultiSectionView(QWidget):
                 widget.deleteLater()
         if self._project is None:
             self._empty_banner.hide()
-            return
-        if not self._project.sections:
+        elif not self._project.sections:
             self._empty_banner.show()
-            return
-        self._empty_banner.hide()
-        for i, section in enumerate(self._project.sections):
-            block = self._make_block(section)
-            self._content_layout.insertWidget(i + 1, block)
+        else:
+            self._empty_banner.hide()
+            for i, section in enumerate(self._project.sections):
+                block = self._make_block(section)
+                self._content_layout.insertWidget(i + 1, block)
+        self._refresh_dup_ids()
+        self._update_filter_empty_state()
 
     def _make_block(self, section: Section) -> SectionBlock:
         assert self._project is not None  # noqa: S101
@@ -374,6 +441,7 @@ class MultiSectionView(QWidget):
     def _on_filter_changed(self, text: str) -> None:
         for block in self._blocks.values():
             block.set_filter_text(text)
+        self._update_filter_empty_state()
 
     def resizeEvent(self, event) -> None:
         """Sync the shared header width on resize."""
