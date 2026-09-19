@@ -1,6 +1,7 @@
 """Domain models for Rekordbox Set List Manager."""
 
 from rekordbox_set_list_manager.models.enums import (
+    KeyRelation,
     MatchStatus,
     RekordboxColor,
     SectionType,
@@ -12,6 +13,7 @@ from rekordbox_set_list_manager.models.section_name_theme import SectionNameThem
 from rekordbox_set_list_manager.models.track import Track
 
 __all__ = [
+    "KeyRelation",
     "MatchStatus",
     "Project",
     "RekordboxColor",

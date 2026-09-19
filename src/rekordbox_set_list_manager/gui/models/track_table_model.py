@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import collections.abc
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from PySide6.QtCore import (
@@ -16,14 +17,21 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QColor
 
 from rekordbox_set_list_manager.models.enums import RekordboxColor
+from rekordbox_set_list_manager.models.harmonic import format_key, key_relationship
 from rekordbox_set_list_manager.models.track import Track
 from rekordbox_set_list_manager.utils.constants import REKORDBOX_COLOR_HEX
+
+if TYPE_CHECKING:
+    from rekordbox_set_list_manager.models.enums import KeyRelation
 
 COLUMNS = ["#", "Title", "Artist", "BPM", "Key", "Duration", "Status"]
 
 _CENTER = Qt.AlignmentFlag.AlignCenter
 _LEFT = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
 _CENTER_COLS = {0, 3, 4, 5, 6}  # #, BPM, Key, Duration, Status
+
+_COL_TITLE = 1
+_COL_KEY = 4
 
 _STATUS_LABELS = {
     "unmatched": "—",
@@ -81,6 +89,8 @@ class TrackTableModel(QAbstractTableModel):
         self._tracks: dict[UUID, Track] = {}
         self._bg: QColor | None = None
         self._section_id: UUID | None = None
+        self._dup_ids: set[UUID] = set()
+        self._compat: dict[int, KeyRelation] = {}
 
     # ------------------------------------------------------------------ public
 
@@ -90,14 +100,46 @@ class TrackTableModel(QAbstractTableModel):
         tracks: dict[UUID, Track],
         section_color: RekordboxColor | None = None,
         section_id: UUID | None = None,
+        dup_ids: set[UUID] | None = None,
     ) -> None:
-        """Replace model contents with the tracks from a section."""
+        """Replace model contents with the tracks from a section.
+
+        Parameters
+        ----------
+        track_ids : list of UUID
+            Ordered track IDs in section order.
+        tracks : dict of UUID to Track
+            Lookup of track objects by ID.
+        section_color : RekordboxColor or None, optional
+            Section color used for the row background tint.
+        section_id : UUID or None, optional
+            ID of the section being displayed.
+        dup_ids : set of UUID or None, optional
+            Track IDs that appear in more than one section; rows whose
+            track ID is in this set report a duplicate flag on the Title
+            column via ``Qt.ItemDataRole.UserRole``.
+
+        """
         self.beginResetModel()
         self._ids = list(track_ids)
         self._tracks = tracks
         self._bg = _section_bg(section_color)
         if section_id is not None:
             self._section_id = section_id
+        self._dup_ids = dup_ids or set()
+        # Compatibility is a property of the section sequence, so compute it
+        # pairwise over section order (self._ids) — never over the proxy's
+        # filtered view.  Row i's payload describes the transition INTO the
+        # track at row i; row 0 has no predecessor and carries no payload.
+        self._compat = {}
+        for i in range(1, len(self._ids)):
+            prev_track = self._tracks.get(self._ids[i - 1])
+            cur_track = self._tracks.get(self._ids[i])
+            if prev_track is None or cur_track is None:
+                continue
+            rel = key_relationship(prev_track.key, cur_track.key)
+            if rel is not None:
+                self._compat[i] = rel
         self.endResetModel()
 
     def clear(self) -> None:
@@ -105,6 +147,8 @@ class TrackTableModel(QAbstractTableModel):
         self.beginResetModel()
         self._ids = []
         self._bg = None
+        self._dup_ids = set()
+        self._compat = {}
         self.endResetModel()
 
     def track_id_at(self, row: int) -> UUID | None:
@@ -152,6 +196,15 @@ class TrackTableModel(QAbstractTableModel):
             return self._bg
         if role == Qt.ItemDataRole.TextAlignmentRole:
             return int(_CENTER if col in _CENTER_COLS else _LEFT)
+        if role == Qt.ItemDataRole.UserRole:
+            # Indicator payloads for the delegate: the Key column carries the
+            # harmonic tier of the transition into this row's track; the
+            # Title column carries a duplicate flag for cross-section dups.
+            if col == _COL_KEY:
+                return self._compat.get(row)
+            if col == _COL_TITLE:
+                return True if self._ids[row] in self._dup_ids else None
+            return None
         return None
 
     def _display(self, row: int, col: int, track: Track) -> str:
@@ -165,7 +218,7 @@ class TrackTableModel(QAbstractTableModel):
             case 3:
                 return f"{track.bpm:.1f}" if track.bpm is not None else "—"
             case 4:
-                return track.key or "—"
+                return format_key(track.key)
             case 5:
                 return track.duration_formatted or "—"
             case 6:

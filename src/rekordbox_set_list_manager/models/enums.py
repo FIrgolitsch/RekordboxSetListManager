@@ -53,3 +53,21 @@ class TrackSource(StrEnum):
     TIDAL = "tidal"
     REKORDBOX = "rekordbox"
     MANUAL = "manual"
+
+
+class KeyRelation(StrEnum):
+    """Tiered harmonic relationship between two adjacent keys.
+
+    Describes the transition from key *a* into key *b* on the Camelot
+    wheel.  Direction matters: ``FIFTH_UP``/``ENERGY_UP`` raise the energy,
+    ``FIFTH_DOWN``/``ENERGY_DOWN`` lower it, and ``SEMITONE_LIFT`` is the
+    +1-semitone boost.
+    """
+
+    SAME = "same"
+    FIFTH_UP = "fifth_up"
+    FIFTH_DOWN = "fifth_down"
+    RELATIVE = "relative"
+    ENERGY_UP = "energy_up"
+    ENERGY_DOWN = "energy_down"
+    SEMITONE_LIFT = "semitone_lift"
