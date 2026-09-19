@@ -7,6 +7,8 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QGridLayout, QLabel, QVBoxLayout, QWidget
 
+from rekordbox_set_list_manager.models.harmonic import format_key
+
 _STATUS_DISPLAY = {
     "unmatched": "Unmatched",
     "matched": "Matched",
@@ -44,7 +46,7 @@ class MatchInfoWidget(QWidget):
         super().__init__(parent)
 
         grid = QGridLayout()
-        grid.setSpacing(3)
+        grid.setSpacing(4)
         grid.setColumnStretch(1, 1)
         self._vals: dict[str, QLabel] = {}
         for i, field in enumerate(_FIELDS):
@@ -83,7 +85,7 @@ class MatchInfoWidget(QWidget):
         self._vals["Streaming URI"].setText(uri_label)
         self._vals["File"].setText(Path(track.filepath).name if track.filepath else "—")
         self._vals["BPM"].setText(f"{track.bpm:.1f}" if track.bpm is not None else "—")
-        self._vals["Key"].setText(track.key or "—")
+        self._vals["Key"].setText(format_key(track.key))
         self._vals["ISRC"].setText(track.isrc or "—")
         self._vals["Rekordbox ID"].setText(str(track.rekordbox_id) if track.rekordbox_id else "—")
 
