@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import QMessageBox
 
 from rekordbox_set_list_manager.gui.main_window import MainWindow
@@ -121,3 +122,27 @@ def test_autosave_recovery_accept_leaves_view_coherent(window, monkeypatch, tmp_
     assert window._project is recovered
     block_names = {block.section.name for block in window._multi_section_view._blocks.values()}
     assert "Recovered Section" in block_names
+
+
+def test_edit_menu_actions_present_with_shortcuts(window, monkeypatch):
+    """The three core shortcuts are menu-visible Edit-menu actions."""
+    shortcuts = [
+        act.shortcut().toString(QKeySequence.SequenceFormat.PortableText)
+        for act in window._edit_menu.actions()
+        if not act.isSeparator()
+    ]
+    assert shortcuts.count("Ctrl+T") == 1
+    assert shortcuts.count("Ctrl+Shift+A") == 1
+    assert shortcuts.count("Ctrl+F") == 1
+
+    # The Ctrl+T action routes into the add-track flow — against the
+    # fixture's empty project it must hit the no-section guard.
+    calls = []
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: calls.append(a))
+    ctrl_t = next(
+        act
+        for act in window._edit_menu.actions()
+        if act.shortcut().toString(QKeySequence.SequenceFormat.PortableText) == "Ctrl+T"
+    )
+    ctrl_t.trigger()
+    assert any("Add a section before adding a track." in str(args) for args in calls)

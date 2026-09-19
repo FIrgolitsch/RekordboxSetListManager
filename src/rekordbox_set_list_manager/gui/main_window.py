@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import (
-    QLabel,
-    QMainWindow,
-    QSplitter,
-    QTabWidget,
-)
+from PySide6.QtWidgets import QMainWindow, QSplitter, QTabWidget
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QAction
+    from PySide6.QtWidgets import QMenu
 
 from rekordbox_set_list_manager.controllers.autosave_controller import AutosaveController
 from rekordbox_set_list_manager.controllers.edit_controller import EditController
@@ -24,21 +23,47 @@ from rekordbox_set_list_manager.controllers.project_controller import ProjectCon
 from rekordbox_set_list_manager.controllers.rematch_controller import RematchController
 from rekordbox_set_list_manager.controllers.spotify_sync_controller import SpotifySyncController
 from rekordbox_set_list_manager.controllers.track_controller import TrackController
+from rekordbox_set_list_manager.gui import menu_bar
 from rekordbox_set_list_manager.gui.widgets.panels.match_info_widget import MatchInfoWidget
+from rekordbox_set_list_manager.gui.widgets.panels.project_status_bar import ProjectStatusBar
 from rekordbox_set_list_manager.gui.widgets.panels.transition_note import TransitionNoteWidget
 from rekordbox_set_list_manager.gui.widgets.sections.multi_section_view import MultiSectionView
-from rekordbox_set_list_manager.models.enums import MatchStatus
 from rekordbox_set_list_manager.models.project import Project
 from rekordbox_set_list_manager.models.section import Section
 from rekordbox_set_list_manager.services.spotify_service import SpotifyService
-from rekordbox_set_list_manager.utils.config import get_recent_files
 
 _APP_NAME = "Rekordbox Set List Manager"
 _DEFAULT_PROJECT_NAME = "Untitled"
 
 
 class MainWindow(QMainWindow):
-    """Top-level window: multi-section view + transition note."""
+    """Top-level window: composes controllers and views, wires signals."""
+
+    # Menu/action attributes assigned by menu_bar.build_menus().
+    _file_menu: QMenu
+    _recent_menu: QMenu
+    _edit_menu: QMenu
+    _project_menu: QMenu
+    _act_new: QAction
+    _act_open: QAction
+    _act_save: QAction
+    _act_save_as: QAction
+    _act_quit: QAction
+    _act_undo: QAction
+    _act_redo: QAction
+    _act_add_track: QAction
+    _act_add_section: QAction
+    _act_filter: QAction
+    _act_rename: QAction
+    _act_export: QAction
+    _act_import: QAction
+    _act_settings: QAction
+    _act_themes: QAction
+    _act_rematch_xml: QAction
+    _act_rematch_db: QAction
+    _act_rematch_manual: QAction
+    _act_update_spotify: QAction
+    _act_recolor: QAction
 
     def __init__(self) -> None:
         """Initialise the main window and all sub-controllers."""
@@ -82,8 +107,11 @@ class MainWindow(QMainWindow):
         # refresh on every project_changed emission.
         self._autosave_ctrl = AutosaveController(self._ctrl, self, self)
 
-        self._setup_menus()
-        self._setup_statusbar()
+        menu_bar.build_menus(self)
+
+        self._status_bar = ProjectStatusBar()
+        self.statusBar().addWidget(self._status_bar)
+
         self._connect_signals()
 
         self.setWindowTitle(_APP_NAME)
@@ -91,142 +119,6 @@ class MainWindow(QMainWindow):
         self.resize(1000, 700)
 
         self._file_ctrl.new_project()
-
-    # ------------------------------------------------------------------ menus
-
-    def _setup_menus(self) -> None:
-        bar = self.menuBar()
-
-        self._file_menu = bar.addMenu("&File")
-        self._act_new = self._action(
-            "&New", QKeySequence.StandardKey.New, self._file_ctrl.new_project
-        )
-        self._act_open = self._action("&Open…", QKeySequence.StandardKey.Open, self._file_ctrl.open)
-        self._act_save = self._action("&Save", QKeySequence.StandardKey.Save, self._save)
-        self._act_save_as = self._action(
-            "Save &As…", QKeySequence.StandardKey.SaveAs, self._save_as
-        )
-        self._file_menu.addAction(self._act_new)
-        self._file_menu.addAction(self._act_open)
-        self._recent_menu = self._file_menu.addMenu("Open &Recent")
-        self._file_menu.addSeparator()
-        self._file_menu.addAction(self._act_save)
-        self._file_menu.addAction(self._act_save_as)
-        self._file_menu.addSeparator()
-        self._act_quit = self._action("&Quit", QKeySequence.StandardKey.Quit, self.close)
-        self._file_menu.addAction(self._act_quit)
-        self._update_recent_menu()
-
-        self._edit_menu = bar.addMenu("&Edit")
-        self._act_undo = self._action("&Undo", QKeySequence.StandardKey.Undo, self._undo)
-        self._act_undo.setEnabled(False)
-        self._act_redo = self._action("Re&do", QKeySequence.StandardKey.Redo, self._redo)
-        self._act_redo.setEnabled(False)
-        self._edit_menu.addAction(self._act_undo)
-        self._edit_menu.addAction(self._act_redo)
-
-        self._project_menu = bar.addMenu("&Project")
-        self._act_rename = self._action(
-            "Re&name Project…", None, self._project_actions.rename_project
-        )
-        self._project_menu.addAction(self._act_rename)
-        self._project_menu.addSeparator()
-        self._act_export = self._action("&Export to Rekordbox…", None, self._export)
-        self._act_import = self._action(
-            "&Import from Streaming Service…", None, self._import_ctrl.import_streaming
-        )
-        self._act_settings = self._action(
-            "&Service Settings…", None, self._project_actions.open_settings
-        )
-        self._act_themes = self._action("Section Name &Themes…", None, self._open_theme_dialog)
-        self._act_rematch_xml = self._action(
-            "Re-match with Rekordbox &XML…", None, self._rematch_ctrl.rematch_xml
-        )
-        self._act_rematch_db = self._action(
-            "Re-match with Rekordbox &DB", None, self._rematch_ctrl.rematch_db
-        )
-        self._act_rematch_manual = self._action(
-            "&Manual Re-match…", None, self._rematch_ctrl.rematch_manual
-        )
-        self._act_update_spotify = self._action(
-            "&Update Spotify Playlist Order", None, self._spotify_sync_ctrl.update_order
-        )
-        self._project_menu.addAction(self._act_export)
-        self._project_menu.addSeparator()
-        self._project_menu.addAction(self._act_import)
-        self._project_menu.addAction(self._act_settings)
-        self._project_menu.addSeparator()
-        rematch_menu = self._project_menu.addMenu("Re-match with &Rekordbox")
-        rematch_menu.addAction(self._act_rematch_xml)
-        rematch_menu.addAction(self._act_rematch_db)
-        rematch_menu.addSeparator()
-        rematch_menu.addAction(self._act_rematch_manual)
-        self._act_recolor = self._action(
-            "&Recolor sections by type…", None, self._project_actions.recolor_by_type
-        )
-        self._project_menu.addSeparator()
-        self._project_menu.addAction(self._act_update_spotify)
-        self._project_menu.addSeparator()
-        self._project_menu.addAction(self._act_themes)
-        self._project_menu.addAction(self._act_recolor)
-
-        # ── Global keyboard shortcuts (not shown in any menu) ─────────────
-        for shortcut, slot in [
-            (QKeySequence("Ctrl+T"), self._track_ctrl.add_track),
-            (QKeySequence("Ctrl+Shift+A"), self._multi_section_view.add_section_interactive),
-            (QKeySequence("Ctrl+F"), self._multi_section_view.focus_filter),
-        ]:
-            act = QAction(self)
-            act.setShortcut(shortcut)
-            act.triggered.connect(slot)
-            self.addAction(act)
-
-    def _action(self, label: str, shortcut, slot) -> QAction:
-        act = QAction(label, self)
-        if shortcut is not None:
-            act.setShortcut(shortcut)
-        act.triggered.connect(slot)
-        return act
-
-    # --------------------------------------------------------------- statusbar
-
-    def _setup_statusbar(self) -> None:
-        self._status_tracks = QLabel()
-        self._status_duration = QLabel()
-        self._status_unmatched = QLabel()
-        sb = self.statusBar()
-        sb.addWidget(self._status_tracks)
-        sb.addWidget(QLabel("  |  "))
-        sb.addWidget(self._status_duration)
-        sb.addWidget(QLabel("  |  "))
-        sb.addWidget(self._status_unmatched)
-
-    def _update_statusbar(self) -> None:
-        if self._project is None:
-            self._status_tracks.setText("No project")
-            self._status_duration.setText("")
-            self._status_unmatched.setText("")
-            return
-        all_ids: set = set()
-        unmatched_ids: set = set()
-        total_dur = 0
-        for sec in self._project.sections:
-            for tid in sec.track_ids:
-                all_ids.add(tid)
-                track = self._project.get_track(tid)
-                if track:
-                    total_dur += track.duration or 0
-                    if track.match_status == MatchStatus.UNMATCHED:
-                        unmatched_ids.add(tid)
-        mins, secs = divmod(total_dur, 60)
-        hours, mins = divmod(mins, 60)
-        dur_str = f"{hours}:{mins:02d}:{secs:02d}" if hours else f"{mins}:{secs:02d}"
-        self._status_tracks.setText(f"Tracks: {len(all_ids)}")
-        self._status_duration.setText(f"Duration: {dur_str}")
-        # Unique tracks, like "Tracks:" — a track in two sections counts once.
-        self._status_unmatched.setText(f"Unmatched: {len(unmatched_ids)}")
-
-    # ------------------------------------------------------------ wiring
 
     # -------------------------------------------------------------- properties
 
@@ -241,6 +133,18 @@ class MainWindow(QMainWindow):
     @property
     def _dirty(self) -> bool:
         return self._ctrl.dirty
+
+    @property
+    def _status_tracks(self):
+        return self._status_bar._status_tracks  # noqa: SLF001
+
+    @property
+    def _status_duration(self):
+        return self._status_bar._status_duration  # noqa: SLF001
+
+    @property
+    def _status_unmatched(self):
+        return self._status_bar._status_unmatched  # noqa: SLF001
 
     # ------------------------------------------------------------ wiring
 
@@ -327,21 +231,12 @@ class MainWindow(QMainWindow):
 
     def _update_recent_menu(self) -> None:
         """Rebuild the Open Recent submenu from persisted recent files."""
-        self._recent_menu.clear()
-        recent = get_recent_files()
-        if not recent:
-            act = QAction("(No recent files)", self)
-            act.setEnabled(False)
-            self._recent_menu.addAction(act)
-            return
-        for path_str in recent:
-            name = Path(path_str).name
-            act = QAction(f"{name}  —  {path_str}", self)
-            act.setToolTip(path_str)
-            act.triggered.connect(lambda checked=False, p=path_str: self._file_ctrl.open_recent(p))
-            self._recent_menu.addAction(act)
+        menu_bar.update_recent_menu(self)
 
     # ----------------------------------------------------------------- actions
+
+    def _update_statusbar(self) -> None:
+        self._status_bar.update_for(self._project)
 
     def _export(self) -> None:
         self._project_actions.export()
