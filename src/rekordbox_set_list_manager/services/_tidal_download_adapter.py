@@ -48,6 +48,9 @@ _MAX_RETRIES = 5
 _SEGMENT_HOST_SUFFIX = ".tidal.com"
 _STATUS_TOO_MANY_REQUESTS = 429
 _STATUS_SERVER_ERROR_MIN = 500
+# Bound on a server-supplied Retry-After hint — the backoff sleep runs under
+# the global gate lock, so an unbounded hint would stall every worker.
+_RETRY_AFTER_CAP = 300.0  # seconds
 
 
 class TidalCredentialsError(Exception):
@@ -240,7 +243,9 @@ class RateGate:
             Zero-based retry attempt number.
         hint : float
             Server-supplied delay (``Retry-After``); used when it exceeds the
-            computed backoff.
+            computed backoff, but never beyond ``_RETRY_AFTER_CAP`` — the
+            sleep holds the gate lock, so a hostile hint must not stall every
+            worker for an unbounded duration.
 
         Returns
         -------
@@ -248,7 +253,7 @@ class RateGate:
             The delay actually slept.
         """
         delay = min(60.0, (2**attempt) * self._interval) * (1.0 + self._rng() * 0.5)
-        delay = max(delay, hint)
+        delay = max(delay, min(hint, _RETRY_AFTER_CAP))
         with self._lock:
             self._sleep(delay)
             self._last_release = self._monotonic()

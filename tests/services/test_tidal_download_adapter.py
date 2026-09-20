@@ -212,6 +212,20 @@ def test_rate_gate_backoff_honors_retry_after_hint():
     assert clock.sleeps == [2.0]
 
 
+def test_rate_gate_backoff_caps_retry_after_hint():
+    """A huge server hint is clamped — the sleep runs under the global gate
+    lock, so an uncapped Retry-After would stall every worker."""
+    clock = _FakeClock()
+    gate = adapter.RateGate(
+        interval=0.25, sleep=clock.sleep, monotonic=clock.monotonic, rng=lambda: 0.0
+    )
+
+    delay = gate.backoff(0, hint=3600.0)
+
+    assert delay == 300.0
+    assert clock.sleeps == [300.0]
+
+
 def test_rate_gate_backoff_grows_exponentially():
     clock = _FakeClock()
     gate = adapter.RateGate(
