@@ -114,9 +114,14 @@ def _decode_via_soundfile(
                 subtype=subtype,
             ) as fout,
         ):
-            total = fin.frames or 1
+            # libsndfile reports frames == -1 for unknown-length streams;
+            # -1 is truthy, so clamp to a positive denominator — otherwise
+            # progress fractions go negative and the block size degenerates
+            # to single frames.
+            total = fin.frames if fin.frames and fin.frames > 0 else 1
+            blocksize = max(1, total // 100) if total > 1 else 65536
             written = 0
-            for block in fin.blocks(max(1, fin.frames // 100), dtype="int32", always_2d=True):
+            for block in fin.blocks(blocksize, dtype="int32", always_2d=True):
                 _raise_if_cancelled(cancel_event)
                 fout.write(block)
                 written += len(block)
