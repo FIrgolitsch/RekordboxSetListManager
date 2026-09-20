@@ -175,7 +175,15 @@ class SettingsDialog(QDialog):
         self._tidal_worker.silent_failed.connect(self._tidal_thread.quit)
         self._tidal_thread.finished.connect(self._tidal_thread.deleteLater)
         self._tidal_thread.finished.connect(self._tidal_worker.deleteLater)
+        # Clear the Python-side refs once the thread finishes — deleteLater
+        # destroys the C++ objects, so any later isRunning()/cancel() call on
+        # a stale ref crashes with a deleted-object RuntimeError.
+        self._tidal_thread.finished.connect(self._clear_tidal_auth_refs)
         self._tidal_thread.start()
+
+    def _clear_tidal_auth_refs(self) -> None:
+        self._tidal_thread = None
+        self._tidal_worker = None
 
     def _stop_tidal_auth(self) -> None:
         if self._tidal_worker is not None:
@@ -183,6 +191,8 @@ class SettingsDialog(QDialog):
         if self._tidal_thread is not None and self._tidal_thread.isRunning():
             self._tidal_thread.quit()
             self._tidal_thread.wait(3000)
+        self._tidal_worker = None
+        self._tidal_thread = None
 
     def _on_tidal_link_ready(self, msg: str) -> None:
         match = re.search(r"https?://\S+", msg)

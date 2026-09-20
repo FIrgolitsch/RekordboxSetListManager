@@ -117,7 +117,15 @@ class StreamingServiceTab(QWidget):
         # Deleting the worker on thread.finished (not on finished/error)
         # also covers the cancelled path, where the worker emits nothing.
         self._thread.finished.connect(self._worker.deleteLater)
+        # Clear the Python-side refs once the thread finishes — deleteLater
+        # destroys the C++ objects, so any later isRunning()/cancel() call on
+        # a stale ref crashes with a deleted-object RuntimeError.
+        self._thread.finished.connect(self._clear_auth_refs)
         self._thread.start()
+
+    def _clear_auth_refs(self) -> None:
+        self._thread = None
+        self._worker = None
 
     def _on_link_ready(self, msg: str) -> None:
         match = re.search(r"https?://\S+", msg)
