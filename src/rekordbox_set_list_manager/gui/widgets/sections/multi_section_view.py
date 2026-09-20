@@ -295,6 +295,9 @@ class MultiSectionView(QWidget):
         self._dup_ids = self._compute_dup_ids()
         for block in self._blocks.values():
             block.set_dup_ids(self._dup_ids)
+        # Membership may have changed under an active filter — re-evaluate
+        # the "no tracks match" banner so it cannot go stale.
+        self._update_filter_empty_state()
 
     def _rebuild_blocks(self) -> None:
         self._active_block = None
@@ -318,7 +321,6 @@ class MultiSectionView(QWidget):
                 block = self._make_block(section)
                 self._content_layout.insertWidget(i + 1, block)
         self._refresh_dup_ids()
-        self._update_filter_empty_state()
 
     def _make_block(self, section: Section) -> SectionBlock:
         assert self._project is not None  # noqa: S101
