@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from rekordbox_set_list_manager.models.enums import KeyRelation
+from rekordbox_set_list_manager.models.harmonic import ENERGY_RELATIONS, SAFE_RELATIONS
 
 _DOT_MAX = 10  # px diameter cap — also bounded by row height minus padding
 _DOT_LEFT = 4  # px gap between the cell's left edge and the indicator
@@ -33,14 +34,11 @@ class IndicatorDelegate(QStyledItemDelegate):
     model's ``TextAlignmentRole``.
     """
 
+    # Tier sets come from models.harmonic so the classification has a
+    # single source of truth; this map only assigns the badge colours.
     _TIER_HEX: ClassVar[dict[KeyRelation, str]] = {
-        KeyRelation.SAME: "#a6e3a1",
-        KeyRelation.FIFTH_UP: "#a6e3a1",
-        KeyRelation.FIFTH_DOWN: "#a6e3a1",
-        KeyRelation.RELATIVE: "#a6e3a1",
-        KeyRelation.ENERGY_UP: "#f9e2af",
-        KeyRelation.ENERGY_DOWN: "#f9e2af",
-        KeyRelation.SEMITONE_LIFT: "#f9e2af",
+        **dict.fromkeys(SAFE_RELATIONS, "#a6e3a1"),
+        **dict.fromkeys(ENERGY_RELATIONS, "#f9e2af"),
     }
 
     def paint(

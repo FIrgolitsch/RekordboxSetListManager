@@ -150,15 +150,20 @@ def format_key(text: str | None) -> str:
     return f"{text} ({pk.number}{pk.letter})" if pk else text
 
 
-# Grading tiers: green = mix-safe, amber = energy move, absent = clash/unknown.
-_SAFE = {
-    KeyRelation.SAME,
-    KeyRelation.FIFTH_UP,
-    KeyRelation.FIFTH_DOWN,
-    KeyRelation.RELATIVE,
-}
-_ENERGY = {
-    KeyRelation.ENERGY_UP,
-    KeyRelation.ENERGY_DOWN,
-    KeyRelation.SEMITONE_LIFT,
-}
+# Grading tiers for indicator badges: SAFE = mix-safe (green),
+# ENERGY = energy move (amber), absent = clash/unknown (no badge).
+SAFE_RELATIONS = frozenset(
+    {
+        KeyRelation.SAME,
+        KeyRelation.FIFTH_UP,
+        KeyRelation.FIFTH_DOWN,
+        KeyRelation.RELATIVE,
+    }
+)
+ENERGY_RELATIONS = frozenset(
+    {
+        KeyRelation.ENERGY_UP,
+        KeyRelation.ENERGY_DOWN,
+        KeyRelation.SEMITONE_LIFT,
+    }
+)
