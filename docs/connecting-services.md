@@ -60,10 +60,9 @@ Either of these works — both run the same flow and share the same cached sessi
 
 Then:
 
-1. A **Log in to Tidal** window opens with the Tidal login page embedded — log in with your Tidal account.
-2. That's it.  When Tidal redirects after login, the app catches the redirect automatically and finishes connecting.
-
-If the embedded login doesn't work for you (e.g. a social sign-in that insists on a real browser), use the **open it in your browser** link at the bottom of the login window: log in there, and when the browser lands on an **"Oops"** page, copy its full address (it starts with `https://tidal.com/android/login/auth?code=…`) into the paste field.
+1. Your browser opens to the Tidal login page — log in with your Tidal account.
+2. The browser lands on an **"Oops"** page — this is expected.  On macOS, the app detects the page in your browser automatically and finishes connecting — you don't need to switch back or copy anything.
+3. If auto-detection doesn't trigger (e.g. Firefox, or automation permission denied), copy the page's full address (⌘L then ⌘C — it starts with `https://tidal.com/android/login/auth?code=…`) — the app detects the copy — or paste it into the field shown in the dialog.
 
 ### Step 2 — Done
 

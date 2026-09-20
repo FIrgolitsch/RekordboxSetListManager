@@ -75,10 +75,10 @@ class StreamingService(ABC):
             service error instead of blocking until the link expires.
             Services whose flow cannot be interrupted may ignore it.
         redirect_callback : Callable[[], str] | None
-            Optional callable that returns the browser redirect URL the user
-            pastes back, for PKCE flows that cannot be intercepted (Tidal).
-            ``None`` selects the service's non-interactive fallback flow.
-            Ignored by services that do not need it.
+            Optional callable that returns the browser redirect URL captured
+            back from the user, for PKCE flows that cannot be intercepted
+            directly (Tidal).  ``None`` selects the service's non-interactive
+            fallback flow.  Ignored by services that do not need it.
 
         Returns
         -------

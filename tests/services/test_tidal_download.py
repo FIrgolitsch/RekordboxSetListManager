@@ -499,9 +499,7 @@ def test_download_track_cancel_mid_fetch_leaves_no_strays(tmp_path):
 
     class _CancellingHttp(_FakeHttpByUrl):
         def get(self, url, stream=False, timeout=None, allow_redirects=True):
-            resp = super().get(
-                url, stream=stream, timeout=timeout, allow_redirects=allow_redirects
-            )
+            resp = super().get(url, stream=stream, timeout=timeout, allow_redirects=allow_redirects)
             if len(self.calls) >= 2:
                 cancel.set()
             return resp
@@ -1001,9 +999,7 @@ def test_download_track_cancel_during_cover_fetch_fails_cancelled(tmp_path):
         def get(self, url, stream=False, timeout=None, allow_redirects=True):
             if "images" in url:
                 cancel.set()
-            return super().get(
-                url, stream=stream, timeout=timeout, allow_redirects=allow_redirects
-            )
+            return super().get(url, stream=stream, timeout=timeout, allow_redirects=allow_redirects)
 
     session = _FakeSession(
         _load_fixture("playback_bts_flac_clear.json"),

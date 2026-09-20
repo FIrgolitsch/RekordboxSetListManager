@@ -66,17 +66,17 @@ class TidalService(StreamingService):
         cancel_check: Callable[[], bool] | None = None,
         redirect_callback: Callable[[], str] | None = None,
     ) -> str:
-        """Authenticate with Tidal — PKCE paste-back flow, device-code fallback.
+        """Authenticate with Tidal — PKCE flow, device-code fallback.
 
         When *redirect_callback* is provided the PKCE login runs: the user
         opens the login URL in a browser, and after approving lands on an
-        "Oops" page whose URL must be pasted back — the callback returns that
-        URL.  PKCE mints the token under Tidal's official-app client, which
-        is the only client identity Tidal serves lossless/hi-res audio to.
-        Without *redirect_callback* the device-code flow runs instead
-        (headless/CLI use); it needs no paste-back but the served quality is
-        capped at AAC.  Subsequent calls reuse the cached session (or refresh
-        the token) regardless of which flow minted it.
+        "Oops" page whose URL must be captured back — the callback returns
+        that URL.  PKCE mints the token under Tidal's official-app client,
+        which is the only client identity Tidal serves lossless/hi-res
+        audio to.  Without *redirect_callback* the device-code flow runs
+        instead (headless/CLI use); it needs no redirect capture but the
+        served quality is capped at AAC.  Subsequent calls reuse the cached
+        session (or refresh the token) regardless of which flow minted it.
 
         Parameters
         ----------
@@ -133,7 +133,7 @@ class TidalService(StreamingService):
             loaded = False
 
         # A device-code-minted session is capped at AAC — upgrade it to a
-        # PKCE-minted token whenever an interactive paste-back is available.
+        # PKCE-minted token whenever an interactive login is available.
         if loaded and redirect_callback is not None and not session.is_pkce:
             log.info(
                 "Cached Tidal session is not PKCE; re-authenticating so the "
@@ -351,19 +351,19 @@ def _pkce_login(
     redirect_callback: Callable[[], str],
     cancel_check: Callable[[], bool] | None,
 ) -> None:
-    """Run the PKCE paste-back login.
+    """Run the PKCE login with redirect capture.
 
     Tidal's PKCE authorize endpoint redirects to a fixed
     ``tidal.com/android/login/auth`` URL the desktop app cannot intercept,
-    so the user copies the "Oops" page URL back into the UI — the
-    *redirect_callback* blocks until the paste arrives (or raises on
-    cancel).  This is the only login flow that mints a token Tidal serves
+    so the "Oops" page URL must come back to the app — the
+    *redirect_callback* blocks until it arrives (or raises on cancel).
+    This is the only login flow that mints a token Tidal serves
     lossless/hi-res audio to.
 
     Raises
     ------
     TidalServiceError
-        If *cancel_check* aborts before the login starts, or the pasted
+        If *cancel_check* aborts before the login starts, or the captured
         URL cannot be exchanged for tokens.
     """
     if cancel_check is not None and cancel_check():

@@ -16,11 +16,11 @@ The Redirect URI is fixed at `http://127.0.0.1:8888/callback`.  Make sure this e
 
 ## Tidal
 
-Tidal connects via a PKCE login flow — click **Connect to Tidal…** and log in in the embedded login window that opens.  The session stays cached on this machine.  No credentials are required.  See [Connecting Streaming Services → Tidal](connecting-services.md#tidal) for details, including the optional client-credential override and a browser-based fallback.
+Tidal connects via a PKCE login flow — click **Connect to Tidal…** and log in in the browser page that opens; the app detects the completed login automatically (on macOS it watches your browser tabs, elsewhere it watches the clipboard, and manual paste is always available).  The session stays cached on this machine.  No credentials are required.  See [Connecting Streaming Services → Tidal](connecting-services.md#tidal) for details, including the optional client-credential override.
 
 | Button | Description |
 |---|---|
-| **Connect to Tidal…** | Start the login.  A login window opens with the Tidal page embedded; completing it connects automatically. |
+| **Connect to Tidal…** | Start the login.  Your browser opens the Tidal page; completing the login connects automatically. |
 | **Clear Cached Tidal Session** | Delete the stored session file.  The next connection will require a new browser login. |
 
 ---

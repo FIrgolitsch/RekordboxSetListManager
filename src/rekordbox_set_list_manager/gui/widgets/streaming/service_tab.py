@@ -5,7 +5,8 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, QThread, QUrl, Signal
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -19,13 +20,7 @@ from PySide6.QtWidgets import (
 
 from rekordbox_set_list_manager.gui.widgets.common.busy_dialog import BusyDialog, show_error_dialog
 from rekordbox_set_list_manager.gui.widgets.streaming.auth_worker import StreamingAuthWorker
-
-try:
-    from rekordbox_set_list_manager.gui.widgets.dialogs.tidal_login_dialog import (
-        run_tidal_login,
-    )
-except ImportError:  # QtWebEngine unavailable — the paste row stays the fallback
-    run_tidal_login = None  # type: ignore[assignment]
+from rekordbox_set_list_manager.gui.widgets.streaming.redirect_catcher import RedirectCatcher
 
 if TYPE_CHECKING:
     from rekordbox_set_list_manager.services.streaming_base import (
@@ -51,7 +46,8 @@ class StreamingServiceTab(QWidget):
         self._auto_select_id: str | None = None
         self._thread: QThread | None = None
         self._worker: StreamingAuthWorker | None = None
-        self._pending_login_url: str | None = None
+        self._redirect_catcher = RedirectCatcher(self)
+        self._redirect_catcher.found.connect(self._on_redirect_captured)
 
         # ── Connect row ──────────────────────────────────────────────────
         self._connect_btn = QPushButton("Connect")
@@ -68,10 +64,11 @@ class StreamingServiceTab(QWidget):
         self._link_label.setWordWrap(True)
         self._link_label.setVisible(False)
 
-        # ── PKCE redirect paste-back (Tidal only; hidden until needed) ───
+        # ── PKCE redirect capture (Tidal only; hidden until needed) ──────
         self._redirect_hint = QLabel(
-            "After logging in, the browser lands on an 'Oops' page — "
-            "copy its full address here to finish connecting."
+            "Log in in your browser — when it lands on an 'Oops' page, "
+            "we detect it automatically. If nothing happens, copy the page "
+            "address or paste it below:"
         )
         self._redirect_hint.setWordWrap(True)
         self._redirect_hint.setVisible(False)
@@ -116,6 +113,7 @@ class StreamingServiceTab(QWidget):
 
     def stop_auth(self) -> None:
         """Cancel and wait briefly for any running auth thread (safe on dialog close)."""
+        self._redirect_catcher.stop()
         if self._worker is not None:
             self._worker.cancel()
         if self._thread is not None and self._thread.isRunning():
@@ -164,40 +162,26 @@ class StreamingServiceTab(QWidget):
         match = re.search(r"https?://\S+", msg)
         if match:
             url = match.group(0)
-            self._pending_login_url = url
-            self._link_label.setText(f'Open in browser to log in: <a href="{url}">{url}</a>')
+            self._link_label.setText(f'Login page: <a href="{url}">{url}</a>')
+            QDesktopServices.openUrl(QUrl(url))
         else:
             self._link_label.setText(msg)
         self._link_label.setVisible(True)
-        self._auth_label.setText("Waiting for approval…")
+        self._auth_label.setText("Waiting for login…")
 
     def _on_redirect_requested(self) -> None:
-        """Complete the PKCE login in an embedded browser dialog.
-
-        Falls back to the manual paste row when QtWebEngine is unavailable
-        or no login URL was captured.
-        """
-        if self._pending_login_url and run_tidal_login is not None:
-            url = run_tidal_login(self._pending_login_url, self)
-            if url and self._worker is not None:
-                self._auth_label.setText("Finishing login…")
-                self._worker.provide_redirect(url)
-            else:
-                self._cancel_pending_auth()
-            return
+        """Watch for the redirect URL — clipboard auto-detect plus paste."""
+        self._redirect_catcher.start()
         self._redirect_hint.setVisible(True)
         self._redirect_container.setVisible(True)
         self._redirect_input.setFocus()
-        self._auth_label.setText("Paste the 'Oops' page URL to finish…")
+        self._auth_label.setText("Finish the login in your browser…")
 
-    def _cancel_pending_auth(self) -> None:
-        """Abort an in-flight auth that the user dismissed mid-flow."""
+    def _on_redirect_captured(self, url: str) -> None:
+        """Clipboard detected the redirect URL — hand it to the worker."""
         if self._worker is not None:
-            self._worker.cancel()
-        if self._thread is not None:
-            self._thread.quit()
-        self._auth_label.setText("Not connected")
-        self._connect_btn.setEnabled(True)
+            self._auth_label.setText("Finishing login…")
+            self._worker.provide_redirect(url)
 
     def _on_redirect_submit(self) -> None:
         url = self._redirect_input.text().strip()
@@ -208,6 +192,7 @@ class StreamingServiceTab(QWidget):
         self._worker.provide_redirect(url)
 
     def _hide_redirect_row(self) -> None:
+        self._redirect_catcher.stop()
         self._redirect_hint.setVisible(False)
         self._redirect_container.setVisible(False)
         self._redirect_input.clear()

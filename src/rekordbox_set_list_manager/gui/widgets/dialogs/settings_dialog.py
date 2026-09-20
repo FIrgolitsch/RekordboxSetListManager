@@ -6,7 +6,8 @@ import re
 from pathlib import Path
 
 import platformdirs
-from PySide6.QtCore import Qt, QThread
+from PySide6.QtCore import Qt, QThread, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -23,15 +24,9 @@ from PySide6.QtWidgets import (
 
 from rekordbox_set_list_manager.gui.widgets.common.busy_dialog import show_error_dialog
 from rekordbox_set_list_manager.gui.widgets.streaming.auth_worker import StreamingAuthWorker
+from rekordbox_set_list_manager.gui.widgets.streaming.redirect_catcher import RedirectCatcher
 from rekordbox_set_list_manager.services.tidal_service import TidalService
 from rekordbox_set_list_manager.utils import config
-
-try:
-    from rekordbox_set_list_manager.gui.widgets.dialogs.tidal_login_dialog import (
-        run_tidal_login,
-    )
-except ImportError:  # QtWebEngine unavailable — the paste row stays the fallback
-    run_tidal_login = None  # type: ignore[assignment]
 
 
 class SettingsDialog(QDialog):
@@ -46,7 +41,8 @@ class SettingsDialog(QDialog):
         self._tidal_service = TidalService()
         self._tidal_thread: QThread | None = None
         self._tidal_worker: StreamingAuthWorker | None = None
-        self._tidal_login_url: str | None = None
+        self._redirect_catcher = RedirectCatcher(self)
+        self._redirect_catcher.found.connect(self._on_tidal_redirect_captured)
 
         root = QVBoxLayout(self)
         root.addWidget(self._build_spotify_group())
@@ -108,8 +104,9 @@ class SettingsDialog(QDialog):
         self._tidal_link.setVisible(False)
 
         self._tidal_redirect_hint = QLabel(
-            "After logging in, the browser lands on an 'Oops' page — "
-            "copy its full address here to finish connecting."
+            "Log in in your browser — when it lands on an 'Oops' page, "
+            "we detect it automatically. If nothing happens, copy the page "
+            "address or paste it below:"
         )
         self._tidal_redirect_hint.setWordWrap(True)
         self._tidal_redirect_hint.setVisible(False)
@@ -128,8 +125,8 @@ class SettingsDialog(QDialog):
         self._tidal_redirect_row.setVisible(False)
 
         note = QLabel(
-            "Connecting opens a Tidal login window — log in once and the "
-            "session stays cached on this machine."
+            "Connecting opens the Tidal login page in your browser — log in "
+            "once and the session stays cached on this machine."
         )
         note.setWordWrap(True)
 
@@ -218,6 +215,7 @@ class SettingsDialog(QDialog):
         self._tidal_worker = None
 
     def _stop_tidal_auth(self) -> None:
+        self._redirect_catcher.stop()
         if self._tidal_worker is not None:
             self._tidal_worker.cancel()
         if self._tidal_thread is not None and self._tidal_thread.isRunning():
@@ -230,40 +228,26 @@ class SettingsDialog(QDialog):
         match = re.search(r"https?://\S+", msg)
         if match:
             url = match.group(0)
-            self._tidal_login_url = url
-            self._tidal_link.setText(f'Open in browser to log in: <a href="{url}">{url}</a>')
+            self._tidal_link.setText(f'Login page: <a href="{url}">{url}</a>')
+            QDesktopServices.openUrl(QUrl(url))
         else:
             self._tidal_link.setText(msg)
         self._tidal_link.setVisible(True)
         self._tidal_status.setText("Waiting for login…")
 
     def _on_tidal_redirect_requested(self) -> None:
-        """Complete the PKCE login in an embedded browser dialog.
-
-        Falls back to the manual paste row when QtWebEngine is unavailable
-        or no login URL was captured.
-        """
-        if self._tidal_login_url and run_tidal_login is not None:
-            url = run_tidal_login(self._tidal_login_url, self)
-            if url and self._tidal_worker is not None:
-                self._tidal_status.setText("Finishing login…")
-                self._tidal_worker.provide_redirect(url)
-            else:
-                self._cancel_tidal_auth()
-            return
+        """Watch for the redirect URL — clipboard auto-detect plus paste."""
+        self._redirect_catcher.start()
         self._tidal_redirect_hint.setVisible(True)
         self._tidal_redirect_row.setVisible(True)
         self._tidal_redirect_input.setFocus()
-        self._tidal_status.setText("Paste the 'Oops' page URL to finish…")
+        self._tidal_status.setText("Finish the login in your browser…")
 
-    def _cancel_tidal_auth(self) -> None:
-        """Abort an in-flight auth that the user dismissed mid-flow."""
+    def _on_tidal_redirect_captured(self, url: str) -> None:
+        """Clipboard detected the redirect URL — hand it to the worker."""
         if self._tidal_worker is not None:
-            self._tidal_worker.cancel()
-        if self._tidal_thread is not None:
-            self._tidal_thread.quit()
-        self._tidal_status.setText("Not connected")
-        self._tidal_connect_btn.setEnabled(True)
+            self._tidal_status.setText("Finishing login…")
+            self._tidal_worker.provide_redirect(url)
 
     def _on_tidal_redirect_submit(self) -> None:
         url = self._tidal_redirect_input.text().strip()
@@ -274,6 +258,7 @@ class SettingsDialog(QDialog):
         self._tidal_worker.provide_redirect(url)
 
     def _hide_tidal_redirect_row(self) -> None:
+        self._redirect_catcher.stop()
         self._tidal_redirect_hint.setVisible(False)
         self._tidal_redirect_row.setVisible(False)
         self._tidal_redirect_input.clear()

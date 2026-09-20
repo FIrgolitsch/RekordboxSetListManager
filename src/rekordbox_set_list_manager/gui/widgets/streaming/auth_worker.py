@@ -17,8 +17,8 @@ class StreamingAuthWorker(QObject):
     ``link_ready`` is emitted for link-based flows (e.g. Tidal) where the
     service calls *link_callback* to display a login URL to the user.
     ``redirect_requested`` is emitted when the flow additionally needs the
-    browser redirect URL pasted back (Tidal PKCE) — the GUI should show a
-    paste field and call :meth:`provide_redirect` with the entered URL.
+    browser redirect URL back (Tidal PKCE) — the GUI watches for it and
+    calls :meth:`provide_redirect` with the captured URL.
     Spotify's browser-redirect flow emits neither signal.
 
     In *silent* mode the worker calls ``try_silent_authenticate`` instead:
@@ -52,7 +52,7 @@ class StreamingAuthWorker(QObject):
         self._cancelled.set()
 
     def provide_redirect(self, url: str) -> None:
-        """Deliver the pasted redirect URL (call from the GUI thread)."""
+        """Deliver the captured redirect URL (call from the GUI thread)."""
         self._redirect_url = url
         self._redirect_ready.set()
 

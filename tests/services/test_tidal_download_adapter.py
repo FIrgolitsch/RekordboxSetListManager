@@ -408,9 +408,7 @@ def test_fetch_bytes_refuses_redirect_off_allowlist():
     """requests follows redirects to ANY host — a manifest URL on
     ``*.tidal.com`` redirecting externally would defeat the allowlist, so
     redirects are disabled and a 3xx is a fetch failure."""
-    http = _FakeHttp(
-        [_FakeResp(302, headers={"Location": "https://evil.example.com/seg"})]
-    )
+    http = _FakeHttp([_FakeResp(302, headers={"Location": "https://evil.example.com/seg"})])
 
     with pytest.raises(ValueError, match="Refusing redirect"):
         adapter.fetch_bytes(_SEGMENT_URL, http=http, gate=_fake_gate())
@@ -475,9 +473,7 @@ def test_fetch_bytes_cancel_checked_before_each_retry():
 
     class _CancellingHttp(_FakeHttp):
         def get(self, url, stream=False, timeout=None, allow_redirects=True):
-            resp = super().get(
-                url, stream=stream, timeout=timeout, allow_redirects=allow_redirects
-            )
+            resp = super().get(url, stream=stream, timeout=timeout, allow_redirects=allow_redirects)
             cancel.set()
             return resp
 

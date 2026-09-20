@@ -78,9 +78,6 @@ def main() -> None:
         sys.exit(0)
 
     _install_exception_hook()
-    # The embedded Tidal login view (QtWebEngine) requires shared OpenGL
-    # contexts to be enabled before the QApplication is constructed.
-    QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
     app = QApplication(sys.argv)
     app.setApplicationName("Rekordbox Set List Manager")
     app.setApplicationVersion(__version__)
