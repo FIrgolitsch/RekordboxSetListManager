@@ -293,10 +293,11 @@ def _retriable_status_hint(resp: requests.Response, url: str) -> float | None:
 
     Returns the ``Retry-After`` hint (``0.0`` when absent) for a retriable
     status — 429 or 5xx — and ``None`` when the body may be read.  Terminal
-    statuses raise instead: 401/403 as :class:`TidalAuthError`, redirects
-    as :class:`ValueError` (redirect-following is disabled, so a manifest
-    cannot steer the GET off the ``*.tidal.com`` allowlist), and any other
-    error status via ``raise_for_status``.
+    statuses raise instead: 401/403 as :class:`TidalAuthError`, and every
+    other 3xx/4xx as :class:`ValueError` — redirects are refused because
+    redirect-following is disabled (a manifest cannot steer the GET off
+    the ``*.tidal.com`` allowlist), and the remaining 4xx are permanent:
+    retrying cannot change the answer.
     """
     status = resp.status_code
     if status == _STATUS_TOO_MANY_REQUESTS:
@@ -307,7 +308,10 @@ def _retriable_status_hint(resp: requests.Response, url: str) -> float | None:
         return 0.0
     if _STATUS_REDIRECT_MIN <= status < _STATUS_BAD_REQUEST_MIN:
         raise ValueError(f"Refusing redirect for segment GET ({status}): {url}")
-    resp.raise_for_status()
+    if status >= _STATUS_BAD_REQUEST_MIN:
+        raise ValueError(
+            f"Tidal segment GET returned non-retriable status {status}: {url}"
+        )
     return None
 
 
@@ -347,8 +351,10 @@ def fetch_bytes(
     ------
     ValueError
         If *url* fails the scheme/host allowlist before any request, or
-        the server answers with a redirect (redirect-following is disabled
-        so the allowlist cannot be bypassed).
+        the server answers a non-retriable status — a redirect
+        (redirect-following is disabled so the allowlist cannot be
+        bypassed) or a 4xx other than 401/403/429 (caller maps to
+        VALIDATION).
     TidalAuthError
         On 401/403 (caller maps to AUTH).
     TimeoutError
@@ -358,7 +364,7 @@ def fetch_bytes(
         When *cancel* is set — checked before every attempt and per
         received chunk (caller maps to CANCELLED).
     requests.RequestException
-        On persistent transport failure or a final non-retried error status.
+        On persistent transport failure (caller maps to NETWORK).
     """
     _check_segment_url(url)
     for attempt in range(_MAX_RETRIES):

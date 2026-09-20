@@ -406,6 +406,17 @@ def test_fetch_bytes_refuses_redirect_off_allowlist():
     assert http.redirects == [False]
 
 
+def test_fetch_bytes_non_retriable_4xx_fails_without_retry():
+    """A 404/410 is permanent — burning all five retry attempts and the
+    gate-backed sleeps would only delay an inevitable failure."""
+    http = _FakeHttp([_FakeResp(404)] * 5)
+
+    with pytest.raises(ValueError, match="non-retriable"):
+        adapter.fetch_bytes(_SEGMENT_URL, http=http, gate=_fake_gate())
+
+    assert len(http.calls) == 1
+
+
 def test_fetch_bytes_retries_transport_error_then_succeeds():
     http = _FakeHttp([requests.ConnectionError("boom"), _FakeResp(200, b"ok")])
 
