@@ -938,6 +938,35 @@ def test_download_track_embeds_cover_art_as_apic(tmp_path):
     assert apic[0].mime == "image/jpeg"
 
 
+def test_download_track_id3_chunk_is_uppercase(tmp_path):
+    """Rekordbox reads WAV artwork only from an uppercase ``ID3 `` chunk —
+    mutagen's lowercase ``id3 `` must be renamed after tagging."""
+    session = _FakeSession(
+        _load_fixture("playback_bts_flac_clear.json"),
+        _fake_tidal_track(image_url=_COVER_URL),
+    )
+    http = _FakeHttpByUrl({_BTS_SEG_URL: _flac_payload(), _COVER_URL: _JPEG_BYTES})
+    service = TidalDownloadService(session, download_dir=tmp_path / "downloads", http=http)
+
+    result = service.download_track("12345678")
+
+    data = result.filepath.read_bytes()
+    offset = 12
+    chunk_ids = []
+    while offset + 8 <= len(data):
+        cid = data[offset : offset + 4]
+        chunk_ids.append(cid)
+        (csize,) = struct.unpack_from("<I", data, offset + 4)
+        offset += 8 + csize + (csize % 2)
+    assert b"ID3 " in chunk_ids
+    assert b"id3 " not in chunk_ids
+    # The tag payload itself is untouched — mutagen reads the uppercase
+    # chunk back and finds every frame, including the cover.
+    tags = WAVE(result.filepath).tags
+    assert len(tags.getall("APIC")) == 1
+    assert str(tags["TIT2"]) == "Test Title"
+
+
 def test_download_track_png_cover_tags_image_png(tmp_path):
     """Cover bytes are embedded with a MIME matching their magic — a PNG
     payload must not be tagged ``image/jpeg``."""

@@ -191,12 +191,15 @@ def tag_wav(
 ) -> None:
     """Tag the WAV at *path* with both ID3v2 and RIFF ``LIST``/``INFO``.
 
-    The ID3v2 tag lands in the ``id3 `` RIFF chunk via mutagen; the same
-    fields are then dual-written as a ``LIST``/``INFO`` chunk because
-    Rekordbox reads WAV metadata from the INFO list.  Fields are guarded
-    individually — tidalapi attributes can be ``None`` depending on how the
-    track was fetched.  A ``TXXX:TIDAL_QUALITY`` frame persists the served
-    quality tier for a future re-download pass.
+    The ID3v2 tag lands in an ``ID3 `` RIFF chunk — mutagen writes ``id3 ``
+    lowercase, which is renamed because Rekordbox only honours artwork
+    (APIC) from the uppercase form it writes itself; mutagen still reads
+    both casings back.  The same text fields are dual-written as a
+    ``LIST``/``INFO`` chunk because Rekordbox reads WAV text metadata from
+    the INFO list.  Fields are guarded individually — tidalapi attributes
+    can be ``None`` depending on how the track was fetched.  A
+    ``TXXX:TIDAL_QUALITY`` frame persists the served quality tier for a
+    future re-download pass.
 
     Parameters
     ----------
@@ -245,6 +248,7 @@ def tag_wav(
         mime = "image/png" if cover.startswith(b"\x89PNG") else "image/jpeg"
         tags.add(APIC(encoding=3, mime=mime, type=3, data=cover))
     tags.save(path)
+    _uppercase_id3_chunk(path)
     _write_riff_info(path, _info_fields(tidal_track))
 
 
@@ -301,6 +305,27 @@ def _build_info_chunk(fields: list[tuple[str, str]]) -> bytes:
     if len(payload) % 2:
         chunk += b"\x00"
     return chunk
+
+
+def _uppercase_id3_chunk(path: Path) -> None:
+    """Rename the ``id3 `` chunk to ``ID3 `` — the casing Rekordbox reads.
+
+    Rekordbox reads WAV artwork only from an uppercase ``ID3 `` chunk (the
+    form it writes itself); mutagen's lowercase ``id3 `` is ignored.  The
+    chunk id is patched in place — a four-byte write that leaves every
+    chunk size and the RIFF length untouched.
+    """
+    with path.open("r+b") as fh:
+        file_size = fh.seek(0, 2)
+        offset = _RIFF_HEADER_SIZE
+        while offset + 8 <= file_size:
+            fh.seek(offset)
+            cid, csize = struct.unpack("<4sI", fh.read(8))
+            if cid == b"id3 ":
+                fh.seek(offset)
+                fh.write(b"ID3 ")
+                return
+            offset += 8 + csize + (csize % 2)
 
 
 def _write_riff_info(path: Path, fields: list[tuple[str, str]]) -> None:
