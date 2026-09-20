@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QMessageBox, QWidget
 
+from rekordbox_set_list_manager.models.section import Section
+
 if TYPE_CHECKING:
     from uuid import UUID
 
@@ -13,7 +15,6 @@ if TYPE_CHECKING:
     from rekordbox_set_list_manager.gui.widgets.sections.multi_section_view import (
         MultiSectionView,
     )
-    from rekordbox_set_list_manager.models.section import Section
 
 
 class TrackController(QObject):
@@ -53,7 +54,9 @@ class TrackController(QObject):
 
         if self._ctrl.project is None:
             return
-        target = section or self._view.current_section()
+        # isinstance guard: QAction.triggered(bool) can leak the checked
+        # flag into this parameter when the slot is wired to an action.
+        target = section if isinstance(section, Section) else self._view.current_section()
         if target is None:
             QMessageBox.information(self._w, "No section", "Add a section before adding a track.")
             return
@@ -72,7 +75,7 @@ class TrackController(QObject):
 
         if self._ctrl.project is None:
             return
-        target = section or self._view.current_section()
+        target = section if isinstance(section, Section) else self._view.current_section()
         if target is None:
             QMessageBox.information(self._w, "No section", "Add a section before adding a track.")
             return
