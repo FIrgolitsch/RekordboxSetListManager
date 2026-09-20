@@ -407,23 +407,144 @@ def test_classified_failure_emits_failed_and_continues(make_ctrl, qtbot):
     assert cap.of("finished")[0][0] == ids[1]
 
 
-def test_auth_failure_pauses_and_emits_auth_required(make_ctrl, qtbot):
-    ctrl, fake = make_ctrl()
+def _auth_fail(track_id, progress_cb, cancel_event):
+    raise TidalDownloadError("no session", kind=DownloadErrorKind.AUTH)
+
+
+def test_auth_failure_pauses_and_emits_auth_required(qtbot):
+    """AUTH failure: item_failed(AUTH) + pause-before-next-item +
+    auth_required, then silent re-auth resumes the drain on a fresh factory
+    call — the rebound session is picked up without a new controller."""
+    tidal = _FakeTidalService(auth_result="DJ", block_auth=True)
+    fake = _FakeService()
+    factory_calls = []
+
+    def _counting_factory():
+        factory_calls.append(1)
+        return fake
+
+    ctrl = DownloadController(
+        service_factory=_counting_factory, tidal_service=tidal
+    )
+    try:
+        cap = _Capture(ctrl)
+
+        fake.handlers["t1"] = _auth_fail
+        ids = ctrl.enqueue([("t1", "L1"), ("t2", "L2")])
+        qtbot.waitUntil(lambda: len(cap.of("auth")) == 1, timeout=5000)
+        assert cap.of("failed")[0][0] == ids[0]
+        assert cap.of("failed")[0][1] == DownloadErrorKind.AUTH
+        # Silent re-auth starts on its own thread and the drain stays paused —
+        # item 2 must not be dequeued while auth is in flight.
+        qtbot.waitUntil(lambda: tidal.auth_calls == 1, timeout=5000)
+        qtbot.wait(300)
+        assert fake.calls == ["t1"]
+        assert ctrl._worker._paused.is_set()
+        assert len(factory_calls) == 1
+        tidal.auth_gate.set()  # silent auth succeeds → controller resumes
+        qtbot.waitUntil(lambda: len(cap.of("finished")) == 1, timeout=5000)
+        assert fake.calls == ["t1", "t2"]
+        assert len(factory_calls) == 2  # t2's service was minted post-re-auth
+        qtbot.waitUntil(
+            lambda: getattr(ctrl, "_reauth_thread", None) is None, timeout=3000
+        )
+    finally:
+        tidal.auth_gate.set()
+        ctrl.shutdown()
+
+
+def test_silent_reauth_failure_cancels_remaining_items(make_ctrl, qtbot):
+    """silent_failed/error → cancel_all: every queued item flushes through
+    the drain loop as item_cancelled — nothing hangs on the pause."""
+    tidal = _FakeTidalService(auth_result=None)  # silent auth finds nothing
+    ctrl, fake = make_ctrl(tidal_service=tidal)
     cap = _Capture(ctrl)
 
-    def auth_fail(track_id, progress_cb, cancel_event):
-        raise TidalDownloadError("no session", kind=DownloadErrorKind.AUTH)
+    fake.handlers["t1"] = _auth_fail
+    ids = ctrl.enqueue([("t1", "L1"), ("t2", "L2"), ("t3", "L3")])
 
-    fake.handlers["t1"] = auth_fail
+    qtbot.waitUntil(lambda: len(cap.of("cancelled")) == 2, timeout=5000)
+    assert tidal.auth_calls == 1
+    assert {a[0] for a in cap.of("cancelled")} == {ids[1], ids[2]}
+    failed = cap.of("failed", ids[0])
+    assert len(failed) == 1
+    assert failed[0][1] == DownloadErrorKind.AUTH
+    assert cap.of("finished") == []
+    assert fake.calls == ["t1"]
+    qtbot.waitUntil(
+        lambda: getattr(ctrl, "_reauth_thread", None) is None, timeout=3000
+    )
+
+
+def test_invalid_client_aborts_queue_without_silent_reauth(make_ctrl, qtbot):
+    """INVALID_CLIENT is a configuration fault, not a stale session — the
+    controller cancels the remaining items without attempting re-auth."""
+    tidal = _FakeTidalService(auth_result="DJ")
+    ctrl, fake = make_ctrl(tidal_service=tidal)
+    cap = _Capture(ctrl)
+
+    def bad_client(track_id, progress_cb, cancel_event):
+        raise TidalDownloadError(
+            "client credentials rejected", kind=DownloadErrorKind.INVALID_CLIENT
+        )
+
+    fake.handlers["t1"] = bad_client
     ids = ctrl.enqueue([("t1", "L1"), ("t2", "L2")])
-    qtbot.waitUntil(lambda: len(cap.of("auth")) == 1, timeout=5000)
-    assert cap.of("failed")[0][0] == ids[0]
-    assert cap.of("failed")[0][1] == DownloadErrorKind.AUTH
-    qtbot.wait(400)
-    assert fake.calls == ["t1"]  # paused — the next item never started
-    ctrl.resume()
-    qtbot.waitUntil(lambda: len(cap.of("finished")) == 1, timeout=5000)
-    assert fake.calls == ["t1", "t2"]
+
+    qtbot.waitUntil(lambda: len(cap.of("cancelled")) == 1, timeout=5000)
+    assert cap.of("cancelled")[0][0] == ids[1]
+    failed = cap.of("failed", ids[0])
+    assert len(failed) == 1
+    assert failed[0][1] == DownloadErrorKind.INVALID_CLIENT
+    assert len(cap.of("auth")) == 1
+    qtbot.wait(300)
+    assert tidal.auth_calls == 0  # never a session fix for a config fault
+    assert getattr(ctrl, "_reauth_thread", None) is None
+
+
+def test_second_auth_required_during_reauth_does_not_respawn(make_ctrl, qtbot):
+    """A second AUTH while silent re-auth is in flight must not spawn a
+    second auth worker — the re-entrancy guard keeps it one-at-a-time."""
+    tidal = _FakeTidalService(auth_result="DJ", block_auth=True)
+    ctrl, fake = make_ctrl(tidal_service=tidal)
+
+    fake.handlers["t1"] = _auth_fail
+    ctrl.enqueue([("t1", "L1")])
+
+    qtbot.waitUntil(lambda: tidal.auth_calls == 1, timeout=5000)
+    ctrl._on_auth_required()  # second in-flight signal — must be ignored
+    qtbot.wait(300)
+    assert tidal.auth_calls == 1
+    tidal.auth_gate.set()
+    qtbot.waitUntil(
+        lambda: getattr(ctrl, "_reauth_thread", None) is None, timeout=3000
+    )
+
+
+def test_shutdown_during_reauth_is_bounded_and_leaks_no_thread(make_ctrl, qtbot):
+    """shutdown() mid-re-auth cancels the auth worker, bounded-joins its
+    thread, and still drains + finishes the download worker."""
+    tidal = _FakeTidalService(auth_result=None, block_auth=True)
+    ctrl, fake = make_ctrl(tidal_service=tidal)
+    cap = _Capture(ctrl)
+
+    fake.handlers["t1"] = _auth_fail
+    ctrl.enqueue([("t1", "L1"), ("t2", "L2")])
+
+    qtbot.waitUntil(lambda: tidal.auth_calls == 1, timeout=5000)
+    start = time.monotonic()
+    ctrl.shutdown()
+    assert time.monotonic() - start < 3.0
+    qtbot.waitUntil(lambda: cap.of("worker_done") != [], timeout=3000)
+    assert ctrl._thread.isRunning() is False
+    states = {r.item_id: r.state for r in ctrl.snapshot()}
+    assert all(s in _TERMINAL for s in states.values())
+    tidal.auth_gate.set()  # let the cancelled silent auth return
+    qtbot.waitUntil(
+        lambda: getattr(ctrl, "_reauth_thread", None) is None
+        or not ctrl._reauth_thread.isRunning(),
+        timeout=3000,
+    )
 
 
 def test_pause_freezes_and_resume_continues(make_ctrl, qtbot):
