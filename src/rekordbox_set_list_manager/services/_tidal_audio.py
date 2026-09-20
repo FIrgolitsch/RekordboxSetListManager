@@ -11,6 +11,7 @@ edge stays one-directional (service → audio) to avoid a cycle.
 import io
 import logging
 import shutil
+import struct
 import subprocess
 from typing import TYPE_CHECKING
 
@@ -29,6 +30,13 @@ log = logging.getLogger(__name__)
 
 # Source bit depth above which the WAV is written as 24-bit PCM.
 _BIT_DEPTH_24_THRESHOLD = 16
+
+# RIFF INFO fields written in this order — Rekordbox reads WAV metadata from
+# this list rather than the ID3 chunk, so both must be present.
+_INFO_FIELD_ORDER = ("INAM", "IART", "IPRD", "ITRK", "IGNR", "ISRC", "ICRD")
+
+# "RIFF" + size + "WAVE" — the fixed 12-byte RIFF/WAVE preamble.
+_RIFF_HEADER_SIZE = 12
 
 
 def _raise_if_cancelled(cancel_event: threading.Event | None) -> None:
@@ -167,11 +175,14 @@ def tag_wav(
     served_quality: str,
     cover: bytes | None,
 ) -> None:
-    """Write an ID3v2 tag into the ``id3`` RIFF chunk of the WAV at *path*.
+    """Tag the WAV at *path* with both ID3v2 and RIFF ``LIST``/``INFO``.
 
-    Fields are guarded individually — tidalapi attributes can be ``None``
-    depending on how the track was fetched.  A ``TXXX:TIDAL_QUALITY`` frame
-    persists the served quality tier for a future re-download pass.
+    The ID3v2 tag lands in the ``id3 `` RIFF chunk via mutagen; the same
+    fields are then dual-written as a ``LIST``/``INFO`` chunk because
+    Rekordbox reads WAV metadata from the INFO list.  Fields are guarded
+    individually — tidalapi attributes can be ``None`` depending on how the
+    track was fetched.  A ``TXXX:TIDAL_QUALITY`` frame persists the served
+    quality tier for a future re-download pass.
 
     Parameters
     ----------
@@ -211,3 +222,106 @@ def tag_wav(
     if cover:
         tags.add(APIC(encoding=3, mime="image/jpeg", type=3, data=cover))
     tags.save(path)
+    _write_riff_info(path, _info_fields(tidal_track))
+
+
+def _info_fields(tidal_track: tidalapi.media.Track) -> list[tuple[str, str]]:
+    """Collect the RIFF INFO fields present on *tidal_track*.
+
+    Every field is guarded like its ID3 counterpart — absent source data is
+    omitted entirely, never serialized as the literal string ``None``.
+    ``IGNR`` has no source field; the genre default ``n/a`` is written
+    explicitly.
+    """
+    artist = getattr(tidal_track, "artist", None)
+    album = getattr(tidal_track, "album", None)
+    values: dict[str, str] = {"IGNR": "n/a"}
+    title = getattr(tidal_track, "title", None)
+    if title:
+        values["INAM"] = str(title)
+    artist_name = getattr(artist, "name", None)
+    if artist_name:
+        values["IART"] = str(artist_name)
+    album_name = getattr(album, "name", None) if album is not None else None
+    if album_name:
+        values["IPRD"] = str(album_name)
+    track_num = getattr(tidal_track, "track_num", None)
+    if track_num:
+        try:
+            values["ITRK"] = f"{int(track_num):02d}"
+        except TypeError, ValueError:
+            values["ITRK"] = str(track_num)
+    isrc = getattr(tidal_track, "isrc", None)
+    if isrc:
+        values["ISRC"] = str(isrc)
+    release_date = getattr(album, "release_date", None) if album is not None else None
+    if release_date:
+        values["ICRD"] = str(release_date)[:10]
+    return [(tag_id, values[tag_id]) for tag_id in _INFO_FIELD_ORDER if tag_id in values]
+
+
+def _build_info_chunk(fields: list[tuple[str, str]]) -> bytes:
+    """Serialize a ``LIST``/``INFO`` chunk.
+
+    Layout: ``LIST`` + u32le size + ``INFO`` + per-field subchunks of
+    ``<4cc>`` + u32le size + utf-8 value + trailing NUL; every subchunk and
+    the LIST chunk itself pad to an even byte boundary per the RIFF spec.
+    """
+    subchunks = bytearray()
+    for tag_id, value in fields:
+        data = value.encode("utf-8") + b"\x00"
+        subchunks += tag_id.encode("ascii") + struct.pack("<I", len(data)) + data
+        if len(data) % 2:
+            subchunks += b"\x00"
+    payload = b"INFO" + bytes(subchunks)
+    chunk = b"LIST" + struct.pack("<I", len(payload)) + payload
+    if len(payload) % 2:
+        chunk += b"\x00"
+    return chunk
+
+
+def _write_riff_info(path: Path, fields: list[tuple[str, str]]) -> None:
+    """Insert the ``LIST``/``INFO`` chunk into the WAV at *path*.
+
+    Runs on the ``.part`` file before its atomic rename — mutagen only
+    manages the ``id3 `` chunk, so the RIFF INFO list is appended manually.
+    An existing INFO list (re-tagging a tagged WAV) is replaced; the RIFF
+    size field is fixed up either way.
+    """
+    if not fields:
+        return
+    chunk = _build_info_chunk(fields)
+    with path.open("r+b") as fh:
+        head = fh.read(_RIFF_HEADER_SIZE)
+        if len(head) < _RIFF_HEADER_SIZE or head[:4] != b"RIFF" or head[8:] != b"WAVE":
+            raise RuntimeError(f"Cannot write RIFF INFO into a non-WAVE file: {path}")
+        fh.seek(0, 2)
+        file_size = fh.tell()
+        # Walk top-level chunk headers; remember byte spans of LIST/INFO
+        # chunks so a stale list can be replaced instead of duplicated.
+        spans: list[tuple[int, int]] = []
+        offset = _RIFF_HEADER_SIZE
+        while offset + 8 <= file_size:
+            fh.seek(offset)
+            cid, csize = struct.unpack("<4sI", fh.read(8))
+            padded = csize + (csize % 2)
+            if cid == b"LIST":
+                fh.seek(offset + 8)
+                if fh.read(4) == b"INFO":
+                    spans.append((offset, 8 + padded))
+            offset += 8 + padded
+        if spans:
+            fh.seek(0)
+            data = bytearray(fh.read())
+            for start, length in reversed(spans):
+                del data[start : start + length]
+            data += chunk
+            struct.pack_into("<I", data, 4, len(data) - 8)
+            fh.seek(0)
+            fh.write(data)
+            fh.truncate()
+        else:
+            fh.seek(0, 2)
+            fh.write(chunk)
+            fh.seek(4)
+            fh.write(struct.pack("<I", file_size + len(chunk) - 8))

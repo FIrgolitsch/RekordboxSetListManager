@@ -785,12 +785,18 @@ def test_download_track_wav_carries_riff_info_chunk(tmp_path):
     assert b"Test Artist" in data
     info = _find_info_block(data)
     assert info is not None
-    assert b"INAM" in info and b"Test Title" in info
-    assert b"IART" in info and b"Test Artist" in info
-    assert b"IPRD" in info and b"Test Album" in info
-    assert b"ITRK" in info and b"01" in info
-    assert b"ISRC" in info and b"USABC1234567" in info
-    assert b"ICRD" in info and b"2024" in info
+    assert b"INAM" in info
+    assert b"Test Title" in info
+    assert b"IART" in info
+    assert b"Test Artist" in info
+    assert b"IPRD" in info
+    assert b"Test Album" in info
+    assert b"ITRK" in info
+    assert b"01" in info
+    assert b"ISRC" in info
+    assert b"USABC1234567" in info
+    assert b"ICRD" in info
+    assert b"2024" in info
     assert b"None" not in info
     # The chunk must not corrupt the WAV — it still parses end to end.
     assert WAVE(result.filepath).info.length == pytest.approx(1.0, abs=0.1)
@@ -813,8 +819,10 @@ def test_download_track_info_omits_missing_fields(tmp_path):
     assert b"None" not in data
     info = _find_info_block(data)
     assert info is not None
-    assert b"INAM" in info and b"Test Title" in info
-    assert b"IART" in info and b"Test Artist" in info
+    assert b"INAM" in info
+    assert b"Test Title" in info
+    assert b"IART" in info
+    assert b"Test Artist" in info
     for absent in (b"IPRD", b"ISRC", b"ICRD"):
         assert absent not in info
 
