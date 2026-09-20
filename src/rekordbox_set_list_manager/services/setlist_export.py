@@ -115,7 +115,13 @@ def export_setlist(
         text, fmt_skipped = renderers[fmt](project)
         path = out_dir / f"{base}.{fmt}"
         try:
-            path.write_text(text, encoding="utf-8")
+            if fmt == "csv":
+                # csv.writer already terminates rows with \r\n; newline=""
+                # disables text-mode translation that would turn each row
+                # into \r\r\n on Windows.
+                path.write_text(text, encoding="utf-8", newline="")
+            else:
+                path.write_text(text, encoding="utf-8")
         except OSError as exc:
             err = SetlistExportError(f"Could not write {path}: {exc}")
             err.path = path
