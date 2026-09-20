@@ -1,5 +1,11 @@
 """Shared test fixtures."""
 
+import os
+
+# Qt runs offscreen by default for the whole suite — local runs should not
+# need a display (CI sets this too). Export QT_QPA_PLATFORM to override.
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
 import pytest
 
 from rekordbox_set_list_manager.models import (
