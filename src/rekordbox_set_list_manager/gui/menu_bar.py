@@ -149,6 +149,10 @@ def update_recent_menu(window: MainWindow) -> None:
         The main window owning ``_recent_menu`` and ``_file_ctrl``.
 
     """
+    # QMenu.clear() removes the actions but does not delete them — they are
+    # parented to the window, so without deleteLater each rebuild leaks them.
+    for act in window._recent_menu.actions():
+        act.deleteLater()
     window._recent_menu.clear()
     recent = get_recent_files()
     if not recent:
