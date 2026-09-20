@@ -132,6 +132,12 @@ class SectionBlock(QFrame):
         self._model = TrackTableModel()
         self._proxy = TrackFilterProxyModel()
         self._proxy.setSourceModel(self._model)
+        # Filter changes resize the visible row set without going through
+        # _sync_model — keep the fixed-height table in sync.
+        self._proxy.rowsInserted.connect(self._update_view_height)
+        self._proxy.rowsRemoved.connect(self._update_view_height)
+        self._proxy.layoutChanged.connect(self._update_view_height)
+        self._proxy.modelReset.connect(self._update_view_height)
 
         self._view = SectionTableView(section.id)
         self._view.setFrameShape(QFrame.Shape.NoFrame)

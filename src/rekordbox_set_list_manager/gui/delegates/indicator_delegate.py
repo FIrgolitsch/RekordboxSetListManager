@@ -97,7 +97,7 @@ class IndicatorDelegate(QStyledItemDelegate):
             text_rect,
             int(opt.displayAlignment),
             opt.palette,
-            True,
+            bool(opt.state & QStyle.StateFlag.State_Enabled),
             elided,
             color_role,
         )
