@@ -138,20 +138,24 @@ class ProjectController(QObject):
         """Mark the project as having unsaved changes."""
         self._emit_dirty(dirty=True)
 
-    def restore(self, project: Project) -> None:
+    def restore(self, project: Project, *, dirty: bool = True) -> None:
         """Replace the active project with *project* (e.g. an undo/redo snapshot).
 
-        Sets dirty = True and emits :attr:`project_changed` so the UI refreshes.
-        The save path is not changed.
+        Emits :attr:`project_changed` so the UI refreshes.  The save path is
+        not changed.
 
         Parameters
         ----------
         project : Project
             The project snapshot to restore.
+        dirty : bool, optional
+            Dirty state to set afterwards.  ``True`` suits undo/redo and
+            autosave recovery; transactional rollbacks pass the pre-operation
+            value so a failed operation cannot mark an unchanged project dirty.
 
         """
         self._project = project
-        self._emit_dirty(dirty=True)
+        self._emit_dirty(dirty=dirty)
         self.project_changed.emit(project)
 
     # ------------------------------------------------------------------

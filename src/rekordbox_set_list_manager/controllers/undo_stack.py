@@ -77,6 +77,23 @@ class UndoStack[T]:
             self._undo.pop(0)
         self._redo.clear()
 
+    def pop(self) -> T | None:
+        """Remove and return the most recent undo snapshot, or *None* if empty.
+
+        Unlike :meth:`undo`, no redo entry is recorded — this is for
+        transactional rollbacks that must leave the history exactly as they
+        found it.
+
+        Returns
+        -------
+        T | None
+            The discarded snapshot, or ``None`` if the undo stack is empty.
+
+        """
+        if not self._undo:
+            return None
+        return self._undo.pop()[1]
+
     def undo(self, current: T) -> T | None:
         """Undo one step.  Returns the previous snapshot, or *None* if empty.
 

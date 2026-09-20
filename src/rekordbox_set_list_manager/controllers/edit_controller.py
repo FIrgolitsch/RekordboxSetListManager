@@ -487,6 +487,28 @@ class EditController(QObject):
             self._ctrl.restore(Project.model_validate_json(snap))
             self.project_changed.emit()
 
+    def revert_last(self, *, dirty: bool = True) -> None:
+        """Roll back the most recent funneled mutation without leaving history.
+
+        Unlike :meth:`undo`, the consumed snapshot is not pushed onto the
+        redo stack — used to revert an optimistic mutation when a later step
+        of the same operation fails (e.g. a Save-As write error), so the
+        aborted operation leaves no user-visible trace.
+
+        Parameters
+        ----------
+        dirty : bool, optional
+            Dirty flag to set after the rollback.  Pass the value captured
+            before the optimistic mutation so a failed operation restores the
+            exact pre-operation state.
+
+        """
+        self._pending_merge = None
+        snap = self._stack.pop()
+        if snap is not None:
+            self._ctrl.restore(Project.model_validate_json(snap), dirty=dirty)
+            self.project_changed.emit()
+
     def clear(self) -> None:
         """Clear the undo/redo history."""
         self._pending_merge = None

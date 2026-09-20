@@ -137,15 +137,17 @@ class FileController(QObject):
         # funnel — the emitted project_changed drives the title refresh.
         # The rename must precede the write so the file content carries the
         # new name; if the write fails the mutation is rolled back via
-        # undo() so the project keeps its previous name.
+        # revert_last() so the project keeps its previous name without an
+        # undo/redo trace or a spurious dirty flag.
         renamed = project is not None and project.name != path.stem
+        dirty_before = self._ctrl.dirty
         if renamed:
 
             def _rename(proj: Project) -> None:
                 proj.name = path.stem
 
             self._edit_ctrl.apply_mutation(_rename)
-        self._do_save(path, revert_mutation=renamed)
+        self._do_save(path, revert_mutation=renamed, dirty_before=dirty_before)
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -162,15 +164,17 @@ class FileController(QObject):
         self.undo_cleared.emit()
         self.recent_changed.emit()
 
-    def _do_save(self, path: Path, *, revert_mutation: bool = False) -> None:
+    def _do_save(
+        self, path: Path, *, revert_mutation: bool = False, dirty_before: bool = False
+    ) -> None:
         try:
             self._ctrl.save(path)
         except ProjectIOError as exc:
             if revert_mutation:
                 # A pre-save mutation (e.g. the save-as rename) was already
-                # committed through the funnel — undo it so nothing is
-                # recorded when no file was written.
-                self._edit_ctrl.undo()
+                # committed through the funnel — revert it without recording
+                # history and restore the dirty flag the operation found.
+                self._edit_ctrl.revert_last(dirty=dirty_before)
             QMessageBox.critical(self._w, "Save failed", str(exc))
             return
         telemetry.record("project_save")
