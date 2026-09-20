@@ -8,6 +8,9 @@ maps, scroll position, or collapse flags.
 
 from __future__ import annotations
 
+import csv
+import re
+
 import pytest
 from PySide6.QtTest import QSignalSpy
 from PySide6.QtWidgets import QDialog, QFileDialog, QMessageBox
@@ -20,9 +23,13 @@ from rekordbox_set_list_manager.gui.widgets.dialogs.add_track_dialog import (
 from rekordbox_set_list_manager.gui.widgets.dialogs.section_edit_dialog import (
     SectionEditDialog,
 )
+from rekordbox_set_list_manager.gui.widgets.dialogs.setlist_export_dialog import (
+    SetlistExportDialog,
+)
 from rekordbox_set_list_manager.models.enums import MatchStatus, SectionType
 from rekordbox_set_list_manager.models.section import Section
 from rekordbox_set_list_manager.models.track import Track
+from rekordbox_set_list_manager.services.project_io import ProjectIOError
 
 
 @pytest.fixture
@@ -468,3 +475,109 @@ def test_export_setlist_action_guard_on_empty_project(window, monkeypatch):
 
     assert len(info_calls) == 1
     assert constructed == []
+
+
+def test_save_as_write_failure_rolls_back_rename(window, monkeypatch, tmp_path):
+    """A failed write after the optimistic Save-As rename leaves no trace."""
+    original_name = window._project.name
+    monkeypatch.setattr(
+        QFileDialog,
+        "getSaveFileName",
+        lambda *a, **k: (str(tmp_path / "renamed.setmgr"), ""),
+    )
+
+    def _fail_save(project, path):
+        raise ProjectIOError("disk full")
+
+    monkeypatch.setattr(
+        "rekordbox_set_list_manager.controllers.project_controller.save_project",
+        _fail_save,
+    )
+    critical_calls = []
+    monkeypatch.setattr(QMessageBox, "critical", lambda *a, **k: critical_calls.append(a))
+
+    window._file_ctrl.save_as()
+
+    assert window._project.name == original_name
+    assert window._ctrl.save_path is None
+    assert not window._edit_ctrl.can_undo  # the rename entry was consumed, not kept
+    assert not window._edit_ctrl.can_redo  # no phantom rename available via Redo
+    assert not window._ctrl.dirty  # state is identical to before the failed save
+    assert len(critical_calls) == 1
+    assert not (tmp_path / "renamed.setmgr").exists()
+
+    # A subsequent plain Save re-prompts rather than writing to the stale path.
+    writes = []
+    monkeypatch.setattr(
+        "rekordbox_set_list_manager.controllers.project_controller.save_project",
+        lambda project, path: writes.append(path),
+    )
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: ("", ""))
+    window._file_ctrl.save()
+    assert writes == []
+
+
+def test_export_setlist_dialog_writes_real_artifacts(window, monkeypatch, tmp_path, section):
+    """The real dialog writes all formats under one basename with valid content."""
+    t1 = Track(
+        title="Sundown",
+        artist="DJ Koze",
+        key="Am",
+        bpm=128,
+        duration=390,
+        filepath="/music/sundown.mp3",
+    )
+    t2 = Track(title="Atlas", artist="Bicep", duration=300, spotify_id="abc123")
+    t3 = Track(title="Ghost", artist="Nobody")  # no path or URI — skipped in M3U8
+    for t in (t1, t2, t3):
+        window._project.add_track(t)
+        section.add_track(t.id)
+    window._project.add_section(section)
+
+    dialog = SetlistExportDialog(window._project, window)
+    dialog._dir_edit.setText(str(tmp_path))
+    details = []
+    monkeypatch.setattr(
+        QMessageBox,
+        "exec",
+        lambda self: details.append(self.detailedText()) or QMessageBox.StandardButton.Ok,
+    )
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+
+    dialog._on_export()
+
+    files = {p.suffix: p for p in tmp_path.iterdir()}
+    assert set(files) == {".txt", ".csv", ".m3u8"}
+    (stem,) = {p.stem for p in files.values()}  # one shared timestamped basename
+    assert re.fullmatch(r".+_\d{4}-\d{2}-\d{2}_\d{6}", stem)
+
+    with files[".csv"].open(newline="", encoding="utf-8") as fh:
+        rows = list(csv.reader(fh))
+    assert rows[0] == [
+        "section",
+        "track_no",
+        "artist",
+        "title",
+        "key",
+        "bpm",
+        "duration_s",
+        "match_status",
+        "filepath",
+        "spotify_id",
+        "tidal_id",
+    ]
+    assert len(rows) == 4  # header + one row per track (skips are M3U8-only)
+
+    m3u = files[".m3u8"].read_text(encoding="utf-8").splitlines()
+    assert m3u[0] == "#EXTM3U"
+    assert "/music/sundown.mp3" in m3u
+    assert "spotify:track:abc123" in m3u
+    assert all(line.startswith("#") or "/" in line or ":" in line for line in m3u[1:])
+
+    # Renderer joins artist/title with an EN DASH on purpose (noqa in source).
+    assert "1. DJ Koze – Sundown (Am, 128, 6:30)" in files[".txt"].read_text(  # noqa: RUF001
+        encoding="utf-8"
+    )
+
+    # Skipped tracks surface through the details button on the result popup.
+    assert any("Ghost" in d and "no playable path" in d for d in details)
