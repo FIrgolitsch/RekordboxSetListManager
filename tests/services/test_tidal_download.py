@@ -929,6 +929,24 @@ def test_download_track_cover_failure_still_succeeds(tmp_path):
     assert WAVE(result.filepath).tags.getall("APIC") == []
 
 
+def test_download_track_non_numeric_bpm_still_delivers(tmp_path):
+    """A cosmetic tag failure must not sink a completed download — a
+    non-numeric bpm omits TBPM instead of failing the track."""
+    track = _fake_tidal_track()
+    track.bpm = "uptempo"
+    service, _session, _http = _make_service(
+        tmp_path,
+        "playback_bts_flac_clear.json",
+        bodies=[_flac_payload()],
+        tidal_track=track,
+    )
+
+    result = service.download_track("12345678")
+
+    assert result.filepath.exists()
+    assert WAVE(result.filepath).tags.getall("TBPM") == []
+
+
 def test_download_track_cancel_during_cover_fetch_fails_cancelled(tmp_path):
     """A user cancel landing while cover art is in flight must abort the
     download — the best-effort cover path cannot swallow it."""

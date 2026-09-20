@@ -222,8 +222,14 @@ def tag_wav(
         tags.add(TRCK(encoding=3, text=str(track_num)))
     if getattr(tidal_track, "isrc", None):
         tags.add(TSRC(encoding=3, text=str(tidal_track.isrc)))
-    if getattr(tidal_track, "bpm", None):
-        tags.add(TBPM(encoding=3, text=str(int(tidal_track.bpm))))
+    bpm = getattr(tidal_track, "bpm", None)
+    if bpm:
+        try:
+            tags.add(TBPM(encoding=3, text=str(int(bpm))))
+        except TypeError, ValueError, OverflowError:
+            # A cosmetic tag must never sink a completed download — a
+            # non-numeric or extreme bpm value is simply omitted.
+            log.debug("Skipping TBPM tag for non-numeric bpm %r", bpm)
     release_date = getattr(album, "release_date", None) if album is not None else None
     if release_date:
         tags.add(TDRC(encoding=3, text=str(release_date)[:10]))
