@@ -51,11 +51,6 @@ a = Analysis(
         "PySide6.QtCore",
         "PySide6.QtGui",
         "PySide6.QtWidgets",
-        # Imported lazily inside the Tidal connect handler, so PyInstaller's
-        # static analysis misses it — the embedded PKCE login webview needs
-        # the WebEngine modules and their bundled process/resources.
-        "PySide6.QtWebEngineCore",
-        "PySide6.QtWebEngineWidgets",
         "spotipy",
         "tidalapi",
         "pyrekordbox",

@@ -176,5 +176,5 @@ def test_import_tidal_download_modules():
     assert DownloadErrorKind is not None
     assert SegmentPlan is not None
     assert hasattr(_tidal_download_adapter, "RateGate")
-    assert hasattr(_tidal_audio, "decode_to_wav")
+    assert hasattr(_tidal_audio, "decode_to_aiff")
     assert hasattr(_tidal_crypto, "decrypt_file")

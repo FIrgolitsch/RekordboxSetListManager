@@ -1,4 +1,4 @@
-"""Download Tidal tracks to tagged WAV files in the configured library folder."""
+"""Download Tidal tracks to tagged AIFF files in the configured library folder."""
 
 import logging
 import os
@@ -16,7 +16,7 @@ import requests
 import tidalapi
 import tidalapi.exceptions
 import tidalapi.media
-from mutagen.wave import WAVE
+from mutagen.aiff import AIFF
 
 from rekordbox_set_list_manager.services import (
     _tidal_audio,
@@ -86,7 +86,7 @@ class DownloadResult:
     Attributes
     ----------
     filepath : Path
-        The templated ``.wav`` path the track was written to — the dedup key
+        The templated ``.aiff`` path the track was written to — the dedup key
         and the later re-match anchor.
     track_id : str
         The Tidal track id that was downloaded.
@@ -244,7 +244,7 @@ def _template_fields(tidal_track: tidalapi.media.Track) -> dict[str, str]:
 
 
 def render_path(tidal_track: tidalapi.media.Track, root: Path, template: str) -> Path:
-    """Render *template* into a sanitized ``.wav`` path inside *root*.
+    """Render *template* into a sanitized ``.aiff`` path inside *root*.
 
     Unknown ``{placeholder}`` names fall back to the default template; empty
     fields collapse stray separators; every component is sanitized and the
@@ -262,7 +262,7 @@ def render_path(tidal_track: tidalapi.media.Track, root: Path, template: str) ->
     Returns
     -------
     Path
-        The resolved absolute ``.wav`` destination.
+        The resolved absolute ``.aiff`` destination.
 
     Raises
     ------
@@ -287,7 +287,7 @@ def render_path(tidal_track: tidalapi.media.Track, root: Path, template: str) ->
     rendered = _PLACEHOLDER_RE.sub(lambda match: fields.get(match.group(1), ""), used)
     components = [_sanitize_component(part) for part in rendered.split("/")]
     path = Path(root).joinpath(*components)
-    final = path.with_name(f"{path.name}.wav")
+    final = path.with_name(f"{path.name}.aiff")
     resolved = final.resolve()
     if not resolved.is_relative_to(Path(root).resolve()):
         raise TidalDownloadError(
@@ -309,8 +309,8 @@ def _check_payload_magic(payload: bytes) -> str:
     )
 
 
-def _validate_wav(part: Path, expected_s: int | None) -> None:
-    """Verify the decoded ``.part`` file: RIFF/WAVE magic plus duration."""
+def _validate_aiff(part: Path, expected_s: int | None) -> None:
+    """Verify the decoded ``.part`` file: FORM/AIFF magic plus duration."""
     try:
         with part.open("rb") as fh:
             head = fh.read(12)
@@ -319,14 +319,14 @@ def _validate_wav(part: Path, expected_s: int | None) -> None:
             f"Decoded output could not be read: {exc}",
             kind=DownloadErrorKind.VALIDATION,
         ) from exc
-    if not (head[:4] == b"RIFF" and head[8:12] == b"WAVE"):
+    if not (head[:4] == b"FORM" and head[8:12] == b"AIFF"):
         raise TidalDownloadError(
-            "Decoded output is not a RIFF/WAVE file",
+            "Decoded output is not a FORM/AIFF file",
             kind=DownloadErrorKind.VALIDATION,
         )
     if expected_s:
-        wave = WAVE(part)
-        length = wave.info.length if wave.info is not None else 0.0
+        audio = AIFF(part)
+        length = audio.info.length if audio.info is not None else 0.0
         if abs(length - expected_s) > max(2.0, expected_s * 0.05):
             raise TidalDownloadError(
                 f"Decoded duration {length:.1f}s does not match track duration "
@@ -374,7 +374,7 @@ def _classify_download_error(exc: Exception) -> TidalDownloadError:
 
 
 class TidalDownloadService:
-    """Download Tidal tracks as tagged, validated WAV files.
+    """Download Tidal tracks as tagged, validated AIFF files.
 
     The constructor re-applies the resolved client credentials to the
     session defensively — a user-supplied pair wins when configured,
@@ -449,7 +449,7 @@ class TidalDownloadService:
         progress_cb: Callable[[float], None] | None = None,
         cancel_event: threading.Event | None = None,
     ) -> DownloadResult:
-        """Download *track_id* through the full pipeline to a tagged WAV.
+        """Download *track_id* through the full pipeline to a tagged AIFF.
 
         Parameters
         ----------
@@ -610,7 +610,7 @@ class TidalDownloadService:
                     f" container {plan.container!r}",
                     kind=DownloadErrorKind.VALIDATION,
                 )
-            _tidal_audio.decode_to_wav(
+            _tidal_audio.decode_to_aiff(
                 payload,
                 container,
                 part,
@@ -622,8 +622,8 @@ class TidalDownloadService:
                 ),
                 cancel_event=cancel_event,
             )
-            _validate_wav(part, getattr(tidal_track, "duration", None))
-            _tidal_audio.tag_wav(
+            _validate_aiff(part, getattr(tidal_track, "duration", None))
+            _tidal_audio.tag_aiff(
                 part, tidal_track, served, self._fetch_cover(tidal_track, cancel_event)
             )
             part.replace(final)

@@ -17,7 +17,7 @@ import pyaes
 import pytest
 import requests
 import soundfile as sf
-from mutagen.wave import WAVE
+from mutagen.aiff import AIFF
 from PIL import Image
 
 import rekordbox_set_list_manager.utils.config as config_mod
@@ -292,15 +292,15 @@ def _make_service(
     return service, session, http
 
 
-def _write_real_wav(dest_part, seconds=1.0):
-    """soundfile-generated WAV used by patched decode fakes."""
+def _write_real_aiff(dest_part, seconds=1.0):
+    """soundfile-generated AIFF used by patched decode fakes."""
     frames = int(44100 * seconds)
     t = np.linspace(0.0, seconds, frames, endpoint=False)
-    sf.write(str(dest_part), np.stack([t, t], axis=1), 44100, format="WAV", subtype="PCM_16")
+    sf.write(str(dest_part), np.stack([t, t], axis=1), 44100, format="AIFF", subtype="PCM_16")
 
 
 # ---------------------------------------------------------------------------
-# Happy path — clear BTS FLAC → tagged WAV
+# Happy path — clear BTS FLAC → tagged AIFF
 # ---------------------------------------------------------------------------
 
 
@@ -313,13 +313,13 @@ def test_download_track_clear_bts_end_to_end(tmp_path):
     result = service.download_track("12345678", progress_cb=progress.append)
 
     download_dir = (tmp_path / "downloads").resolve()
-    assert result.filepath.suffix == ".wav"
+    assert result.filepath.suffix == ".aiff"
     assert result.filepath.is_relative_to(download_dir)
-    assert result.filepath == download_dir / "Test Artist" / "Test Album" / "01 - Test Title.wav"
+    assert result.filepath == download_dir / "Test Artist" / "Test Album" / "01 - Test Title.aiff"
     head = result.filepath.open("rb").read(12)
-    assert head[:4] == b"RIFF"
-    assert head[8:12] == b"WAVE"
-    tags = WAVE(result.filepath).tags
+    assert head[:4] == b"FORM"
+    assert head[8:12] == b"AIFF"
+    tags = AIFF(result.filepath).tags
     assert tags is not None
     assert "TIT2" in tags
     assert "TPE1" in tags
@@ -330,7 +330,7 @@ def test_download_track_clear_bts_end_to_end(tmp_path):
     assert result.downgraded is False
     assert result.duration_s == pytest.approx(1.0)
     assert result.skipped_existing is False
-    assert WAVE(result.filepath).info.length == pytest.approx(1.0, abs=0.1)
+    assert AIFF(result.filepath).info.length == pytest.approx(1.0, abs=0.1)
     assert len(http.calls) == 1
     assert progress == sorted(progress)
     assert progress[-1] == pytest.approx(1.0)
@@ -421,9 +421,9 @@ def test_download_track_mpd_fetches_all_urls_and_merges_in_plan_order(tmp_path, 
 
     def _record_decode(payload, container, dest_part, bit_depth, **_kwargs):
         captured.append((container, payload))
-        _write_real_wav(dest_part)
+        _write_real_aiff(dest_part)
 
-    monkeypatch.setattr(_tidal_audio, "decode_to_wav", _record_decode)
+    monkeypatch.setattr(_tidal_audio, "decode_to_aiff", _record_decode)
     session = _FakeSession(_load_fixture("playback_mpd_dash.json"), _fake_tidal_track())
     http = _FakeHttpByUrl(_mpd_url_bodies())
     service = TidalDownloadService(session, download_dir=tmp_path / "downloads", http=http)
@@ -447,9 +447,9 @@ def test_download_track_parallel_fetch_overlaps_and_merges_in_url_order(tmp_path
 
     def _record_decode(payload, container, dest_part, bit_depth, **_kwargs):
         captured.append(payload)
-        _write_real_wav(dest_part)
+        _write_real_aiff(dest_part)
 
-    monkeypatch.setattr(_tidal_audio, "decode_to_wav", _record_decode)
+    monkeypatch.setattr(_tidal_audio, "decode_to_aiff", _record_decode)
     session = _FakeSession(_load_fixture("playback_mpd_dash.json"), _fake_tidal_track())
     http = _ReverseOrderHttp(_mpd_url_bodies().items())
     service = TidalDownloadService(session, download_dir=tmp_path / "downloads", http=http)
@@ -490,7 +490,7 @@ def test_download_track_segment_failure_cleans_every_seg_part(tmp_path):
 
     assert excinfo.value.kind == DownloadErrorKind.NETWORK
     download_dir = tmp_path / "downloads"
-    assert list(download_dir.rglob("*.wav")) == []
+    assert list(download_dir.rglob("*.aiff")) == []
     assert list(download_dir.rglob("*.part")) == []
     assert list(download_dir.rglob("*.seg*")) == []
 
@@ -515,7 +515,7 @@ def test_download_track_cancel_mid_fetch_leaves_no_strays(tmp_path):
 
     assert excinfo.value.kind == DownloadErrorKind.CANCELLED
     download_dir = tmp_path / "downloads"
-    assert list(download_dir.rglob("*.wav")) == []
+    assert list(download_dir.rglob("*.aiff")) == []
     assert list(download_dir.rglob("*.part")) == []
     assert list(download_dir.rglob("*.seg*")) == []
 
@@ -559,7 +559,7 @@ def test_download_track_bad_payload_magic_leaves_no_partial_files(tmp_path):
 
     assert excinfo.value.kind == DownloadErrorKind.VALIDATION
     download_dir = tmp_path / "downloads"
-    assert list(download_dir.rglob("*.wav")) == []
+    assert list(download_dir.rglob("*.aiff")) == []
     assert list(download_dir.rglob("*.part")) == []
     assert list(download_dir.rglob("*.seg*")) == []
 
@@ -595,7 +595,7 @@ def test_download_track_respects_config_keys(tmp_path):
 
     result = service.download_track("12345678")
 
-    assert result.filepath == download_dir.resolve() / "Test Artist - Test Title.wav"
+    assert result.filepath == download_dir.resolve() / "Test Artist - Test Title.aiff"
     assert result.downgraded is True
 
 
@@ -624,7 +624,7 @@ def test_render_path_sanitizes_unsafe_characters(tmp_path):
     result = service.download_track("12345678")
 
     assert "AC_DC" in result.filepath.parts
-    assert result.filepath.name == "01 - Back_ In Black_.wav"
+    assert result.filepath.name == "01 - Back_ In Black_.aiff"
     assert result.filepath.is_relative_to(download_dir.resolve())
 
 
@@ -655,7 +655,7 @@ def test_render_path_unknown_placeholder_falls_back_to_default(tmp_path):
     result = service.download_track("12345678")
 
     assert result.filepath == (
-        download_dir.resolve() / "Test Artist" / "Test Album" / "01 - Test Title.wav"
+        download_dir.resolve() / "Test Artist" / "Test Album" / "01 - Test Title.aiff"
     )
 
 
@@ -675,15 +675,15 @@ def test_download_track_mp4_without_ffmpeg_raises_decode(tmp_path, monkeypatch):
 
     assert excinfo.value.kind == DownloadErrorKind.DECODE
     assert "install ffmpeg or restore soundfile" in str(excinfo.value)
-    assert list((tmp_path / "downloads").rglob("*.wav")) == []
+    assert list((tmp_path / "downloads").rglob("*.aiff")) == []
 
 
 def test_download_track_mp4_with_ffmpeg_decodes_end_to_end(tmp_path, monkeypatch):
-    """Mocked ffmpeg writes a real WAV so the mp4 route is proven end-to-end."""
+    """Mocked ffmpeg writes a real AIFF so the mp4 route is proven end-to-end."""
     monkeypatch.setattr(shutil, "which", lambda _name: "/fake/bin/ffmpeg")
 
     def _fake_run(cmd, check, timeout):
-        _write_real_wav(Path(cmd[-1]))
+        _write_real_aiff(Path(cmd[-1]))
         return SimpleNamespace(returncode=0)
 
     monkeypatch.setattr(subprocess, "run", _fake_run)
@@ -695,32 +695,32 @@ def test_download_track_mp4_with_ffmpeg_decodes_end_to_end(tmp_path, monkeypatch
 
     assert result.filepath.exists()
     head = result.filepath.open("rb").read(12)
-    assert head[:4] == b"RIFF"
-    assert head[8:12] == b"WAVE"
-    tags = WAVE(result.filepath).tags
+    assert head[:4] == b"FORM"
+    assert head[8:12] == b"AIFF"
+    tags = AIFF(result.filepath).tags
     assert tags is not None
     assert "TXXX:TIDAL_QUALITY" in tags
 
 
-def test_decode_via_ffmpeg_forces_wav_muxer(tmp_path, monkeypatch):
+def test_decode_via_ffmpeg_forces_aiff_muxer(tmp_path, monkeypatch):
     """ffmpeg infers the output muxer from the filename extension; the
-    ``.wav.part`` staging name matches nothing, so the arg list must pin
-    ``-f wav`` or every MP4 decode exits with an output-format error."""
+    ``.aiff.part`` staging name matches nothing, so the arg list must pin
+    ``-f aiff`` or every MP4 decode exits with an output-format error."""
     monkeypatch.setattr(shutil, "which", lambda _name: "/fake/bin/ffmpeg")
     calls = []
 
     def _fake_run(cmd, check, timeout):
         calls.append(list(cmd))
-        _write_real_wav(Path(cmd[-1]))
+        _write_real_aiff(Path(cmd[-1]))
         return SimpleNamespace(returncode=0)
 
     monkeypatch.setattr(subprocess, "run", _fake_run)
 
-    _tidal_audio.decode_to_wav(b"mp4-payload", "mp4", tmp_path / "x.wav.part", 16)
+    _tidal_audio.decode_to_aiff(b"mp4-payload", "mp4", tmp_path / "x.aiff.part", 16)
 
     assert len(calls) == 1
     cmd = calls[0]
-    assert cmd[cmd.index("-f") + 1] == "wav"
+    assert cmd[cmd.index("-f") + 1] == "aiff"
     assert cmd[-1].endswith(".part")
 
 
@@ -753,24 +753,24 @@ def _encrypted_payload():
 
 
 def test_download_track_encrypted_bts_end_to_end(tmp_path):
-    """``encryptionType: OLD`` + ``keyId`` → decrypt → decode → tagged WAV."""
+    """``encryptionType: OLD`` + ``keyId`` → decrypt → decode → tagged AIFF."""
     service, _session, http = _make_service(
         tmp_path, "playback_bts_flac_encrypted.json", bodies=[_encrypted_payload()]
     )
 
     result = service.download_track("12345678")
 
-    assert result.filepath.suffix == ".wav"
+    assert result.filepath.suffix == ".aiff"
     assert result.filepath.is_relative_to((tmp_path / "downloads").resolve())
     head = result.filepath.open("rb").read(12)
-    assert head[:4] == b"RIFF"
-    assert head[8:12] == b"WAVE"
-    tags = WAVE(result.filepath).tags
+    assert head[:4] == b"FORM"
+    assert head[8:12] == b"AIFF"
+    tags = AIFF(result.filepath).tags
     assert tags is not None
     assert tags["TXXX:TIDAL_QUALITY"].text == ["LOSSLESS"]
     assert result.served_quality == "LOSSLESS"
     assert result.downgraded is False
-    assert WAVE(result.filepath).info.length == pytest.approx(1.0, abs=0.1)
+    assert AIFF(result.filepath).info.length == pytest.approx(1.0, abs=0.1)
     assert len(http.calls) == 1
 
 
@@ -789,7 +789,7 @@ def test_download_track_encrypted_corrupt_payload_fails_classified(tmp_path):
 
     assert excinfo.value.kind in (DownloadErrorKind.DECRYPT, DownloadErrorKind.VALIDATION)
     download_dir = tmp_path / "downloads"
-    assert list(download_dir.rglob("*.wav")) == []
+    assert list(download_dir.rglob("*.aiff")) == []
     assert list(download_dir.rglob("*.part")) == []
     assert list(download_dir.rglob("*.seg*")) == []
 
@@ -815,7 +815,7 @@ def test_download_track_wrong_key_fails_validation(tmp_path):
 
     assert excinfo.value.kind == DownloadErrorKind.VALIDATION
     download_dir = tmp_path / "downloads"
-    assert list(download_dir.rglob("*.wav")) == []
+    assert list(download_dir.rglob("*.aiff")) == []
     assert list(download_dir.rglob("*.part")) == []
 
 
@@ -835,36 +835,22 @@ def test_download_track_malformed_keyid_fails_decrypt(tmp_path):
 
     assert excinfo.value.kind == DownloadErrorKind.DECRYPT
     download_dir = tmp_path / "downloads"
-    assert list(download_dir.rglob("*.wav")) == []
+    assert list(download_dir.rglob("*.aiff")) == []
     assert list(download_dir.rglob("*.part")) == []
     assert list(download_dir.rglob("*.seg*")) == []
 
 
 # ---------------------------------------------------------------------------
-# Dual tagging — ID3 + RIFF LIST-INFO + cover APIC
+# Tagging — ID3v2.4 frames + cover APIC (Rekordbox reads AIFF ID3 directly)
 # ---------------------------------------------------------------------------
 
 _JPEG_BYTES = b"\xff\xd8\xff\xe0" + bytes(range(64)) + b"\xff\xd9"
 _COVER_URL = "https://resources.tidal.com/images/abc/640x640.jpg"
 
 
-def _find_info_block(data: bytes) -> bytes | None:
-    """Extract the RIFF ``LIST``/``INFO`` payload, walking top-level chunks."""
-    if len(data) < 12 or data[:4] != b"RIFF" or data[8:12] != b"WAVE":
-        return None
-    offset = 12
-    while offset + 8 <= len(data):
-        cid = data[offset : offset + 4]
-        (csize,) = struct.unpack_from("<I", data, offset + 4)
-        if cid == b"LIST" and data[offset + 8 : offset + 12] == b"INFO":
-            return data[offset + 12 : offset + 8 + csize]
-        offset += 8 + csize + (csize % 2)
-    return None
-
-
-def test_download_track_wav_carries_riff_info_chunk(tmp_path):
-    """Rekordbox reads WAV metadata from RIFF INFO — it must be dual-written
-    alongside the ID3 chunk mutagen manages."""
+def test_download_track_aiff_carries_full_id3_tag(tmp_path):
+    """Rekordbox reads AIFF metadata from the ID3 chunk — every mapped
+    field must land in its frame."""
     track = _fake_tidal_track(release_date=datetime.date(2024, 3, 7))
     service, _session, _http = _make_service(
         tmp_path,
@@ -875,30 +861,18 @@ def test_download_track_wav_carries_riff_info_chunk(tmp_path):
 
     result = service.download_track("12345678")
 
-    data = result.filepath.read_bytes()
-    assert b"LIST" in data
-    assert b"INFO" in data
-    assert b"Test Artist" in data
-    info = _find_info_block(data)
-    assert info is not None
-    assert b"INAM" in info
-    assert b"Test Title" in info
-    assert b"IART" in info
-    assert b"Test Artist" in info
-    assert b"IPRD" in info
-    assert b"Test Album" in info
-    assert b"ITRK" in info
-    assert b"01" in info
-    assert b"ISRC" in info
-    assert b"USABC1234567" in info
-    assert b"ICRD" in info
-    assert b"2024" in info
-    assert b"None" not in info
-    # The chunk must not corrupt the WAV — it still parses end to end.
-    assert WAVE(result.filepath).info.length == pytest.approx(1.0, abs=0.1)
+    tags = AIFF(result.filepath).tags
+    assert str(tags["TIT2"]) == "Test Title"
+    assert str(tags["TPE1"]) == "Test Artist"
+    assert str(tags["TALB"]) == "Test Album"
+    assert str(tags["TRCK"]) == "1"
+    assert str(tags["TSRC"]) == "USABC1234567"
+    assert str(tags["TDRC"]) == "2024-03-07"
+    # The tag must not corrupt the AIFF — it still parses end to end.
+    assert AIFF(result.filepath).info.length == pytest.approx(1.0, abs=0.1)
 
 
-def test_download_track_info_omits_missing_fields(tmp_path):
+def test_download_track_id3_omits_missing_fields(tmp_path):
     """Absent source fields are omitted entirely — never written as the
     literal string ``None``."""
     track = _fake_tidal_track(album=None, isrc=None)
@@ -911,16 +885,13 @@ def test_download_track_info_omits_missing_fields(tmp_path):
 
     result = service.download_track("12345678")
 
-    data = result.filepath.read_bytes()
-    assert b"None" not in data
-    info = _find_info_block(data)
-    assert info is not None
-    assert b"INAM" in info
-    assert b"Test Title" in info
-    assert b"IART" in info
-    assert b"Test Artist" in info
-    for absent in (b"IPRD", b"ISRC", b"ICRD"):
-        assert absent not in info
+    tags = AIFF(result.filepath).tags
+    assert str(tags["TIT2"]) == "Test Title"
+    assert str(tags["TPE1"]) == "Test Artist"
+    for absent in ("TALB", "TSRC", "TDRC"):
+        assert absent not in tags
+    for frame in tags.values():
+        assert "None" not in str(getattr(frame, "text", ""))
 
 
 def test_download_track_embeds_cover_art_as_apic(tmp_path):
@@ -934,15 +905,15 @@ def test_download_track_embeds_cover_art_as_apic(tmp_path):
 
     result = service.download_track("12345678")
 
-    apic = WAVE(result.filepath).tags.getall("APIC")
+    apic = AIFF(result.filepath).tags.getall("APIC")
     assert len(apic) == 1
     assert apic[0].data == _JPEG_BYTES
     assert apic[0].mime == "image/jpeg"
 
 
-def test_download_track_id3_chunk_is_uppercase(tmp_path):
-    """Rekordbox reads WAV artwork only from an uppercase ``ID3 `` chunk —
-    mutagen's lowercase ``id3 `` must be renamed after tagging."""
+def test_download_track_aiff_id3_chunk_present(tmp_path):
+    """The AIFF must carry a real ``ID3 `` chunk — the only tag location
+    Rekordbox reads artwork from."""
     session = _FakeSession(
         _load_fixture("playback_bts_flac_clear.json"),
         _fake_tidal_track(image_url=_COVER_URL),
@@ -953,18 +924,17 @@ def test_download_track_id3_chunk_is_uppercase(tmp_path):
     result = service.download_track("12345678")
 
     data = result.filepath.read_bytes()
+    assert data[:4] == b"FORM"
+    assert data[8:12] == b"AIFF"
     offset = 12
     chunk_ids = []
     while offset + 8 <= len(data):
         cid = data[offset : offset + 4]
         chunk_ids.append(cid)
-        (csize,) = struct.unpack_from("<I", data, offset + 4)
+        (csize,) = struct.unpack_from(">I", data, offset + 4)  # AIFF is big-endian
         offset += 8 + csize + (csize % 2)
     assert b"ID3 " in chunk_ids
-    assert b"id3 " not in chunk_ids
-    # The tag payload itself is untouched — mutagen reads the uppercase
-    # chunk back and finds every frame, including the cover.
-    tags = WAVE(result.filepath).tags
+    tags = AIFF(result.filepath).tags
     assert len(tags.getall("APIC")) == 1
     assert str(tags["TIT2"]) == "Test Title"
 
@@ -984,7 +954,7 @@ def test_download_track_progressive_cover_reencoded_to_baseline(tmp_path):
 
     result = service.download_track("12345678")
 
-    apic = WAVE(result.filepath).tags.getall("APIC")
+    apic = AIFF(result.filepath).tags.getall("APIC")
     assert len(apic) == 1
     assert apic[0].mime == "image/jpeg"
     embedded = Image.open(io.BytesIO(apic[0].data))
@@ -1007,7 +977,7 @@ def test_download_track_png_cover_tags_image_png(tmp_path):
 
     result = service.download_track("12345678")
 
-    apic = WAVE(result.filepath).tags.getall("APIC")
+    apic = AIFF(result.filepath).tags.getall("APIC")
     assert len(apic) == 1
     assert apic[0].mime == "image/png"
     assert apic[0].data == png_bytes
@@ -1025,7 +995,7 @@ def test_download_track_cover_failure_still_succeeds(tmp_path):
     result = service.download_track("12345678")
 
     assert result.filepath.exists()
-    assert WAVE(result.filepath).tags.getall("APIC") == []
+    assert AIFF(result.filepath).tags.getall("APIC") == []
 
 
 def test_download_track_non_numeric_bpm_still_delivers(tmp_path):
@@ -1043,7 +1013,7 @@ def test_download_track_non_numeric_bpm_still_delivers(tmp_path):
     result = service.download_track("12345678")
 
     assert result.filepath.exists()
-    assert WAVE(result.filepath).tags.getall("TBPM") == []
+    assert AIFF(result.filepath).tags.getall("TBPM") == []
 
 
 def test_download_track_cancel_during_cover_fetch_fails_cancelled(tmp_path):
@@ -1069,7 +1039,7 @@ def test_download_track_cancel_during_cover_fetch_fails_cancelled(tmp_path):
 
     assert excinfo.value.kind == DownloadErrorKind.CANCELLED
     download_dir = tmp_path / "downloads"
-    assert list(download_dir.rglob("*.wav")) == []
+    assert list(download_dir.rglob("*.aiff")) == []
     assert list(download_dir.rglob("*.part")) == []
 
 
@@ -1240,7 +1210,7 @@ def test_download_many_skipped_existing_counts_as_result(tmp_path):
         {_seg_url("t2"): _flac_payload()},
     )
     download_dir = tmp_path / "downloads"
-    existing = download_dir / "Test Artist" / "Test Album" / "01 - Title t1.wav"
+    existing = download_dir / "Test Artist" / "Test Album" / "01 - Title t1.aiff"
     existing.parent.mkdir(parents=True)
     existing.write_bytes(b"existing")
 

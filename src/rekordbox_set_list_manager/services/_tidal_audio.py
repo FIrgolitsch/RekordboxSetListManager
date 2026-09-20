@@ -1,23 +1,26 @@
-"""Decode Tidal payloads to WAV and tag them with mutagen.
+"""Decode Tidal payloads to AIFF and tag them with mutagen.
 
-soundfile (bundled libsndfile) is the primary decode path for FLAC payloads;
-MP4/M4A containers route to an ``ffmpeg`` subprocess because libsndfile has
-no MP4/AAC support.  Both functions raise plain builtin errors —
-``RuntimeError`` for decode failures, ``InterruptedError`` for cancellation —
-and ``tidal_download`` maps them onto its classified error kinds; the import
-edge stays one-directional (service → audio) to avoid a cycle.
+AIFF is the output container: uncompressed PCM like WAV, but Rekordbox
+reads full ID3v2.4 metadata from it — including APIC artwork, which WAV
+can never surface (Rekordbox only reads RIFF INFO text from WAV).
+soundfile (bundled libsndfile) is the primary decode path for FLAC
+payloads; MP4/M4A containers route to an ``ffmpeg`` subprocess because
+libsndfile has no MP4/AAC support.  Both functions raise plain builtin
+errors — ``RuntimeError`` for decode failures, ``InterruptedError`` for
+cancellation — and ``tidal_download`` maps them onto its classified error
+kinds; the import edge stays one-directional (service → audio) to avoid a
+cycle.
 """
 
 import io
 import logging
 import shutil
-import struct
 import subprocess
 from typing import TYPE_CHECKING
 
 import soundfile as sf
+from mutagen.aiff import AIFF
 from mutagen.id3 import APIC, TALB, TBPM, TDRC, TIT2, TPE1, TRCK, TSRC, TXXX
-from mutagen.wave import WAVE
 from PIL import Image
 
 if TYPE_CHECKING:
@@ -29,15 +32,8 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# Source bit depth above which the WAV is written as 24-bit PCM.
+# Source bit depth above which the output is written as 24-bit PCM.
 _BIT_DEPTH_24_THRESHOLD = 16
-
-# RIFF INFO fields written in this order — Rekordbox reads WAV metadata from
-# this list rather than the ID3 chunk, so both must be present.
-_INFO_FIELD_ORDER = ("INAM", "IART", "IPRD", "ITRK", "IGNR", "ISRC", "ICRD")
-
-# "RIFF" + size + "WAVE" — the fixed 12-byte RIFF/WAVE preamble.
-_RIFF_HEADER_SIZE = 12
 
 
 def _raise_if_cancelled(cancel_event: threading.Event | None) -> None:
@@ -46,7 +42,7 @@ def _raise_if_cancelled(cancel_event: threading.Event | None) -> None:
         raise InterruptedError("decode cancelled")
 
 
-def decode_to_wav(
+def decode_to_aiff(
     payload: bytes,
     container: str,
     dest_part: Path,
@@ -55,7 +51,7 @@ def decode_to_wav(
     progress_cb: Callable[[float], None] | None = None,
     cancel_event: threading.Event | None = None,
 ) -> None:
-    """Decode *payload* to a WAV file at *dest_part*.
+    """Decode *payload* to an AIFF file at *dest_part*.
 
     Parameters
     ----------
@@ -68,7 +64,7 @@ def decode_to_wav(
         Destination ``.part`` path — written in place, never renamed here.
     bit_depth : int | None
         Source bit depth; ``None`` (AAC serves report none) falls back to 16.
-        Values above 16 produce a 24-bit PCM WAV.
+        Values above 16 produce a 24-bit PCM AIFF.
     progress_cb : Callable[[float], None] | None
         Optional callback receiving the decoded fraction (0..1) per block.
     cancel_event : threading.Event | None
@@ -96,7 +92,7 @@ def _decode_via_soundfile(
     progress_cb: Callable[[float], None] | None,
     cancel_event: threading.Event | None,
 ) -> None:
-    """Stream-decode a FLAC payload to PCM WAV via bundled libsndfile."""
+    """Stream-decode a FLAC payload to PCM AIFF via bundled libsndfile."""
     buf = io.BytesIO(payload)
     # libsndfile cannot sniff the codec on a bare BytesIO — the .name hint
     # supplies the container format (the explicit format= kwarg is rejected
@@ -111,7 +107,7 @@ def _decode_via_soundfile(
                 "w",
                 samplerate=fin.samplerate,
                 channels=fin.channels,
-                format="WAV",
+                format="AIFF",
                 subtype=subtype,
             ) as fout,
         ):
@@ -135,7 +131,7 @@ def _decode_via_soundfile(
 
 
 def _decode_via_ffmpeg(payload: bytes, dest_part: Path, bit_depth: int) -> None:
-    """Decode an MP4/M4A payload to WAV via an ``ffmpeg`` subprocess.
+    """Decode an MP4/M4A payload to AIFF via an ``ffmpeg`` subprocess.
 
     ffmpeg needs a seekable input path, so the payload is staged to a sibling
     temp file inside the ``.part`` workspace and always removed afterwards.
@@ -163,12 +159,13 @@ def _decode_via_ffmpeg(payload: bytes, dest_part: Path, bit_depth: int) -> None:
                 "-sn",
                 "-dn",
                 "-c:a",
-                "pcm_s24le" if bit_depth > _BIT_DEPTH_24_THRESHOLD else "pcm_s16le",
-                # dest_part is a `.wav.part` staging name — ffmpeg picks the
+                # AIFF stores PCM big-endian, unlike WAV's little-endian.
+                "pcm_s24be" if bit_depth > _BIT_DEPTH_24_THRESHOLD else "pcm_s16be",
+                # dest_part is a `.aiff.part` staging name — ffmpeg picks the
                 # output muxer from the extension and `.part` matches nothing,
                 # so the format must be declared explicitly.
                 "-f",
-                "wav",
+                "aiff",
                 str(dest_part),
             ],
             check=True,
@@ -184,28 +181,24 @@ def _decode_via_ffmpeg(payload: bytes, dest_part: Path, bit_depth: int) -> None:
         src_tmp.unlink(missing_ok=True)
 
 
-def tag_wav(
+def tag_aiff(
     path: Path,
     tidal_track: tidalapi.media.Track,
     served_quality: str,
     cover: bytes | None,
 ) -> None:
-    """Tag the WAV at *path* with both ID3v2 and RIFF ``LIST``/``INFO``.
+    """Tag the AIFF at *path* with ID3v2.4, including APIC artwork.
 
-    The ID3v2 tag lands in an ``ID3 `` RIFF chunk — mutagen writes ``id3 ``
-    lowercase, which is renamed because Rekordbox only honours artwork
-    (APIC) from the uppercase form it writes itself; mutagen still reads
-    both casings back.  The same text fields are dual-written as a
-    ``LIST``/``INFO`` chunk because Rekordbox reads WAV text metadata from
-    the INFO list.  Fields are guarded individually — tidalapi attributes
-    can be ``None`` depending on how the track was fetched.  A
+    Rekordbox reads AIFF metadata from the ID3 chunk directly, so no
+    dual-write is needed.  Fields are guarded individually — tidalapi
+    attributes can be ``None`` depending on how the track was fetched.  A
     ``TXXX:TIDAL_QUALITY`` frame persists the served quality tier for a
     future re-download pass.
 
     Parameters
     ----------
     path : Path
-        The WAV file to tag in place.
+        The AIFF file to tag in place.
     tidal_track : tidalapi.media.Track
         The tidalapi track object (not the app model — it carries album and
         track-number fields the model lacks).
@@ -214,7 +207,7 @@ def tag_wav(
     cover : bytes | None
         JPEG cover bytes for the APIC frame, when a fetch succeeded.
     """
-    audio = WAVE(path)
+    audio = AIFF(path)
     if audio.tags is None:
         audio.add_tags()
     tags = audio.tags
@@ -247,63 +240,6 @@ def tag_wav(
         data, mime = _normalize_cover(cover)
         tags.add(APIC(encoding=3, mime=mime, type=3, data=data))
     tags.save(path)
-    _uppercase_id3_chunk(path)
-    _write_riff_info(path, _info_fields(tidal_track))
-
-
-def _info_fields(tidal_track: tidalapi.media.Track) -> list[tuple[str, str]]:
-    """Collect the RIFF INFO fields present on *tidal_track*.
-
-    Every field is guarded like its ID3 counterpart — absent source data is
-    omitted entirely, never serialized as the literal string ``None``.
-    ``IGNR`` has no source field; the genre default ``n/a`` is written
-    explicitly.
-    """
-    artist = getattr(tidal_track, "artist", None)
-    album = getattr(tidal_track, "album", None)
-    values: dict[str, str] = {"IGNR": "n/a"}
-    title = getattr(tidal_track, "title", None)
-    if title:
-        values["INAM"] = str(title)
-    artist_name = getattr(artist, "name", None)
-    if artist_name:
-        values["IART"] = str(artist_name)
-    album_name = getattr(album, "name", None) if album is not None else None
-    if album_name:
-        values["IPRD"] = str(album_name)
-    track_num = getattr(tidal_track, "track_num", None)
-    if track_num:
-        try:
-            values["ITRK"] = f"{int(track_num):02d}"
-        except TypeError, ValueError:
-            values["ITRK"] = str(track_num)
-    isrc = getattr(tidal_track, "isrc", None)
-    if isrc:
-        values["ISRC"] = str(isrc)
-    release_date = getattr(album, "release_date", None) if album is not None else None
-    if release_date:
-        values["ICRD"] = str(release_date)[:10]
-    return [(tag_id, values[tag_id]) for tag_id in _INFO_FIELD_ORDER if tag_id in values]
-
-
-def _build_info_chunk(fields: list[tuple[str, str]]) -> bytes:
-    """Serialize a ``LIST``/``INFO`` chunk.
-
-    Layout: ``LIST`` + u32le size + ``INFO`` + per-field subchunks of
-    ``<4cc>`` + u32le size + utf-8 value + trailing NUL; every subchunk and
-    the LIST chunk itself pad to an even byte boundary per the RIFF spec.
-    """
-    subchunks = bytearray()
-    for tag_id, value in fields:
-        data = value.encode("utf-8") + b"\x00"
-        subchunks += tag_id.encode("ascii") + struct.pack("<I", len(data)) + data
-        if len(data) % 2:
-            subchunks += b"\x00"
-    payload = b"INFO" + bytes(subchunks)
-    chunk = b"LIST" + struct.pack("<I", len(payload)) + payload
-    if len(payload) % 2:
-        chunk += b"\x00"
-    return chunk
 
 
 def _normalize_cover(cover: bytes) -> tuple[bytes, str]:
@@ -327,71 +263,3 @@ def _normalize_cover(cover: bytes) -> tuple[bytes, str]:
             log.debug("Could not inspect/re-encode cover art; embedding as-is")
         return cover, "image/jpeg"
     return cover, "image/jpeg"
-
-
-def _uppercase_id3_chunk(path: Path) -> None:
-    """Rename the ``id3 `` chunk to ``ID3 `` — the casing Rekordbox reads.
-
-    Rekordbox reads WAV artwork only from an uppercase ``ID3 `` chunk (the
-    form it writes itself); mutagen's lowercase ``id3 `` is ignored.  The
-    chunk id is patched in place — a four-byte write that leaves every
-    chunk size and the RIFF length untouched.
-    """
-    with path.open("r+b") as fh:
-        file_size = fh.seek(0, 2)
-        offset = _RIFF_HEADER_SIZE
-        while offset + 8 <= file_size:
-            fh.seek(offset)
-            cid, csize = struct.unpack("<4sI", fh.read(8))
-            if cid == b"id3 ":
-                fh.seek(offset)
-                fh.write(b"ID3 ")
-                return
-            offset += 8 + csize + (csize % 2)
-
-
-def _write_riff_info(path: Path, fields: list[tuple[str, str]]) -> None:
-    """Insert the ``LIST``/``INFO`` chunk into the WAV at *path*.
-
-    Runs on the ``.part`` file before its atomic rename — mutagen only
-    manages the ``id3 `` chunk, so the RIFF INFO list is appended manually.
-    An existing INFO list (re-tagging a tagged WAV) is replaced; the RIFF
-    size field is fixed up either way.
-    """
-    if not fields:
-        return
-    chunk = _build_info_chunk(fields)
-    with path.open("r+b") as fh:
-        head = fh.read(_RIFF_HEADER_SIZE)
-        if len(head) < _RIFF_HEADER_SIZE or head[:4] != b"RIFF" or head[8:] != b"WAVE":
-            raise RuntimeError(f"Cannot write RIFF INFO into a non-WAVE file: {path}")
-        fh.seek(0, 2)
-        file_size = fh.tell()
-        # Walk top-level chunk headers; remember byte spans of LIST/INFO
-        # chunks so a stale list can be replaced instead of duplicated.
-        spans: list[tuple[int, int]] = []
-        offset = _RIFF_HEADER_SIZE
-        while offset + 8 <= file_size:
-            fh.seek(offset)
-            cid, csize = struct.unpack("<4sI", fh.read(8))
-            padded = csize + (csize % 2)
-            if cid == b"LIST":
-                fh.seek(offset + 8)
-                if fh.read(4) == b"INFO":
-                    spans.append((offset, 8 + padded))
-            offset += 8 + padded
-        if spans:
-            fh.seek(0)
-            data = bytearray(fh.read())
-            for start, length in reversed(spans):
-                del data[start : start + length]
-            data += chunk
-            struct.pack_into("<I", data, 4, len(data) - 8)
-            fh.seek(0)
-            fh.write(data)
-            fh.truncate()
-        else:
-            fh.seek(0, 2)
-            fh.write(chunk)
-            fh.seek(4)
-            fh.write(struct.pack("<I", file_size + len(chunk) - 8))
