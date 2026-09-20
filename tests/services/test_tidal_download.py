@@ -647,6 +647,28 @@ def test_download_track_mp4_with_ffmpeg_decodes_end_to_end(tmp_path, monkeypatch
     assert "TXXX:TIDAL_QUALITY" in tags
 
 
+def test_decode_via_ffmpeg_forces_wav_muxer(tmp_path, monkeypatch):
+    """ffmpeg infers the output muxer from the filename extension; the
+    ``.wav.part`` staging name matches nothing, so the arg list must pin
+    ``-f wav`` or every MP4 decode exits with an output-format error."""
+    monkeypatch.setattr(shutil, "which", lambda _name: "/fake/bin/ffmpeg")
+    calls = []
+
+    def _fake_run(cmd, check, timeout):
+        calls.append(list(cmd))
+        _write_real_wav(Path(cmd[-1]))
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+
+    _tidal_audio.decode_to_wav(b"mp4-payload", "mp4", tmp_path / "x.wav.part", 16)
+
+    assert len(calls) == 1
+    cmd = calls[0]
+    assert cmd[cmd.index("-f") + 1] == "wav"
+    assert cmd[-1].endswith(".part")
+
+
 # ---------------------------------------------------------------------------
 # Encrypted manifests — real decrypt through the pipeline
 # ---------------------------------------------------------------------------

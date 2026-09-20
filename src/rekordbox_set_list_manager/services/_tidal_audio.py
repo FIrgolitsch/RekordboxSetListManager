@@ -158,6 +158,11 @@ def _decode_via_ffmpeg(payload: bytes, dest_part: Path, bit_depth: int) -> None:
                 "-dn",
                 "-c:a",
                 "pcm_s24le" if bit_depth > _BIT_DEPTH_24_THRESHOLD else "pcm_s16le",
+                # dest_part is a `.wav.part` staging name — ffmpeg picks the
+                # output muxer from the extension and `.part` matches nothing,
+                # so the format must be declared explicitly.
+                "-f",
+                "wav",
                 str(dest_part),
             ],
             check=True,
