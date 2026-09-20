@@ -14,7 +14,11 @@ import tidalapi.exceptions
 import tidalapi.media
 from mutagen.wave import WAVE
 
-from rekordbox_set_list_manager.services import _tidal_audio, _tidal_download_adapter
+from rekordbox_set_list_manager.services import (
+    _tidal_audio,
+    _tidal_crypto,
+    _tidal_download_adapter,
+)
 from rekordbox_set_list_manager.services._tidal_download_adapter import (
     PlaybackInfo,
     SegmentPlan,
@@ -430,10 +434,16 @@ class TidalDownloadService:
             seg_paths = self._fetch_segments(plan, part, progress_cb, cancel_event)
             payload = b"".join(seg.read_bytes() for seg in seg_paths)
             if plan.encrypted:
-                raise TidalDownloadError(
-                    "Encrypted streams are not yet supported by the decrypter",
-                    kind=DownloadErrorKind.DECRYPT,
-                )
+                # Decrypt in memory — plaintext never touches a temp file; a
+                # wrong key yields garbage that the magic check rejects below.
+                try:
+                    key, nonce = _tidal_crypto.decrypt_security_token(plan.key_id or "")
+                    payload = _tidal_crypto.decrypt_file(payload, key, nonce)
+                except _tidal_crypto.TidalCryptoError as exc:
+                    raise TidalDownloadError(
+                        f"Could not decrypt the stream for track {track_id}: {exc}",
+                        kind=DownloadErrorKind.DECRYPT,
+                    ) from exc
             container = _check_payload_magic(payload)
             if container != plan.container:
                 raise TidalDownloadError(

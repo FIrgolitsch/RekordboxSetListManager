@@ -8,6 +8,13 @@ no real tokens or signed-URL parameters ever appear in the fixtures.
 ``payload_sine.flac`` is a ~1s 440 Hz stereo tone written via soundfile so the
 decode/duration/tag tests exercise the real libsndfile path.
 
+The encrypted pair is fully synthetic: ``payload_encrypted.bin`` is the sine
+FLAC AES-128-CTR-encrypted under the fixed ``_ENC_KEY``/``_ENC_NONCE`` below,
+and ``playback_bts_flac_encrypted.json`` carries a ``keyId`` token built by
+CBC-encrypting ``_ENC_KEY + _ENC_NONCE`` under the published master key with
+``_ENC_IV`` — the same unwrap/decrypt steps the production decrypter runs in
+reverse.  Keeping the constants fixed makes regeneration deterministic.
+
 Run with: ``uv run python scripts/generate_tidal_fixtures.py``
 """
 
@@ -16,12 +23,22 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pyaes
 import soundfile as sf
 
 _FIXTURE_DIR = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "tidal"
 
 _BTS_MIME = "application/vnd.tidal.bts"
 _DASH_MIME = "application/dash+xml"
+
+# Published BTS master key — the same public protocol constant the decrypter
+# uses, duplicated here so the generator can mint a valid ``keyId`` token.
+_MASTER_KEY = base64.b64decode("UIlTTEMmmLfGowo/UC60x2H45W6MdGgTRfo/umg4754=")
+
+# Fixed fixture material — never real credentials or keys, just test bytes.
+_ENC_KEY = bytes.fromhex("00112233445566778899aabbccddeeff")
+_ENC_NONCE = bytes.fromhex("0a1b2c3d4e5f6078")
+_ENC_IV = bytes.fromhex("102132435465768798a9babbdcbdedfe")
 
 # Placeholder host only — these URLs are never fetched (tests fake the GET)
 # and contain no signed ``token=`` parameters.
@@ -108,11 +125,32 @@ def _write_sine_flac() -> Path:
     return path
 
 
+def _write_encrypted_payload(clear_path: Path) -> tuple[Path, str]:
+    """CTR-encrypt the sine FLAC and mint the matching ``keyId`` token.
+
+    Returns the written ciphertext path plus the base64 token the manifest
+    embeds — the token the decrypter unwraps back to ``_ENC_KEY``/``_ENC_NONCE``.
+    """
+    counter = pyaes.Counter(int.from_bytes(_ENC_NONCE + b"\x00" * 8, "big"))
+    ciphertext = pyaes.AESModeOfOperationCTR(_ENC_KEY, counter=counter).encrypt(
+        clear_path.read_bytes()
+    )
+    bin_path = _FIXTURE_DIR / "payload_encrypted.bin"
+    bin_path.write_bytes(ciphertext)
+    print(f"wrote {bin_path}")
+
+    encrypter = pyaes.Encrypter(pyaes.AESModeOfOperationCBC(_MASTER_KEY, iv=_ENC_IV))
+    token_ct = encrypter.feed(_ENC_KEY + _ENC_NONCE) + encrypter.feed()
+    key_id = base64.b64encode(_ENC_IV + token_ct).decode("ascii")
+    return bin_path, key_id
+
+
 def main() -> None:
-    """Regenerate every clear-manifest fixture under tests/fixtures/tidal/."""
+    """Regenerate every fixture under tests/fixtures/tidal/."""
     _FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
 
-    _write_sine_flac()
+    sine_path = _write_sine_flac()
+    _encrypted_bin, key_id = _write_encrypted_payload(sine_path)
 
     _write_json(
         "playback_bts_flac_clear.json",
@@ -141,6 +179,14 @@ def main() -> None:
             audio_quality="LOSSLESS",
             track_presentation="PREVIEW",
             preview_reason="FULL_REQUIRES_HIGHER_ACCESS_TIER",
+        ),
+    )
+    _write_json(
+        "playback_bts_flac_encrypted.json",
+        _playback_json(
+            manifest_mime_type=_BTS_MIME,
+            manifest_b64=_bts_manifest(encrypted=True, key_id=key_id),
+            audio_quality="LOSSLESS",
         ),
     )
     _write_json(

@@ -9,13 +9,14 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import pyaes
 import pytest
 import requests
 import soundfile as sf
 from mutagen.wave import WAVE
 
 import rekordbox_set_list_manager.utils.config as config_mod
-from rekordbox_set_list_manager.services import _tidal_audio
+from rekordbox_set_list_manager.services import _tidal_audio, _tidal_crypto
 from rekordbox_set_list_manager.services.tidal_download import (
     DownloadErrorKind,
     TidalDownloadError,
@@ -450,12 +451,83 @@ def test_download_track_mp4_with_ffmpeg_decodes_end_to_end(tmp_path, monkeypatch
 
 
 # ---------------------------------------------------------------------------
-# Encrypted manifests — classified DECRYPT until decryption is wired in
+# Encrypted manifests — real decrypt through the pipeline
 # ---------------------------------------------------------------------------
 
 
-def test_download_track_encrypted_manifest_fails_classified(tmp_path):
-    """An ``encryptionType: OLD`` + ``keyId`` manifest must fail as DECRYPT."""
+def _encrypted_payload():
+    return (_FIXTURES / "payload_encrypted.bin").read_bytes()
+
+
+def test_download_track_encrypted_bts_end_to_end(tmp_path):
+    """``encryptionType: OLD`` + ``keyId`` → decrypt → decode → tagged WAV."""
+    service, _session, http = _make_service(
+        tmp_path, "playback_bts_flac_encrypted.json", bodies=[_encrypted_payload()]
+    )
+
+    result = service.download_track("12345678")
+
+    assert result.filepath.suffix == ".wav"
+    assert result.filepath.is_relative_to((tmp_path / "downloads").resolve())
+    head = result.filepath.open("rb").read(12)
+    assert head[:4] == b"RIFF"
+    assert head[8:12] == b"WAVE"
+    tags = WAVE(result.filepath).tags
+    assert tags is not None
+    assert tags["TXXX:TIDAL_QUALITY"].text == ["LOSSLESS"]
+    assert result.served_quality == "LOSSLESS"
+    assert result.downgraded is False
+    assert WAVE(result.filepath).info.length == pytest.approx(1.0, abs=0.1)
+    assert len(http.calls) == 1
+
+
+def test_download_track_encrypted_corrupt_payload_fails_classified(tmp_path):
+    """CTR is unauthenticated: ciphertext corrupted inside the magic-byte
+    region decrypts to garbage that the payload-magic check rejects —
+    nothing reaches the library."""
+    corrupted = bytearray(_encrypted_payload())
+    corrupted[0] ^= 0xFF
+    service, _session, _http = _make_service(
+        tmp_path, "playback_bts_flac_encrypted.json", bodies=[bytes(corrupted)]
+    )
+
+    with pytest.raises(TidalDownloadError) as excinfo:
+        service.download_track("12345678")
+
+    assert excinfo.value.kind in (DownloadErrorKind.DECRYPT, DownloadErrorKind.VALIDATION)
+    download_dir = tmp_path / "downloads"
+    assert list(download_dir.rglob("*.wav")) == []
+    assert list(download_dir.rglob("*.part")) == []
+    assert list(download_dir.rglob("*.seg*")) == []
+
+
+def test_download_track_wrong_key_fails_validation(tmp_path):
+    """A well-formed ``keyId`` wrapping the wrong key decrypts cleanly but
+    produces non-FLAC bytes — rejected as VALIDATION, never a corrupt file."""
+    raw = _load_fixture("playback_bts_flac_encrypted.json")
+    manifest = json.loads(base64.b64decode(raw["manifest"]))
+    wrong_key = bytes(reversed(bytes.fromhex("00112233445566778899aabbccddeeff")))
+    encrypter = pyaes.Encrypter(
+        pyaes.AESModeOfOperationCBC(_tidal_crypto._MASTER_KEY, iv=bytes(16))
+    )
+    token_ct = encrypter.feed(wrong_key + bytes.fromhex("0a1b2c3d4e5f6078")) + encrypter.feed()
+    manifest["keyId"] = base64.b64encode(bytes(16) + token_ct).decode()
+    raw["manifest"] = base64.b64encode(json.dumps(manifest).encode()).decode()
+    session = _FakeSession(raw, _fake_tidal_track())
+    http = _FakeHttp([_encrypted_payload()])
+    service = TidalDownloadService(session, download_dir=tmp_path / "downloads", http=http)
+
+    with pytest.raises(TidalDownloadError) as excinfo:
+        service.download_track("12345678")
+
+    assert excinfo.value.kind == DownloadErrorKind.VALIDATION
+    download_dir = tmp_path / "downloads"
+    assert list(download_dir.rglob("*.wav")) == []
+    assert list(download_dir.rglob("*.part")) == []
+
+
+def test_download_track_malformed_keyid_fails_decrypt(tmp_path):
+    """A ``keyId`` that is not iv + whole ciphertext blocks fails as DECRYPT."""
     raw = _load_fixture("playback_bts_flac_clear.json")
     manifest = json.loads(base64.b64decode(raw["manifest"]))
     manifest["encryptionType"] = "OLD"
