@@ -491,7 +491,13 @@ def build_segment_plan(stream: tidalapi.media.Stream) -> SegmentPlan:
     )
 
 
-def fetch_cover(url: str | None, *, http: requests.Session, gate: RateGate) -> bytes | None:
+def fetch_cover(
+    url: str | None,
+    *,
+    http: requests.Session,
+    gate: RateGate,
+    cancel: threading.Event | None = None,
+) -> bytes | None:
     """Best-effort cover-art GET — a failure never fails the download.
 
     Parameters
@@ -503,16 +509,27 @@ def fetch_cover(url: str | None, *, http: requests.Session, gate: RateGate) -> b
         HTTP session used for the GET.
     gate : RateGate
         Rate gate covering the request.
+    cancel : threading.Event | None
+        Optional cancel flag forwarded to ``fetch_bytes`` — a pending
+        cancel propagates as ``InterruptedError`` rather than being
+        swallowed by the best-effort handling.
 
     Returns
     -------
     bytes | None
         The image bytes, or ``None`` on any failure.
+
+    Raises
+    ------
+    InterruptedError
+        When *cancel* is set — cancellation is never swallowed.
     """
     if not url:
         return None
     try:
-        return fetch_bytes(url, http=http, gate=gate)
+        return fetch_bytes(url, http=http, gate=gate, cancel=cancel)
+    except InterruptedError:
+        raise
     except Exception:
         log.debug("Cover art fetch failed for %s", url, exc_info=True)
         return None

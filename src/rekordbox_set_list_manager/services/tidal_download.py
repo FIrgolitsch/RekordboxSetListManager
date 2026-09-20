@@ -593,7 +593,9 @@ class TidalDownloadService:
                 cancel_event=cancel_event,
             )
             _validate_wav(part, getattr(tidal_track, "duration", None))
-            _tidal_audio.tag_wav(part, tidal_track, served, self._fetch_cover(tidal_track))
+            _tidal_audio.tag_wav(
+                part, tidal_track, served, self._fetch_cover(tidal_track, cancel_event)
+            )
             part.replace(final)
         finally:
             part.unlink(missing_ok=True)
@@ -672,8 +674,14 @@ class TidalDownloadService:
         executor.shutdown(wait=True)
         return seg_paths
 
-    def _fetch_cover(self, tidal_track: tidalapi.media.Track) -> bytes | None:
-        """Best-effort cover art — a failure never fails the download."""
+    def _fetch_cover(
+        self, tidal_track: tidalapi.media.Track, cancel_event: threading.Event | None
+    ) -> bytes | None:
+        """Best-effort cover art — a failure never fails the download.
+
+        A pending cancel is not a failure: ``InterruptedError`` propagates
+        so the download aborts as CANCELLED instead of completing.
+        """
         try:
             album = getattr(tidal_track, "album", None)
             image = getattr(album, "image", None)
@@ -682,7 +690,11 @@ class TidalDownloadService:
             url = image(640)
             if not isinstance(url, str):
                 return None
-            return _tidal_download_adapter.fetch_cover(url, http=self._http, gate=self._gate)
+            return _tidal_download_adapter.fetch_cover(
+                url, http=self._http, gate=self._gate, cancel=cancel_event
+            )
+        except InterruptedError:
+            raise
         except Exception:
             log.debug("Cover art fetch failed", exc_info=True)
             return None

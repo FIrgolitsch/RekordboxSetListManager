@@ -893,6 +893,35 @@ def test_download_track_cover_failure_still_succeeds(tmp_path):
     assert WAVE(result.filepath).tags.getall("APIC") == []
 
 
+def test_download_track_cancel_during_cover_fetch_fails_cancelled(tmp_path):
+    """A user cancel landing while cover art is in flight must abort the
+    download — the best-effort cover path cannot swallow it."""
+    cancel = threading.Event()
+
+    class _CancellingCoverHttp(_FakeHttpByUrl):
+        def get(self, url, stream=False, timeout=None, allow_redirects=True):
+            if "images" in url:
+                cancel.set()
+            return super().get(
+                url, stream=stream, timeout=timeout, allow_redirects=allow_redirects
+            )
+
+    session = _FakeSession(
+        _load_fixture("playback_bts_flac_clear.json"),
+        _fake_tidal_track(image_url=_COVER_URL),
+    )
+    http = _CancellingCoverHttp({_BTS_SEG_URL: _flac_payload(), _COVER_URL: _JPEG_BYTES})
+    service = TidalDownloadService(session, download_dir=tmp_path / "downloads", http=http)
+
+    with pytest.raises(TidalDownloadError) as excinfo:
+        service.download_track("12345678", cancel_event=cancel)
+
+    assert excinfo.value.kind == DownloadErrorKind.CANCELLED
+    download_dir = tmp_path / "downloads"
+    assert list(download_dir.rglob("*.wav")) == []
+    assert list(download_dir.rglob("*.part")) == []
+
+
 # ---------------------------------------------------------------------------
 # download_many — batch aggregation over classified per-track outcomes
 # ---------------------------------------------------------------------------

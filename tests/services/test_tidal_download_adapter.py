@@ -591,3 +591,19 @@ def test_fetch_cover_returns_bytes_on_success():
         )
         == b"jpeg-bytes"
     )
+
+
+def test_fetch_cover_propagates_cancel():
+    """A pending cancel aborts the cover fetch — the best-effort failure
+    handling must not swallow ``InterruptedError``."""
+    cancel = threading.Event()
+    cancel.set()
+    http = _FakeHttp([_FakeResp(200, b"img")])
+
+    with pytest.raises(InterruptedError):
+        adapter.fetch_cover(
+            "https://resources.tidal.com/images/cover.jpg",
+            http=http,
+            gate=_fake_gate(),
+            cancel=cancel,
+        )
