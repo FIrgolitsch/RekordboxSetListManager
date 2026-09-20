@@ -282,7 +282,12 @@ class MultiSectionView(QWidget):
         """Return the IDs of tracks that appear in more than one section."""
         if self._project is None:
             return set()
-        counts = Counter(self._project.all_track_ids)
+        # Count distinct *sections* per track, not raw occurrences: a track
+        # listed twice inside one section is not a cross-section duplicate.
+        counts: Counter[UUID] = Counter()
+        for section in self._project.sections:
+            for tid in set(section.track_ids):
+                counts[tid] += 1
         return {tid for tid, n in counts.items() if n > 1}
 
     def _refresh_dup_ids(self) -> None:
