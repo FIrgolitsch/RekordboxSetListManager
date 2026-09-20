@@ -17,6 +17,10 @@ dependencies = [
     "pydantic>=2.13",
     "platformdirs>=4.9",
     "rapidfuzz>=3.13,<4",
+    "mutagen>=1.47,<2",
+    "pyaes>=1.6.1,<2",
+    "requests>=2.32.3,<3",
+    "soundfile>=0.14,<0.15",
 ]
 
 # Dev tooling lives in [dependency-groups] (uv-native, synced by default);
