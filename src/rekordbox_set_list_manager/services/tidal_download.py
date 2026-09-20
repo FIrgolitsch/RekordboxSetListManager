@@ -1,7 +1,10 @@
 """Download Tidal tracks to tagged WAV files in the configured library folder."""
 
 import logging
+import os
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -27,7 +30,6 @@ from rekordbox_set_list_manager.services._tidal_download_adapter import (
 from rekordbox_set_list_manager.utils import config
 
 if TYPE_CHECKING:
-    import threading
     from collections.abc import Callable
 
 log = logging.getLogger(__name__)
@@ -118,6 +120,11 @@ _CFG_DOWNLOAD_DIR = "download_dir"
 _CFG_TEMPLATE = "download_path_template"
 _CFG_MIN_QUALITY = "tidal_download_min_quality"
 
+# Bounded worker pool for segment fetches; the env var is an explicit
+# operator override and wins over the constructor argument.
+_DEFAULT_WORKERS = 4
+_ENV_WORKERS = "SET_MANAGER_TIDAL_DOWNLOAD_WORKERS"
+
 _DEFAULT_TEMPLATE = "{artist}/{album}/{tracknumber} - {title}"
 _PLACEHOLDERS = {"artist", "title", "album", "tracknumber", "year", "isrc"}
 _PLACEHOLDER_RE = re.compile(r"{([^{}]+)}")
@@ -131,6 +138,23 @@ _WINDOWS_RESERVED = {"CON", "PRN", "AUX", "NUL"} | {
 # download_track reports progress in two phases: segment fetch covers
 # [0, _FETCH_SHARE], decode covers [_FETCH_SHARE, 1].
 _FETCH_SHARE = 0.6
+
+
+class _MergedEvent(threading.Event):
+    """Reads set when any source event is set — caller cancel or pool abort.
+
+    ``fetch_bytes`` accepts a single cancel event; the worker pool feeds both
+    the caller's event and its internal abort (a sibling segment failing)
+    through this merged channel without mutating the caller's event.
+    """
+
+    def __init__(self, *sources: threading.Event) -> None:
+        super().__init__()
+        self._sources = sources
+
+    def is_set(self) -> bool:
+        """True when this event or any source event is set."""
+        return super().is_set() or any(source.is_set() for source in self._sources)
 
 
 def _sanitize_component(value: str) -> str:
@@ -315,6 +339,12 @@ class TidalDownloadService:
         Injectable rate gate (tests inject a fake clock).
     http : requests.Session | None
         Injectable HTTP session for segment/cover GETs.
+    workers : int
+        Segment-fetch pool size (default 4).  The
+        ``SET_MANAGER_TIDAL_DOWNLOAD_WORKERS`` env var overrides it; an
+        unparseable value is ignored with a warning.  Parallelism only
+        overlaps request latency — every fetch still passes the one shared
+        rate gate, so the global request rate never widens.
     """
 
     def __init__(
@@ -326,6 +356,7 @@ class TidalDownloadService:
         min_quality: str | None = None,
         gate: _tidal_download_adapter.RateGate | None = None,
         http: requests.Session | None = None,
+        workers: int = _DEFAULT_WORKERS,
     ) -> None:
         try:
             _tidal_download_adapter.apply_client_credentials(session)
@@ -346,6 +377,13 @@ class TidalDownloadService:
         ).lower()
         self._gate = gate if gate is not None else _tidal_download_adapter.RateGate()
         self._http = http if http is not None else requests.Session()
+        env_workers = os.environ.get(_ENV_WORKERS, "").strip()
+        if env_workers:
+            try:
+                workers = int(env_workers)
+            except ValueError:
+                log.warning("Ignoring invalid %s=%r", _ENV_WORKERS, env_workers)
+        self._workers = max(1, int(workers))
 
     def download_track(
         self,
@@ -487,20 +525,60 @@ class TidalDownloadService:
         progress_cb: Callable[[float], None] | None,
         cancel_event: threading.Event | None,
     ) -> list[Path]:
-        """Fetch every URL in *plan* order into indexed ``.seg`` siblings."""
-        seg_paths: list[Path] = []
-        total = len(plan.urls)
-        for index, url in enumerate(plan.urls):
-            if cancel_event is not None and cancel_event.is_set():
-                raise InterruptedError("download cancelled")
+        """Fetch every URL into indexed ``.seg{i}`` siblings, bounded-parallel.
+
+        A ``ThreadPoolExecutor`` of ``min(self._workers, len(urls))`` workers
+        overlaps GET latency only — every fetch still passes the one shared
+        ``RateGate``, so the global request rate never widens.  Each worker
+        writes its own ``.seg{index}`` sibling and the caller concatenates by
+        index position, never by completion order, so the merged payload is
+        byte-exact regardless of which worker finishes first.
+
+        On failure the pool's internal abort event is merged into the cancel
+        channel: in-flight workers bail at their next cancel check, queued
+        futures are cancelled outright, and every ``.seg`` part is removed.
+        ``progress_cb`` fires from the caller's thread as futures complete —
+        ``_FETCH_SHARE * done/total`` fractions stay monotonic.
+        """
+        urls = plan.urls
+        total = len(urls)
+        seg_paths = [part.with_suffix(f".seg{index}") for index in range(total)]
+        if total == 0:
+            return seg_paths
+        abort = threading.Event()
+        merged = _MergedEvent(*(e for e in (cancel_event, abort) if e is not None))
+
+        def _fetch_one(index: int, url: str) -> None:
             data = _tidal_download_adapter.fetch_bytes(
-                url, http=self._http, gate=self._gate, cancel=cancel_event
+                url, http=self._http, gate=self._gate, cancel=merged
             )
-            seg_path = part.with_suffix(f".seg{index}")
-            seg_path.write_bytes(data)
-            seg_paths.append(seg_path)
-            if progress_cb is not None:
-                progress_cb(_FETCH_SHARE * (index + 1) / total)
+            if abort.is_set():
+                # A sibling already failed — skip the write and surface the
+                # abort so this worker's future completes promptly.
+                raise InterruptedError("segment fetch aborted after a sibling failed")
+            seg_paths[index].write_bytes(data)
+
+        executor = ThreadPoolExecutor(
+            max_workers=min(self._workers, total), thread_name_prefix="tidal-seg"
+        )
+        try:
+            futures = [executor.submit(_fetch_one, index, url) for index, url in enumerate(urls)]
+            for done, future in enumerate(as_completed(futures), start=1):
+                # Abort is only ever set below this loop, so the first
+                # exception surfaced here IS the root cause — never a
+                # sibling's abort noise.
+                future.result()
+                if progress_cb is not None:
+                    progress_cb(_FETCH_SHARE * done / total)
+        except BaseException:
+            abort.set()
+            # Workers cannot be killed, but shutdown(wait=True) keeps the
+            # .seg cleanup below from racing an in-flight write.
+            executor.shutdown(wait=True, cancel_futures=True)
+            for seg in seg_paths:
+                seg.unlink(missing_ok=True)
+            raise
+        executor.shutdown(wait=True)
         return seg_paths
 
     def _fetch_cover(self, tidal_track: tidalapi.media.Track) -> bytes | None:

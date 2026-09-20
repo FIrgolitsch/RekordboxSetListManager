@@ -2,6 +2,7 @@
 
 import json
 import threading
+from itertools import pairwise
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -269,7 +270,7 @@ def test_rate_gate_serializes_concurrent_acquires():
     assert len(clock.reads) == 2 * len(threads)
     release_stamps = clock.reads[1::2]
     assert release_stamps == sorted(release_stamps)
-    for earlier, later in zip(release_stamps, release_stamps[1:]):
+    for earlier, later in pairwise(release_stamps):
         assert later - earlier >= 0.25
 
 

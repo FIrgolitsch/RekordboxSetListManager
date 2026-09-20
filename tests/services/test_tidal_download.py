@@ -1,10 +1,8 @@
 """End-to-end tests for TidalDownloadService against recorded fixtures."""
 
 import base64
-import datetime
 import json
 import shutil
-import struct
 import subprocess
 import threading
 import time
@@ -406,9 +404,7 @@ def test_download_track_mpd_fetches_all_urls_and_merges_in_plan_order(tmp_path, 
         _write_real_wav(dest_part)
 
     monkeypatch.setattr(_tidal_audio, "decode_to_wav", _record_decode)
-    session = _FakeSession(
-        _load_fixture("playback_mpd_dash.json"), _fake_tidal_track()
-    )
+    session = _FakeSession(_load_fixture("playback_mpd_dash.json"), _fake_tidal_track())
     http = _FakeHttpByUrl(_mpd_url_bodies())
     service = TidalDownloadService(session, download_dir=tmp_path / "downloads", http=http)
 
@@ -423,9 +419,7 @@ def test_download_track_mpd_fetches_all_urls_and_merges_in_plan_order(tmp_path, 
     assert result.filepath.exists()
 
 
-def test_download_track_parallel_fetch_overlaps_and_merges_in_url_order(
-    tmp_path, monkeypatch
-):
+def test_download_track_parallel_fetch_overlaps_and_merges_in_url_order(tmp_path, monkeypatch):
     """Bounded worker pool: fetches overlap, completion order is reversed,
     merged payload still follows manifest URL position."""
     monkeypatch.setenv("SET_MANAGER_TIDAL_DOWNLOAD_WORKERS", "5")
@@ -436,9 +430,7 @@ def test_download_track_parallel_fetch_overlaps_and_merges_in_url_order(
         _write_real_wav(dest_part)
 
     monkeypatch.setattr(_tidal_audio, "decode_to_wav", _record_decode)
-    session = _FakeSession(
-        _load_fixture("playback_mpd_dash.json"), _fake_tidal_track()
-    )
+    session = _FakeSession(_load_fixture("playback_mpd_dash.json"), _fake_tidal_track())
     http = _ReverseOrderHttp(_mpd_url_bodies().items())
     service = TidalDownloadService(session, download_dir=tmp_path / "downloads", http=http)
 
@@ -469,9 +461,7 @@ def test_download_track_segment_failure_cleans_every_seg_part(tmp_path):
     """A failing segment aborts its siblings and leaves no .seg/.part behind."""
     bodies = _mpd_url_bodies()
     bodies[_MPD_URLS[2]] = requests.ConnectionError("segment host unreachable")
-    session = _FakeSession(
-        _load_fixture("playback_mpd_dash.json"), _fake_tidal_track()
-    )
+    session = _FakeSession(_load_fixture("playback_mpd_dash.json"), _fake_tidal_track())
     http = _FakeHttpByUrl(bodies)
     service = TidalDownloadService(session, download_dir=tmp_path / "downloads", http=http)
 
@@ -496,9 +486,7 @@ def test_download_track_cancel_mid_fetch_leaves_no_strays(tmp_path):
                 cancel.set()
             return resp
 
-    session = _FakeSession(
-        _load_fixture("playback_mpd_dash.json"), _fake_tidal_track()
-    )
+    session = _FakeSession(_load_fixture("playback_mpd_dash.json"), _fake_tidal_track())
     http = _CancellingHttp(_mpd_url_bodies())
     service = TidalDownloadService(session, download_dir=tmp_path / "downloads", http=http)
 

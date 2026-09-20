@@ -19,6 +19,7 @@ import hashlib
 import logging
 import os
 import random
+import threading
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -31,7 +32,6 @@ import tidalapi.media
 from rekordbox_set_list_manager.utils import config
 
 if TYPE_CHECKING:
-    import threading
     from collections.abc import Callable
 
 log = logging.getLogger(__name__)
@@ -207,17 +207,32 @@ class RateGate:
         self._monotonic = monotonic
         self._rng = rng
         self._last_release = 0.0
+        # Guards the read-sleep-release critical section: without it two
+        # workers can read a stale elapsed, both sleep, and stamp releases a
+        # hair apart — silently doubling the global request rate.  The lock
+        # *is* the spacing mechanism under a worker pool.
+        self._lock = threading.Lock()
 
     def acquire(self) -> None:
-        """Sleep until *interval* has elapsed since the last release."""
-        elapsed = self._monotonic() - self._last_release
-        wait = self._interval - elapsed
-        if wait > 0:
-            self._sleep(wait)
-        self._last_release = self._monotonic()
+        """Sleep until *interval* has elapsed since the last release.
+
+        The whole check-sleep-release sequence runs under the gate lock, so
+        concurrent callers simply serialize behind whichever worker holds it
+        and releases stay globally spaced.
+        """
+        with self._lock:
+            elapsed = self._monotonic() - self._last_release
+            wait = self._interval - elapsed
+            if wait > 0:
+                self._sleep(wait)
+            self._last_release = self._monotonic()
 
     def backoff(self, attempt: int, hint: float = 0.0) -> float:
         """Sleep a jittered exponential backoff (or *hint*, when larger).
+
+        The sleep runs under the gate lock — a 429/5xx backoff pauses
+        releases globally for every worker, which is the conservative and
+        intended behavior.
 
         Parameters
         ----------
@@ -234,8 +249,9 @@ class RateGate:
         """
         delay = min(60.0, (2**attempt) * self._interval) * (1.0 + self._rng() * 0.5)
         delay = max(delay, hint)
-        self._sleep(delay)
-        self._last_release = self._monotonic()
+        with self._lock:
+            self._sleep(delay)
+            self._last_release = self._monotonic()
         return delay
 
 
@@ -279,7 +295,8 @@ def fetch_bytes(
     gate : RateGate
         Rate gate covering every Tidal-bound request.
     cancel : threading.Event | None
-        Optional cancel flag checked per received chunk.
+        Optional cancel flag checked before each attempt and per received
+        chunk.
 
     Returns
     -------
@@ -296,12 +313,15 @@ def fetch_bytes(
         When the retry ceiling is exhausted on 429/5xx statuses (caller maps
         to RATE_LIMIT).
     InterruptedError
-        When *cancel* is set mid-body (caller maps to CANCELLED).
+        When *cancel* is set — checked before every attempt and per
+        received chunk (caller maps to CANCELLED).
     requests.RequestException
         On persistent transport failure or a final non-retried error status.
     """
     _check_segment_url(url)
     for attempt in range(_MAX_RETRIES):
+        if cancel is not None and cancel.is_set():
+            raise InterruptedError("download cancelled")
         gate.acquire()
         try:
             resp = http.get(url, stream=True, timeout=(10, 30))
