@@ -64,6 +64,9 @@ def _make_session(
     session.check_login.return_value = login_ok
     session.user.username = username
     session.user.id = 99
+    # Real values so the minted-client fingerprint picks are deterministic.
+    session.is_pkce = False
+    session.config.client_id_pkce = "pkce-id"
     if playlists is not None:
         session.user.playlist_and_favorite_playlists.return_value = playlists
     return session
@@ -634,6 +637,73 @@ def test_authenticate_records_client_fingerprint_after_fresh_login(mock_cls, tmp
     assert config_mod.get("tidal_session_client") == (
         _tidal_download_adapter.client_fingerprint("env-id")
     )
+
+
+@patch("tidalapi.Session")
+def test_authenticate_pkce_flow_uses_redirect_callback(mock_cls, tmp_path, monkeypatch):
+    """A redirect_callback selects the PKCE paste-back flow over device-code."""
+    monkeypatch.setattr(svc_mod, "_SESSION_FILE", tmp_path / "tidal_session.json")
+    session = _make_session(login_ok=False)
+    session.check_login.return_value = True
+    session.pkce_login_url.return_value = "https://login.tidal.com/authorize?x=1"
+
+    def _process(_json, is_pkce_token=False):
+        session.is_pkce = is_pkce_token
+        return True
+
+    session.process_auth_token.side_effect = _process
+    session.pkce_get_auth_token.return_value = {"access_token": "tok"}
+    session.save_session_to_file.side_effect = lambda path: Path(path).write_text("{}")
+    mock_cls.return_value = session
+    links = []
+
+    name = TidalService().authenticate(
+        link_callback=links.append,
+        redirect_callback=lambda: "https://tidal.com/android/login/auth?code=abc",
+    )
+
+    assert name == "DJ Test"
+    session.pkce_get_auth_token.assert_called_once_with(
+        "https://tidal.com/android/login/auth?code=abc"
+    )
+    session.process_auth_token.assert_called_once_with({"access_token": "tok"}, is_pkce_token=True)
+    session.login_oauth_simple.assert_not_called()
+    session.login_oauth.assert_not_called()
+    assert any("login.tidal.com" in link for link in links)
+    # PKCE-minted sessions record the PKCE client's fingerprint.
+    assert config_mod.get("tidal_session_client") == (
+        _tidal_download_adapter.client_fingerprint("pkce-id")
+    )
+
+
+@patch("tidalapi.Session")
+def test_authenticate_pkce_fingerprint_keeps_cached_session(mock_cls, tmp_path, monkeypatch):
+    """A session minted under the PKCE client is accepted on load."""
+    session_file = _existing_session_file(tmp_path, monkeypatch)
+    config_mod.set_value(
+        "tidal_session_client", _tidal_download_adapter.client_fingerprint("pkce-id")
+    )
+    session = _make_session()
+    mock_cls.return_value = session
+
+    assert TidalService().authenticate() == "DJ Test"
+    assert session_file.exists()
+    session.load_session_from_file.assert_called_once()
+    session.login_oauth_simple.assert_not_called()
+
+
+@patch("tidalapi.Session")
+def test_authenticate_pkce_bad_redirect_url_gives_friendly_error(mock_cls, monkeypatch):
+    """A malformed pasted URL raises a copyable error, not a raw exception."""
+    monkeypatch.delenv("SET_MANAGER_TIDAL_CLIENT_ID", raising=False)
+    monkeypatch.delenv("SET_MANAGER_TIDAL_CLIENT_SECRET", raising=False)
+    session = _make_session(login_ok=False)
+    session.pkce_login_url.return_value = "https://login.tidal.com/authorize?x=1"
+    session.pkce_get_auth_token.side_effect = Exception("redirect url looks wrong")
+    mock_cls.return_value = session
+
+    with pytest.raises(TidalServiceError, match="Oops"):
+        TidalService().authenticate(redirect_callback=lambda: "not-a-url")
 
 
 @patch("tidalapi.Session")

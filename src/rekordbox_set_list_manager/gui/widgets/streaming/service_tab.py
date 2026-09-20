@@ -9,6 +9,7 @@ from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QPushButton,
@@ -52,12 +53,33 @@ class StreamingServiceTab(QWidget):
         auth_row.addWidget(self._auth_label)
         auth_row.addStretch()
 
-        # ── Device-code link (Tidal only; hidden until needed) ───────────
+        # ── Login link (Tidal only; hidden until needed) ─────────────────
         self._link_label = QLabel("")
         self._link_label.setTextFormat(Qt.TextFormat.RichText)
         self._link_label.setOpenExternalLinks(True)
         self._link_label.setWordWrap(True)
         self._link_label.setVisible(False)
+
+        # ── PKCE redirect paste-back (Tidal only; hidden until needed) ───
+        self._redirect_hint = QLabel(
+            "After logging in, the browser lands on an 'Oops' page — "
+            "copy its full address here to finish connecting."
+        )
+        self._redirect_hint.setWordWrap(True)
+        self._redirect_hint.setVisible(False)
+
+        self._redirect_input = QLineEdit()
+        self._redirect_input.setPlaceholderText("https://tidal.com/android/login/auth?code=…")
+        self._redirect_btn = QPushButton("Complete Login")
+        self._redirect_btn.clicked.connect(self._on_redirect_submit)
+        self._redirect_input.returnPressed.connect(self._on_redirect_submit)
+
+        redirect_row = QHBoxLayout()
+        redirect_row.addWidget(self._redirect_input, 1)
+        redirect_row.addWidget(self._redirect_btn)
+        self._redirect_container = QWidget()
+        self._redirect_container.setLayout(redirect_row)
+        self._redirect_container.setVisible(False)
 
         # ── Playlist list ────────────────────────────────────────────────
         self._playlist_widget = QListWidget()
@@ -66,6 +88,8 @@ class StreamingServiceTab(QWidget):
         layout = QVBoxLayout(self)
         layout.addLayout(auth_row)
         layout.addWidget(self._link_label)
+        layout.addWidget(self._redirect_hint)
+        layout.addWidget(self._redirect_container)
         layout.addWidget(self._playlist_widget)
 
         self._connect_btn.clicked.connect(self._on_connect)
@@ -107,6 +131,7 @@ class StreamingServiceTab(QWidget):
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.link_ready.connect(self._on_link_ready)
+        self._worker.redirect_requested.connect(self._on_redirect_requested)
         self._worker.finished.connect(self._on_auth_done)
         self._worker.error.connect(self._on_auth_error)
         self._worker.silent_failed.connect(self._on_silent_failed)
@@ -137,21 +162,46 @@ class StreamingServiceTab(QWidget):
         self._link_label.setVisible(True)
         self._auth_label.setText("Waiting for approval…")
 
+    def _on_redirect_requested(self) -> None:
+        """Show the paste-back field when the PKCE flow needs the redirect URL."""
+        self._redirect_hint.setVisible(True)
+        self._redirect_container.setVisible(True)
+        self._redirect_input.setFocus()
+        self._auth_label.setText("Paste the 'Oops' page URL to finish…")
+
+    def _on_redirect_submit(self) -> None:
+        url = self._redirect_input.text().strip()
+        if not url or self._worker is None:
+            return
+        self._redirect_input.setEnabled(False)
+        self._redirect_btn.setEnabled(False)
+        self._worker.provide_redirect(url)
+
+    def _hide_redirect_row(self) -> None:
+        self._redirect_hint.setVisible(False)
+        self._redirect_container.setVisible(False)
+        self._redirect_input.clear()
+        self._redirect_input.setEnabled(True)
+        self._redirect_btn.setEnabled(True)
+
     def _on_auth_done(self, username: str) -> None:
         self._auth_label.setText(f"Connected as {username}")
         self._link_label.setVisible(False)
         self._link_label.setText("")
+        self._hide_redirect_row()
         self._load_playlists()
 
     def _on_auth_error(self, msg: str) -> None:
         self._auth_label.setText("Connection failed")
         self._link_label.setVisible(False)
+        self._hide_redirect_row()
         self._connect_btn.setEnabled(True)
         show_error_dialog(self, "Connection Error", msg)
 
     def _on_silent_failed(self) -> None:
         """No cached session to restore — stay disconnected without a dialog."""
         self._auth_label.setText("Not connected")
+        self._hide_redirect_row()
         self._connect_btn.setEnabled(True)
 
     def _load_playlists(self) -> None:

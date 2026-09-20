@@ -49,7 +49,7 @@ The access token is cached locally and reused for subsequent sessions.  You will
 
 ## Tidal
 
-Tidal uses a **device-code flow** — no credentials to configure.  The app authenticates with its built-in client pair.
+Tidal uses a **PKCE login flow** — no credentials to configure.  The app authenticates with its built-in client pair, which is the same client identity Tidal's own app uses, so lossless audio works when your subscription includes it.
 
 ### Step 1 — Authenticate
 
@@ -61,7 +61,8 @@ Either of these works — both run the same flow and share the same cached sessi
 Then:
 
 1. A login link appears in the dialog.  Open it in a browser and log in with your Tidal account.
-2. Approve access when prompted.
+2. After logging in, the browser is redirected to an **"Oops"** page — this is expected.  Copy that page's full address (it starts with `https://tidal.com/android/login/auth?code=…`).
+3. Paste it into the **Complete Login** field in the dialog.
 
 ### Step 2 — Done
 
@@ -71,7 +72,7 @@ The cached session records which client credentials minted it.  If you configure
 
 ### Optional — your own client credentials
 
-The audio quality Tidal serves is keyed to the OAuth client identity used to authenticate.  The built-in pair may be capped at 320 kbps AAC; if downloads report capped quality, you can supply your own `client_id`/`client_secret` pair (e.g. from the [Tidal developer portal](https://developer.tidal.com)) in **either** of two places — the environment variables win when both are set:
+The PKCE flow uses the app's built-in client pair and needs no configuration.  Advanced users can override the non-PKCE client pair used for session bookkeeping via **either** of two places — the environment variables win when both are set:
 
 - The environment variables `SET_MANAGER_TIDAL_CLIENT_ID` and `SET_MANAGER_TIDAL_CLIENT_SECRET`, or
 - The `tidal_client_id` and `tidal_client_secret` keys in `config.json` inside the app's user config directory (e.g. `~/Library/Application Support/rekordbox_set_list_manager/` on macOS).

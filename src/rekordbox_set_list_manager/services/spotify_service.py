@@ -57,11 +57,13 @@ class SpotifyService(StreamingService):
         self,
         link_callback: Callable[[str], None] | None = None,  # noqa: ARG002 — ignored; Spotify uses browser redirect
         cancel_check: Callable[[], bool] | None = None,
+        redirect_callback: Callable[[], str] | None = None,  # noqa: ARG002 — ignored; Spotify's redirect is intercepted locally
     ) -> str:
         """Open browser for PKCE auth (skipped if cached token is valid).
 
-        *link_callback* is accepted for interface compatibility but ignored —
-        Spotify uses a browser redirect flow, not a device-code link.
+        *link_callback* and *redirect_callback* are accepted for interface
+        compatibility but ignored — Spotify uses a browser redirect flow
+        caught by a local listener, not a device-code or paste-back link.
 
         Parameters
         ----------
@@ -72,6 +74,9 @@ class SpotifyService(StreamingService):
             Checked before and after the blocking PKCE wait — the browser
             redirect cannot be interrupted mid-wait, but a cancel request is
             honoured by discarding the result.  Defaults to ``None``.
+        redirect_callback : Callable[[], str] | None
+            Accepted for interface compatibility but ignored — Spotify
+            intercepts its own redirect on 127.0.0.1.  Defaults to ``None``.
 
         Returns
         -------

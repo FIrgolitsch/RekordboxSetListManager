@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QVBoxLayout,
+    QWidget,
 )
 
 from rekordbox_set_list_manager.gui.widgets.common.busy_dialog import show_error_dialog
@@ -98,9 +99,29 @@ class SettingsDialog(QDialog):
         self._tidal_link.setWordWrap(True)
         self._tidal_link.setVisible(False)
 
+        self._tidal_redirect_hint = QLabel(
+            "After logging in, the browser lands on an 'Oops' page — "
+            "copy its full address here to finish connecting."
+        )
+        self._tidal_redirect_hint.setWordWrap(True)
+        self._tidal_redirect_hint.setVisible(False)
+
+        self._tidal_redirect_input = QLineEdit()
+        self._tidal_redirect_input.setPlaceholderText("https://tidal.com/android/login/auth?code=…")
+        self._tidal_redirect_btn = QPushButton("Complete Login")
+        self._tidal_redirect_btn.clicked.connect(self._on_tidal_redirect_submit)
+        self._tidal_redirect_input.returnPressed.connect(self._on_tidal_redirect_submit)
+
+        redirect_row = QHBoxLayout()
+        redirect_row.addWidget(self._tidal_redirect_input, 1)
+        redirect_row.addWidget(self._tidal_redirect_btn)
+        self._tidal_redirect_row = QWidget()
+        self._tidal_redirect_row.setLayout(redirect_row)
+        self._tidal_redirect_row.setVisible(False)
+
         note = QLabel(
-            "Connecting opens a Tidal page in your browser — approve the device "
-            "login once and the session stays cached on this machine."
+            "Connecting opens a Tidal login page in your browser — log in once "
+            "and the session stays cached on this machine."
         )
         note.setWordWrap(True)
 
@@ -109,6 +130,8 @@ class SettingsDialog(QDialog):
 
         layout.addLayout(connect_row)
         layout.addWidget(self._tidal_link)
+        layout.addWidget(self._tidal_redirect_hint)
+        layout.addWidget(self._tidal_redirect_row)
         layout.addWidget(note)
         layout.addWidget(self._clear_tidal_btn)
         return box
@@ -167,6 +190,7 @@ class SettingsDialog(QDialog):
         self._tidal_worker.moveToThread(self._tidal_thread)
         self._tidal_thread.started.connect(self._tidal_worker.run)
         self._tidal_worker.link_ready.connect(self._on_tidal_link_ready)
+        self._tidal_worker.redirect_requested.connect(self._on_tidal_redirect_requested)
         self._tidal_worker.finished.connect(self._on_tidal_auth_done)
         self._tidal_worker.error.connect(self._on_tidal_auth_error)
         self._tidal_worker.silent_failed.connect(self._on_tidal_silent_failed)
@@ -202,22 +226,47 @@ class SettingsDialog(QDialog):
         else:
             self._tidal_link.setText(msg)
         self._tidal_link.setVisible(True)
-        self._tidal_status.setText("Waiting for approval…")
+        self._tidal_status.setText("Waiting for login…")
+
+    def _on_tidal_redirect_requested(self) -> None:
+        """Show the paste-back field when the PKCE flow needs the redirect URL."""
+        self._tidal_redirect_hint.setVisible(True)
+        self._tidal_redirect_row.setVisible(True)
+        self._tidal_redirect_input.setFocus()
+        self._tidal_status.setText("Paste the 'Oops' page URL to finish…")
+
+    def _on_tidal_redirect_submit(self) -> None:
+        url = self._tidal_redirect_input.text().strip()
+        if not url or self._tidal_worker is None:
+            return
+        self._tidal_redirect_input.setEnabled(False)
+        self._tidal_redirect_btn.setEnabled(False)
+        self._tidal_worker.provide_redirect(url)
+
+    def _hide_tidal_redirect_row(self) -> None:
+        self._tidal_redirect_hint.setVisible(False)
+        self._tidal_redirect_row.setVisible(False)
+        self._tidal_redirect_input.clear()
+        self._tidal_redirect_input.setEnabled(True)
+        self._tidal_redirect_btn.setEnabled(True)
 
     def _on_tidal_auth_done(self, username: str) -> None:
         self._tidal_status.setText(f"Connected as {username}")
         self._tidal_link.setVisible(False)
         self._tidal_link.setText("")
+        self._hide_tidal_redirect_row()
         self._tidal_connect_btn.setEnabled(True)
 
     def _on_tidal_auth_error(self, msg: str) -> None:
         self._tidal_status.setText("Connection failed")
         self._tidal_link.setVisible(False)
+        self._hide_tidal_redirect_row()
         self._tidal_connect_btn.setEnabled(True)
         show_error_dialog(self, "Tidal Connection Error", msg)
 
     def _on_tidal_silent_failed(self) -> None:
         self._tidal_status.setText("Not connected")
+        self._hide_tidal_redirect_row()
         self._tidal_connect_btn.setEnabled(True)
 
     # ------------------------------------------------------------------

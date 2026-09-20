@@ -64,23 +64,32 @@ class TidalService(StreamingService):
         self,
         link_callback: Callable[[str], None] | None = None,
         cancel_check: Callable[[], bool] | None = None,
+        redirect_callback: Callable[[], str] | None = None,
     ) -> str:
-        """Authenticate with Tidal using the device code flow.
+        """Authenticate with Tidal — PKCE paste-back flow, device-code fallback.
 
-        On first run initiates the device-code flow.  If *link_callback* is
-        provided it is called with the login URL message so the caller can
-        display it in the UI; otherwise the message is printed to stdout.
-        Subsequent calls reuse the cached session (or refresh the token).
+        When *redirect_callback* is provided the PKCE login runs: the user
+        opens the login URL in a browser, and after approving lands on an
+        "Oops" page whose URL must be pasted back — the callback returns that
+        URL.  PKCE mints the token under Tidal's official-app client, which
+        is the only client identity Tidal serves lossless/hi-res audio to.
+        Without *redirect_callback* the device-code flow runs instead
+        (headless/CLI use); it needs no paste-back but the served quality is
+        capped at AAC.  Subsequent calls reuse the cached session (or refresh
+        the token) regardless of which flow minted it.
 
         Parameters
         ----------
         link_callback : Callable[[str], None] | None
-            If provided, called with the login URL for device-code flow display.
-            Defaults to :func:`print` if ``None``.
+            If provided, called with the login URL message so the caller can
+            display it in the UI; otherwise the message is printed to stdout.
         cancel_check : Callable[[], bool] | None
             If provided, polled while waiting for the user to approve the
             device-code login; returning ``True`` aborts the wait promptly
             instead of blocking until the link expires.
+        redirect_callback : Callable[[], str] | None
+            If provided, selects the PKCE flow and is called to obtain the
+            pasted redirect ("Oops" page) URL.
 
         Returns
         -------
@@ -100,14 +109,16 @@ class TidalService(StreamingService):
         # config.client_id.  Credential application lives behind the download
         # adapter's seam so playlist import and downloads share one resolver;
         # a configured pair wins, otherwise the session keeps its embedded
-        # defaults.
+        # defaults.  PKCE sessions mint under client_id_pkce instead, so both
+        # fingerprints are acceptable for the cached-session check.
         fingerprint = _tidal_adapter.apply_client_credentials(session)
+        acceptable = {fingerprint, _pkce_fingerprint(session)}
 
         # Fast path: load existing session from disk — but only when it was
-        # minted under the current client pair.  An unfingerprinted file
+        # minted under a known client pair.  An unfingerprinted file
         # (pre-dating the binding) counts as a mismatch and is re-authed.
         if _SESSION_FILE.exists():
-            if _session_fingerprint_ok(fingerprint):
+            if _session_fingerprint_ok(acceptable):
                 _restrict_session_permissions()
             else:
                 log.info(
@@ -121,13 +132,25 @@ class TidalService(StreamingService):
             log.warning("Cached Tidal session could not be restored", exc_info=True)
             loaded = False
 
+        # A device-code-minted session is capped at AAC — upgrade it to a
+        # PKCE-minted token whenever an interactive paste-back is available.
+        if loaded and redirect_callback is not None and not session.is_pkce:
+            log.info(
+                "Cached Tidal session is not PKCE; re-authenticating so the "
+                "session can be served lossless audio"
+            )
+            loaded = False
+
         if not loaded:
             fn = link_callback if link_callback is not None else print
             try:
-                _oauth_login(session, fn, cancel_check)
+                if redirect_callback is not None:
+                    _pkce_login(session, fn, redirect_callback, cancel_check)
+                else:
+                    _oauth_login(session, fn, cancel_check)
                 session.save_session_to_file(_SESSION_FILE)
                 _restrict_session_permissions()
-                _record_session_client(fingerprint)
+                _record_session_client(_minted_fingerprint(session, fingerprint))
             except TidalServiceError:
                 raise
             except Exception as exc:
@@ -251,7 +274,8 @@ class TidalService(StreamingService):
             _CACHE_DIR.mkdir(parents=True, exist_ok=True)
             session = tidalapi.Session()
             fingerprint = _tidal_adapter.apply_client_credentials(session)
-            if not _session_fingerprint_ok(fingerprint):
+            acceptable = {fingerprint, _pkce_fingerprint(session)}
+            if not _session_fingerprint_ok(acceptable):
                 log.info(
                     "Cached Tidal session was minted under different client "
                     "credentials; discarding it"
@@ -321,6 +345,42 @@ def _oauth_login(
             return
 
 
+def _pkce_login(
+    session: tidalapi.Session,
+    fn_print: Callable[[str], None],
+    redirect_callback: Callable[[], str],
+    cancel_check: Callable[[], bool] | None,
+) -> None:
+    """Run the PKCE paste-back login.
+
+    Tidal's PKCE authorize endpoint redirects to a fixed
+    ``tidal.com/android/login/auth`` URL the desktop app cannot intercept,
+    so the user copies the "Oops" page URL back into the UI — the
+    *redirect_callback* blocks until the paste arrives (or raises on
+    cancel).  This is the only login flow that mints a token Tidal serves
+    lossless/hi-res audio to.
+
+    Raises
+    ------
+    TidalServiceError
+        If *cancel_check* aborts before the login starts, or the pasted
+        URL cannot be exchanged for tokens.
+    """
+    if cancel_check is not None and cancel_check():
+        raise TidalServiceError("Authentication cancelled.")
+    url_login = session.pkce_login_url()
+    fn_print(f"Visit {url_login} to log in to Tidal")
+    url_redirect = redirect_callback()
+    try:
+        token = session.pkce_get_auth_token(url_redirect)
+    except Exception as exc:
+        raise TidalServiceError(
+            "The pasted URL could not be used — copy the full address of "
+            "the 'Oops' page your browser lands on after logging in."
+        ) from exc
+    session.process_auth_token(token, is_pkce_token=True)
+
+
 def _restrict_session_permissions() -> None:
     """Restrict the OAuth session file to owner-only (0600)."""
     try:
@@ -329,27 +389,45 @@ def _restrict_session_permissions() -> None:
         log.debug("Could not restrict Tidal session file permissions", exc_info=True)
 
 
-def _session_fingerprint_ok(fingerprint: str) -> bool:
-    """Return ``True`` when the cached session's minting client matches.
+def _pkce_fingerprint(session: tidalapi.Session) -> str:
+    """Return the fingerprint of the session's embedded PKCE client id."""
+    return _tidal_adapter.client_fingerprint(str(session.config.client_id_pkce))
+
+
+def _minted_fingerprint(session: tidalapi.Session, resolved: str) -> str:
+    """Return the fingerprint of the client that actually minted *session*.
+
+    PKCE sessions mint under ``config.client_id_pkce`` (the pair refresh
+    posts while ``is_pkce`` is set); everything else mints under the applied
+    ``config.client_id`` pair.
+    """
+    if getattr(session, "is_pkce", False):
+        return _pkce_fingerprint(session)
+    return resolved
+
+
+def _session_fingerprint_ok(acceptable: set[str]) -> bool:
+    """Return ``True`` when the cached session's minting client is accepted.
 
     Compares the fingerprint recorded under ``tidal_session_client`` at
-    session-save time with *fingerprint* of the currently resolved client
-    pair.  A file with no recorded fingerprint predates the binding and
-    counts as a mismatch — a session is never trusted under an unknown
-    minting client.
+    session-save time with *acceptable* — the resolved client pair plus the
+    embedded PKCE pair, since both are legitimate minting clients.  A file
+    with no recorded fingerprint predates the binding and counts as a
+    mismatch — a session is never trusted under an unknown minting client.
 
     Parameters
     ----------
-    fingerprint : str
-        The :func:`client_fingerprint` of the resolved client pair.
+    acceptable : set[str]
+        The :func:`client_fingerprint` values of the acceptable minting
+        clients.
 
     Returns
     -------
     bool
-        ``True`` when the stored fingerprint matches the current client.
+        ``True`` when the stored fingerprint matches an accepted client.
 
     """
-    return config.get(_SESSION_CLIENT_KEY) == fingerprint
+    return config.get(_SESSION_CLIENT_KEY) in acceptable
 
 
 def _record_session_client(fingerprint: str) -> None:

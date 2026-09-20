@@ -60,19 +60,25 @@ class StreamingService(ABC):
         self,
         link_callback: Callable[[str], None] | None = None,
         cancel_check: Callable[[], bool] | None = None,
+        redirect_callback: Callable[[], str] | None = None,
     ) -> str:
         """Authenticate and return the connected user's display name.
 
         Parameters
         ----------
         link_callback : Callable[[str], None] | None
-            Passed the login URL for device-code flows (Tidal).  Ignored for
+            Passed the login URL for link-based flows (Tidal).  Ignored for
             browser-redirect flows (Spotify).
         cancel_check : Callable[[], bool] | None
             Optional callable polled while waiting for the user to complete
             the login.  When it returns ``True`` the flow aborts with a
             service error instead of blocking until the link expires.
             Services whose flow cannot be interrupted may ignore it.
+        redirect_callback : Callable[[], str] | None
+            Optional callable that returns the browser redirect URL the user
+            pastes back, for PKCE flows that cannot be intercepted (Tidal).
+            ``None`` selects the service's non-interactive fallback flow.
+            Ignored by services that do not need it.
 
         Returns
         -------
