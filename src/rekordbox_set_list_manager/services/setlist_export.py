@@ -111,6 +111,7 @@ def export_setlist(
     }
     written: list[Path] = []
     skipped: list[SkippedItem] = []
+    seen_skipped: set[tuple[str, str]] = set()
     for fmt in sorted(set(formats)):
         text, fmt_skipped = renderers[fmt](project)
         path = out_dir / f"{base}.{fmt}"
@@ -127,7 +128,12 @@ def export_setlist(
             err.path = path
             raise err from exc
         written.append(path)
-        skipped.extend(fmt_skipped)
+        # Skips arrive per format per track; dedupe on (label, reason) so
+        # the user-facing count describes distinct tracks, not render passes.
+        for item in fmt_skipped:
+            if (item.label, item.reason) not in seen_skipped:
+                seen_skipped.add((item.label, item.reason))
+                skipped.append(item)
     return SetlistExportResult(written=written, skipped=skipped)
 
 
