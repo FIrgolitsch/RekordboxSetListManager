@@ -63,10 +63,10 @@ class ColorPickerWidget(QWidget):
 
     def _refresh_styles(self) -> None:
         for rc, btn in self._buttons.items():
-            hex_color = REKORDBOX_COLOR_HEX.get(rc, "#888")
-            border = "white" if rc == self._selected else "transparent"
+            hex_color = REKORDBOX_COLOR_HEX.get(rc, "#585b70")
+            border = "#cdd6f4" if rc == self._selected else "transparent"
             btn.setStyleSheet(
                 f"QPushButton {{ background-color: {hex_color}; "
                 f"border: 2px solid {border}; border-radius: 11px; }} "
-                f"QPushButton:hover {{ border: 2px solid white; }}"
+                f"QPushButton:hover {{ border: 2px solid #cdd6f4; }}"
             )

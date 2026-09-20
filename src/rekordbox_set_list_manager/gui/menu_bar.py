@@ -59,16 +59,16 @@ def build_menus(window: MainWindow) -> None:
     window._edit_menu.addAction(window._act_redo)
     window._edit_menu.addSeparator()
     window._act_add_track = _action(
-        window, "Add Track…", QKeySequence("Ctrl+T"), window._track_ctrl.add_track
+        window, "Add &Track…", QKeySequence("Ctrl+T"), window._track_ctrl.add_track
     )
     window._act_add_section = _action(
         window,
-        "Add Section",
+        "Add &Section",
         QKeySequence("Ctrl+Shift+A"),
         window._multi_section_view.add_section_interactive,
     )
     window._act_filter = _action(
-        window, "Filter Tracks", QKeySequence("Ctrl+F"), window._multi_section_view.focus_filter
+        window, "&Filter Tracks", QKeySequence("Ctrl+F"), window._multi_section_view.focus_filter
     )
     window._edit_menu.addAction(window._act_add_track)
     window._edit_menu.addAction(window._act_add_section)
@@ -85,7 +85,7 @@ def build_menus(window: MainWindow) -> None:
     )
     window._act_export_setlist = _action(
         window,
-        "Export Setlist Files…",
+        "Export Setlist &Files…",
         None,
         window._project_actions.export_setlist,
     )
@@ -129,7 +129,7 @@ def build_menus(window: MainWindow) -> None:
     rematch_menu.addAction(window._act_rematch_manual)
     window._act_recolor = _action(
         window,
-        "&Recolor sections by type…",
+        "Re&color sections by type…",
         None,
         window._project_actions.recolor_by_type,
     )
