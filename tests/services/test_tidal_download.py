@@ -520,6 +520,18 @@ def test_download_track_cancel_mid_fetch_leaves_no_strays(tmp_path):
     assert list(download_dir.rglob("*.seg*")) == []
 
 
+def test_merged_event_wait_observes_source_events():
+    """``Event.wait`` reads only the instance flag, which merged sources
+    never set — the override must observe the sources instead."""
+    source = threading.Event()
+    merged = tidal_download._MergedEvent(source)
+
+    assert merged.wait(0.05) is False
+
+    source.set()
+    assert merged.wait(0.5) is True
+
+
 def test_classify_local_permission_error_is_io_not_auth():
     """A filesystem PermissionError must not masquerade as a Tidal auth
     failure — only the adapter's TidalAuthError means HTTP 401/403."""

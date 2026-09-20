@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from enum import StrEnum
@@ -183,6 +184,24 @@ class _MergedEvent(threading.Event):
     def is_set(self) -> bool:
         """True when this event or any source event is set."""
         return super().is_set() or any(source.is_set() for source in self._sources)
+
+    def wait(self, timeout: float | None = None) -> bool:
+        """Block until any source event is set or *timeout* elapses.
+
+        ``Event.wait`` reads only this instance's own flag — which the
+        merged sources never set — so the base implementation would block
+        forever; poll the merged state on a short interval instead.
+        """
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while not self.is_set():
+            if deadline is None:
+                super().wait(0.05)
+                continue
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return self.is_set()
+            super().wait(min(remaining, 0.05))
+        return True
 
 
 def _sanitize_component(value: str) -> str:
