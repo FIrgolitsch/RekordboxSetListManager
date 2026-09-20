@@ -27,14 +27,16 @@ from rekordbox_set_list_manager.services._tidal_download_adapter import (
     SegmentPlan,
     TidalCredentialsError,
 )
+from rekordbox_set_list_manager.services.skipped_item import SkippedItem
 from rekordbox_set_list_manager.utils import config
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable
 
 log = logging.getLogger(__name__)
 
 __all__ = [
+    "DownloadBatch",
     "DownloadErrorKind",
     "DownloadResult",
     "PlaybackInfo",
@@ -108,6 +110,31 @@ class DownloadResult:
     codec: str
     duration_s: float
     skipped_existing: bool = False
+
+
+@dataclass(frozen=True)
+class DownloadBatch:
+    """Aggregate outcome of :meth:`TidalDownloadService.download_many`.
+
+    Attributes
+    ----------
+    results : list[DownloadResult]
+        One entry per delivered track, including ``skipped_existing`` ones.
+    downgrades : list[DownloadResult]
+        The subset of *results* flagged ``downgraded`` — delivered files
+        that still need reporting, kept distinct from true failures.
+    failures : list[SkippedItem]
+        One entry per track that produced no file; ``reason`` carries the
+        classified kind as ``"<kind>: <message>"``.
+    cancelled : bool
+        ``True`` when the batch stopped early via *cancel_event*; completed
+        results and the interrupted track's failure are still reported.
+    """
+
+    results: list[DownloadResult]
+    downgrades: list[DownloadResult]
+    failures: list[SkippedItem]
+    cancelled: bool = False
 
 
 # Served-quality ordering mirrors tidalapi's Quality enum verbatim.
@@ -421,6 +448,70 @@ class TidalDownloadService:
             raise
         except Exception as exc:
             raise _classify_download_error(exc) from exc
+
+    def download_many(
+        self,
+        track_ids: Iterable[str],
+        *,
+        progress_cb: Callable[[float], None] | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> DownloadBatch:
+        """Download *track_ids* sequentially, isolating per-track failures.
+
+        Tracks run one at a time — inter-track scheduling is the caller's
+        concern; within a track the segment pool already overlaps fetches.
+        A single track's failure is classified into ``failures`` and never
+        aborts the batch.  *progress_cb* is forwarded verbatim to each
+        ``download_track`` call — batch-level progress is
+        ``(len(results) + len(failures)) / len(track_ids)``, which the
+        caller can compute; no second callback shape is introduced.
+
+        Parameters
+        ----------
+        track_ids : Iterable[str]
+            Tidal track ids, processed in iteration order.
+        progress_cb : Callable[[float], None] | None
+            Per-track progress fractions, forwarded to ``download_track``.
+        cancel_event : threading.Event | None
+            Checked before every track.  When set mid-batch the in-flight
+            track fails classified (``CANCELLED``) and the batch stops —
+            delivered results and the failure are still reported.
+
+        Returns
+        -------
+        DownloadBatch
+            Delivered results, the downgraded subset, classified failures,
+            and the cancelled flag.
+        """
+        results: list[DownloadResult] = []
+        downgrades: list[DownloadResult] = []
+        failures: list[SkippedItem] = []
+        cancelled = False
+        for track_id in (str(tid) for tid in track_ids):
+            if cancel_event is not None and cancel_event.is_set():
+                cancelled = True
+                break
+            try:
+                result = self.download_track(
+                    track_id, progress_cb=progress_cb, cancel_event=cancel_event
+                )
+            except TidalDownloadError as exc:
+                log.debug("Track %s failed classified (%s)", track_id, exc.kind.value)
+                failures.append(SkippedItem(track_id, f"{exc.kind.value}: {exc}"))
+                if exc.kind is DownloadErrorKind.CANCELLED:
+                    cancelled = True
+                    break
+            # Broad catch is deliberate — one track must never sink the batch.
+            except Exception as exc:
+                log.debug("Unexpected download failure for track %s", track_id, exc_info=True)
+                failures.append(SkippedItem(track_id, f"{DownloadErrorKind.NETWORK.value}: {exc}"))
+            else:
+                results.append(result)
+                if result.downgraded:
+                    downgrades.append(result)
+        return DownloadBatch(
+            results=results, downgrades=downgrades, failures=failures, cancelled=cancelled
+        )
 
     def _download(
         self,
