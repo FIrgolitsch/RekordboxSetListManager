@@ -937,6 +937,26 @@ def test_download_track_embeds_cover_art_as_apic(tmp_path):
     apic = WAVE(result.filepath).tags.getall("APIC")
     assert len(apic) == 1
     assert apic[0].data == _JPEG_BYTES
+    assert apic[0].mime == "image/jpeg"
+
+
+def test_download_track_png_cover_tags_image_png(tmp_path):
+    """Cover bytes are embedded with a MIME matching their magic — a PNG
+    payload must not be tagged ``image/jpeg``."""
+    png_bytes = b"\x89PNG\r\n\x1a\n" + bytes(range(32))
+    session = _FakeSession(
+        _load_fixture("playback_bts_flac_clear.json"),
+        _fake_tidal_track(image_url=_COVER_URL),
+    )
+    http = _FakeHttpByUrl({_BTS_SEG_URL: _flac_payload(), _COVER_URL: png_bytes})
+    service = TidalDownloadService(session, download_dir=tmp_path / "downloads", http=http)
+
+    result = service.download_track("12345678")
+
+    apic = WAVE(result.filepath).tags.getall("APIC")
+    assert len(apic) == 1
+    assert apic[0].mime == "image/png"
+    assert apic[0].data == png_bytes
 
 
 def test_download_track_cover_failure_still_succeeds(tmp_path):

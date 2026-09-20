@@ -240,7 +240,10 @@ def tag_wav(
         tags.add(TDRC(encoding=3, text=str(release_date)[:10]))
     tags.add(TXXX(encoding=3, desc="TIDAL_QUALITY", text=served_quality))
     if cover:
-        tags.add(APIC(encoding=3, mime="image/jpeg", type=3, data=cover))
+        # Covers are usually JPEG, but a PNG payload must not be tagged
+        # with the wrong MIME type.
+        mime = "image/png" if cover.startswith(b"\x89PNG") else "image/jpeg"
+        tags.add(APIC(encoding=3, mime=mime, type=3, data=cover))
     tags.save(path)
     _write_riff_info(path, _info_fields(tidal_track))
 
