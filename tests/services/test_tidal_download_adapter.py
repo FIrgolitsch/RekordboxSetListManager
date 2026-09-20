@@ -82,9 +82,11 @@ class _FakeHttp:
     def __init__(self, outcomes=()):
         self._outcomes = list(outcomes)
         self.calls = []
+        self.redirects = []
 
-    def get(self, url, stream=False, timeout=None):
+    def get(self, url, stream=False, timeout=None, allow_redirects=True):
         self.calls.append((url, stream, timeout))
+        self.redirects.append(allow_redirects)
         outcome = self._outcomes.pop(0) if self._outcomes else _FakeResp(500)
         if isinstance(outcome, Exception):
             raise outcome
@@ -386,6 +388,21 @@ def test_fetch_bytes_rejects_disallowed_urls_before_any_get(url):
     assert http.calls == []
 
 
+def test_fetch_bytes_refuses_redirect_off_allowlist():
+    """requests follows redirects to ANY host — a manifest URL on
+    ``*.tidal.com`` redirecting externally would defeat the allowlist, so
+    redirects are disabled and a 3xx is a fetch failure."""
+    http = _FakeHttp(
+        [_FakeResp(302, headers={"Location": "https://evil.example.com/seg"})]
+    )
+
+    with pytest.raises(ValueError, match="Refusing redirect"):
+        adapter.fetch_bytes(_SEGMENT_URL, http=http, gate=_fake_gate())
+
+    assert len(http.calls) == 1
+    assert http.redirects == [False]
+
+
 def test_fetch_bytes_retries_transport_error_then_succeeds():
     http = _FakeHttp([requests.ConnectionError("boom"), _FakeResp(200, b"ok")])
 
@@ -430,8 +447,10 @@ def test_fetch_bytes_cancel_checked_before_each_retry():
     cancel = threading.Event()
 
     class _CancellingHttp(_FakeHttp):
-        def get(self, url, stream=False, timeout=None):
-            resp = super().get(url, stream=stream, timeout=timeout)
+        def get(self, url, stream=False, timeout=None, allow_redirects=True):
+            resp = super().get(
+                url, stream=stream, timeout=timeout, allow_redirects=allow_redirects
+            )
             cancel.set()
             return resp
 

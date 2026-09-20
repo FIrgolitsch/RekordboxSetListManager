@@ -117,7 +117,7 @@ class _FakeHttp:
         self._bodies = [_FakeResp(200, body=b) for b in bodies]
         self.calls = []
 
-    def get(self, url, stream=False, timeout=None):
+    def get(self, url, stream=False, timeout=None, allow_redirects=True):
         self.calls.append(url)
         if self._bodies:
             return self._bodies.pop(0)
@@ -139,7 +139,7 @@ class _FakeHttpByUrl:
         self.inflight = 0
         self.max_inflight = 0
 
-    def get(self, url, stream=False, timeout=None):
+    def get(self, url, stream=False, timeout=None, allow_redirects=True):
         with self.calls_lock:
             self.calls.append(url)
             self.inflight += 1
@@ -191,7 +191,7 @@ class _ReverseOrderHttp:
         self.inflight = 0
         self.max_inflight = 0
 
-    def get(self, url, stream=False, timeout=None):
+    def get(self, url, stream=False, timeout=None, allow_redirects=True):
         index = next(i for i, (u, _b) in enumerate(self._items) if u == url)
         with self._cond:
             self.calls.append(url)
@@ -493,8 +493,10 @@ def test_download_track_cancel_mid_fetch_leaves_no_strays(tmp_path):
     cancel = threading.Event()
 
     class _CancellingHttp(_FakeHttpByUrl):
-        def get(self, url, stream=False, timeout=None):
-            resp = super().get(url, stream=stream, timeout=timeout)
+        def get(self, url, stream=False, timeout=None, allow_redirects=True):
+            resp = super().get(
+                url, stream=stream, timeout=timeout, allow_redirects=allow_redirects
+            )
             if len(self.calls) >= 2:
                 cancel.set()
             return resp

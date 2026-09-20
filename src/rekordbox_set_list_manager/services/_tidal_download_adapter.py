@@ -48,6 +48,8 @@ _MAX_RETRIES = 5
 _SEGMENT_HOST_SUFFIX = ".tidal.com"
 _STATUS_TOO_MANY_REQUESTS = 429
 _STATUS_SERVER_ERROR_MIN = 500
+_STATUS_REDIRECT_MIN = 300
+_STATUS_BAD_REQUEST_MIN = 400
 # Bound on a server-supplied Retry-After hint — the backoff sleep runs under
 # the global gate lock, so an unbounded hint would stall every worker.
 _RETRY_AFTER_CAP = 300.0  # seconds
@@ -276,6 +278,29 @@ def _retry_after(resp: requests.Response) -> float:
         return 0.0
 
 
+def _retriable_status_hint(resp: requests.Response, url: str) -> float | None:
+    """Classify *resp*'s status before the body is read.
+
+    Returns the ``Retry-After`` hint (``0.0`` when absent) for a retriable
+    status — 429 or 5xx — and ``None`` when the body may be read.  Terminal
+    statuses raise instead: 401/403 as :class:`PermissionError`, redirects
+    as :class:`ValueError` (redirect-following is disabled, so a manifest
+    cannot steer the GET off the ``*.tidal.com`` allowlist), and any other
+    error status via ``raise_for_status``.
+    """
+    status = resp.status_code
+    if status == _STATUS_TOO_MANY_REQUESTS:
+        return _retry_after(resp)
+    if status in (401, 403):
+        raise PermissionError(f"Tidal segment GET refused ({status}): {url}")
+    if status >= _STATUS_SERVER_ERROR_MIN:
+        return 0.0
+    if _STATUS_REDIRECT_MIN <= status < _STATUS_BAD_REQUEST_MIN:
+        raise ValueError(f"Refusing redirect for segment GET ({status}): {url}")
+    resp.raise_for_status()
+    return None
+
+
 def fetch_bytes(
     url: str,
     *,
@@ -332,23 +357,18 @@ def fetch_bytes(
             # A streamed body must be closed (or fully consumed) before
             # urllib3 returns the connection to the pool — the `with`
             # guarantees close() on every retry and raise path below.
-            with http.get(url, stream=True, timeout=(10, 30)) as resp:
+            # Redirects are refused outright: requests would follow them to
+            # any host, silently defeating the allowlist check above.
+            with http.get(
+                url, stream=True, timeout=(10, 30), allow_redirects=False
+            ) as resp:
                 # Status code first — a 429 body is not valid JSON.
-                if resp.status_code == _STATUS_TOO_MANY_REQUESTS:
+                hint = _retriable_status_hint(resp, url)
+                if hint is not None:
                     if attempt == _MAX_RETRIES - 1:
                         break
-                    gate.backoff(attempt, hint=_retry_after(resp))
+                    gate.backoff(attempt, hint=hint)
                     continue
-                if resp.status_code in (401, 403):
-                    raise PermissionError(
-                        f"Tidal segment GET refused ({resp.status_code}): {url}"
-                    )
-                if resp.status_code >= _STATUS_SERVER_ERROR_MIN:
-                    if attempt == _MAX_RETRIES - 1:
-                        break
-                    gate.backoff(attempt)
-                    continue
-                resp.raise_for_status()
                 chunks = []
                 for chunk in resp.iter_content(1 << 16):
                     if cancel is not None and cancel.is_set():
