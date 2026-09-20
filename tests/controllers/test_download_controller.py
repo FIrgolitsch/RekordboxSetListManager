@@ -20,6 +20,8 @@ from rekordbox_set_list_manager.controllers.download_controller import (
 )
 from rekordbox_set_list_manager.gui.widgets.common.download_worker import (
     DownloadWorker,
+    _sanitize_message,
+    _Throttle,
 )
 from rekordbox_set_list_manager.services.tidal_download import (
     DownloadErrorKind,
@@ -427,3 +429,156 @@ def test_item_failed_message_strips_url_query(make_ctrl, qtbot):
     assert "token=" not in msg
     assert "SECRET" not in msg
     assert "#frag" not in msg
+
+
+# --- Invariant battery -------------------------------------------------------
+
+
+class _FakeClock:
+    """Deterministic monotonic clock — ``advance`` moves time forward."""
+
+    def __init__(self, start=100.0):
+        self.now = start
+
+    def advance(self, seconds):
+        self.now += seconds
+
+    def monotonic(self):
+        return self.now
+
+
+def test_throttle_first_call_and_terminal_always_emit():
+    clock = _FakeClock()
+    throttle = _Throttle(monotonic=clock.monotonic)
+    assert throttle.feed(0.0) == 0.0  # first call always emits
+    assert throttle.feed(1.0) == 1.0  # terminal always emits
+
+
+def test_throttle_gates_on_delta_and_interval():
+    clock = _FakeClock()
+    throttle = _Throttle(monotonic=clock.monotonic)
+    assert throttle.feed(0.0) == 0.0
+    clock.advance(0.05)
+    assert throttle.feed(0.02) is None  # delta ok, interval not elapsed
+    clock.advance(0.1)
+    assert throttle.feed(0.03) == 0.03  # both gates pass (0.15 s elapsed)
+    assert throttle.feed(0.5) is None  # interval resets at the last emit
+    clock.advance(0.125)
+    assert throttle.feed(0.51) == 0.51
+    assert throttle.feed(0.52) is None  # fresh emit resets the interval gate
+    assert throttle.feed(1.0) == 1.0
+
+
+def test_throttle_delta_measures_from_last_emit_not_last_feed():
+    clock = _FakeClock()
+    throttle = _Throttle(monotonic=clock.monotonic)
+    assert throttle.feed(0.0) == 0.0
+    clock.advance(0.2)
+    assert throttle.feed(0.005) is None  # interval elapsed, delta too small
+    clock.advance(0.2)
+    assert throttle.feed(0.009) is None  # suppressed feeds don't rebase delta
+    clock.advance(0.2)
+    assert throttle.feed(0.011) == 0.011
+
+
+def test_throttle_emissions_stay_within_bounds():
+    throttle = _Throttle()
+    out = [throttle.feed(f) for f in (0.0, 0.4, 0.7, 1.0)]
+    emitted = [f for f in out if f is not None]
+    assert all(0.0 <= f <= 1.0 for f in emitted)
+
+
+def test_progress_burst_is_coalesced(make_ctrl, qtbot):
+    ctrl, fake = make_ctrl()
+    fracs = []
+    finished = []
+    ctrl.item_progress.connect(lambda _iid, frac: fracs.append(frac))
+    ctrl.item_finished.connect(lambda *a: finished.append(a))
+
+    def burst(track_id, progress_cb, cancel_event):
+        for i in range(1, 51):
+            progress_cb(i / 50)
+        return _result(track_id)
+
+    fake.handlers["t1"] = burst
+    ctrl.enqueue([("t1", "L1")])
+    qtbot.waitUntil(lambda: len(finished) == 1, timeout=5000)
+    assert fracs[0] == 0.0
+    assert fracs[-1] == 1.0
+    assert fracs == sorted(fracs)
+    # The 50-call burst runs in microseconds at real-clock speed, so the
+    # interval gate suppresses nearly everything — the bound sits far under
+    # the burst count but well above the observed ~3 emissions.
+    assert len(fracs) <= 15
+
+
+def test_queue_drained_refires_for_each_busy_cycle(make_ctrl, qtbot):
+    ctrl, _fake = make_ctrl()
+    drained = []
+    ctrl.queue_drained.connect(lambda: drained.append(True))
+    ctrl.enqueue([("t1", "L1")])
+    qtbot.waitUntil(lambda: len(drained) == 1, timeout=5000)
+    ctrl.enqueue([("t2", "L2")])
+    qtbot.waitUntil(lambda: len(drained) == 2, timeout=5000)
+
+
+def test_batch_finished_emits_once_per_enqueue_in_order(make_ctrl, qtbot):
+    ctrl, _fake = make_ctrl()
+    cap = _Capture(ctrl)
+    ctrl.enqueue([("t1", "L1"), ("t2", "L2")])
+    ctrl.enqueue([("t3", "L3")])
+    qtbot.waitUntil(lambda: len(cap.of("batch")) == 2, timeout=5000)
+    added = cap.of("added")
+    batch1, batch2 = added[0][2], added[-1][2]
+    assert batch1 != batch2
+    assert [a[2] for a in added[:2]] == [batch1, batch1]
+    assert added[2][2] == batch2
+    assert [a[0] for a in cap.of("batch")] == [batch1, batch2]
+
+
+def test_terminal_completeness_under_mixed_ops(make_ctrl, qtbot):
+    ctrl, fake = make_ctrl()
+    cap = _Capture(ctrl)
+    gate = threading.Event()
+
+    def block_then_succeed(track_id, progress_cb, cancel_event):
+        gate.wait(5)
+        if cancel_event.is_set():
+            raise TidalDownloadError("cancelled", kind=DownloadErrorKind.CANCELLED)
+        return _succeed(track_id, progress_cb, cancel_event)
+
+    fake.handlers["t1"] = block_then_succeed
+    ids1 = ctrl.enqueue([("t1", "L1"), ("t2", "L2"), ("t3", "L3")])
+    qtbot.waitUntil(lambda: fake.calls == ["t1"], timeout=3000)
+    ctrl.cancel(ids1[2])  # cancel a queued item behind the runner
+    gate.set()
+    ctrl.pause()
+    ctrl.resume()  # pause+resume mid-sequence
+    ids2 = ctrl.enqueue([("t4", "L4")])  # interleave a second batch
+    ctrl.shutdown()  # shut down mid-drain
+    qtbot.waitUntil(lambda: cap.of("worker_done") != [], timeout=3000)
+
+    snap = ctrl.snapshot()
+    assert len(snap) == 4
+    assert all(r.state in _TERMINAL for r in snap)
+
+    terminal_counts: dict[str, int] = {}
+    for name in ("finished", "failed", "cancelled"):
+        for args in cap.of(name):
+            terminal_counts[args[0]] = terminal_counts.get(args[0], 0) + 1
+    assert set(terminal_counts) == set(ids1 + ids2)
+    assert all(count == 1 for count in terminal_counts.values())
+
+    # An enqueue issued after shutdown is rejected rather than stranding
+    # a record that could never reach a terminal state.
+    assert ctrl.enqueue([("t5", "L5")]) == []
+    assert len(ctrl.snapshot()) == 4
+
+
+def test_sanitize_message_strips_url_query_and_fragment():
+    msg = "fetch https://example.tidal.com/seg?token=SECRET#frag failed"
+    clean = _sanitize_message(msg)
+    assert "https://example.tidal.com/seg" in clean
+    assert "token=" not in clean
+    assert "SECRET" not in clean
+    assert "#frag" not in clean
