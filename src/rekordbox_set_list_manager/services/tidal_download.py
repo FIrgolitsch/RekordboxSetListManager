@@ -376,9 +376,9 @@ def _classify_download_error(exc: Exception) -> TidalDownloadError:
 class TidalDownloadService:
     """Download Tidal tracks as tagged, validated WAV files.
 
-    The constructor applies the user-supplied client credentials to the
-    session defensively so a directly-constructed service can never silently
-    run under tidalapi's embedded (AAC-capped) client.
+    The constructor re-applies the resolved client credentials to the
+    session defensively — a user-supplied pair wins when configured,
+    otherwise the session's embedded defaults stay in effect.
 
     Parameters
     ----------
@@ -415,10 +415,7 @@ class TidalDownloadService:
         http: requests.Session | None = None,
         workers: int = _DEFAULT_WORKERS,
     ) -> None:
-        try:
-            _tidal_download_adapter.apply_client_credentials(session)
-        except TidalCredentialsError as exc:
-            raise TidalDownloadError(str(exc), kind=DownloadErrorKind.INVALID_CLIENT) from exc
+        _tidal_download_adapter.apply_client_credentials(session)
         self._session = session
         raw_dir = download_dir if download_dir is not None else config.get(_CFG_DOWNLOAD_DIR)
         self._download_dir = (

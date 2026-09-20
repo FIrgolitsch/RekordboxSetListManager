@@ -6,13 +6,15 @@ All interaction with tidalapi's semi-private ``session.request.request`` API
 GETs lives behind this seam so a tidalapi API change produces one localized
 failure.
 
-Error boundary: this module raises :class:`TidalCredentialsError` for missing
-client credentials and lets tidalapi exceptions (``TooManyRequests``,
-``ObjectNotFound``, ``StreamNotAvailable``) plus :class:`TidalAuthError` and
-builtin ``TimeoutError`` / ``InterruptedError`` propagate;
-``tidal_download`` maps them onto its classified error kinds.  Keeping that
-edge one-directional avoids a circular import (the service imports the
-adapter, never the reverse).
+Error boundary: :func:`resolve_client_credentials` raises
+:class:`TidalCredentialsError` for missing user-supplied credentials, while
+:func:`apply_client_credentials` falls back to the session's embedded pair.
+tidalapi exceptions (``TooManyRequests``, ``ObjectNotFound``,
+``StreamNotAvailable``) plus :class:`TidalAuthError` and builtin
+``TimeoutError`` / ``InterruptedError`` propagate; ``tidal_download`` maps
+them onto its classified error kinds.  Keeping that edge one-directional
+avoids a circular import (the service imports the adapter, never the
+reverse).
 """
 
 import hashlib
@@ -120,6 +122,12 @@ def client_fingerprint(client_id: str) -> str:
 def apply_client_credentials(session: tidalapi.Session) -> str:
     """Apply the resolved client pair to *session* before any login/refresh.
 
+    A user-supplied pair (env var → ``config.json``) wins when configured;
+    otherwise *session* keeps tidalapi's embedded defaults so device-code
+    auth works with no setup.  An embedded pair may serve capped quality —
+    the download floor reports that through the served-quality check rather
+    than gating authentication.
+
     ``Config.__init__`` base64-decodes embedded defaults into plain
     attributes, so plain-string assignment is correct.
 
@@ -131,11 +139,15 @@ def apply_client_credentials(session: tidalapi.Session) -> str:
     Returns
     -------
     str
-        The :func:`client_fingerprint` of the applied client id.
+        The :func:`client_fingerprint` of the client id in effect.
     """
-    client_id, client_secret = resolve_client_credentials()
-    session.config.client_id = client_id
-    session.config.client_secret = client_secret
+    try:
+        client_id, client_secret = resolve_client_credentials()
+    except TidalCredentialsError:
+        client_id = str(session.config.client_id)
+    else:
+        session.config.client_id = client_id
+        session.config.client_secret = client_secret
     return client_fingerprint(client_id)
 
 

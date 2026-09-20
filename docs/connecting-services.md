@@ -49,36 +49,32 @@ The access token is cached locally and reused for subsequent sessions.  You will
 
 ## Tidal
 
-Tidal uses a **device-code flow**, but requires your own Tidal API client credentials — a `client_id`/`client_secret` pair.  The app ships no built-in pair.
+Tidal uses a **device-code flow** — no credentials to configure.  The app authenticates with its built-in client pair.
 
-**Why credentials are required:** the audio quality Tidal serves is keyed to the OAuth client identity used to authenticate.  Connecting without your own pair — or with a capped one — silently limits every stream to 320 kbps AAC, even when your subscription entitles you to lossless.
+### Step 1 — Authenticate
 
-### Step 1 — Obtain a client_id/client_secret pair
+Either of these works — both run the same flow and share the same cached session:
 
-Create an app in the [Tidal developer portal](https://developer.tidal.com) and copy its `client_id` and `client_secret`, or supply a pair from a source you trust.
+- Open **Project → Service Settings…** and click **Connect to Tidal…** in the Tidal section, or
+- Open **Project → Import from Streaming Service…**, select the **Tidal** tab, and click **Connect**.
 
-### Step 2 — Configure the credentials
+Then:
 
-Set them in **either** of two places (the environment variables win when both are set):
+1. A login link appears in the dialog.  Open it in a browser and log in with your Tidal account.
+2. Approve access when prompted.
 
-- The environment variables `SET_MANAGER_TIDAL_CLIENT_ID` and `SET_MANAGER_TIDAL_CLIENT_SECRET`, or
-- The `tidal_client_id` and `tidal_client_secret` keys in `config.json` inside the app's user config directory (e.g. `~/Library/Application Support/rekordbox_set_list_manager/` on macOS).
-
-If neither is set, connecting fails with an error naming these variables and keys.
-
-### Step 3 — Authenticate
-
-1. Open **Project → Import from Streaming Service…**
-2. Select the **Tidal** tab.
-3. Click **Connect to Tidal**.
-4. A URL is printed to the terminal (and shown in the dialog).  Open it in a browser and log in with your Tidal account.
-5. Approve access when prompted.
-
-### Step 4 — Done
+### Step 2 — Done
 
 The session is cached to disk.  On future launches, Rekordbox Set List Manager reuses the cached session — the browser flow is only needed once (or if you clear the session manually).
 
-The cached session records which client credentials minted it.  If you change your `client_id`/`client_secret`, the app detects the change, discards the stale session, and re-runs the device-code flow automatically — a session minted under a different client can never silently keep serving at that client's quality cap.
+The cached session records which client credentials minted it.  If you configure a different `client_id`/`client_secret`, the app detects the change, discards the stale session, and re-runs the device-code flow automatically — a session minted under a different client can never silently keep serving at that client's quality cap.
+
+### Optional — your own client credentials
+
+The audio quality Tidal serves is keyed to the OAuth client identity used to authenticate.  The built-in pair may be capped at 320 kbps AAC; if downloads report capped quality, you can supply your own `client_id`/`client_secret` pair (e.g. from the [Tidal developer portal](https://developer.tidal.com)) in **either** of two places — the environment variables win when both are set:
+
+- The environment variables `SET_MANAGER_TIDAL_CLIENT_ID` and `SET_MANAGER_TIDAL_CLIENT_SECRET`, or
+- The `tidal_client_id` and `tidal_client_secret` keys in `config.json` inside the app's user config directory (e.g. `~/Library/Application Support/rekordbox_set_list_manager/` on macOS).
 
 ### Clearing the cached Tidal session
 

@@ -95,14 +95,13 @@ class TidalService(StreamingService):
         """
         _CACHE_DIR.mkdir(parents=True, exist_ok=True)
         session = tidalapi.Session()
-        # The user-supplied client pair must sit on the session before any
-        # session-file load or login — token refresh and device auth both post
+        # The client pair must sit on the session before any session-file
+        # load or login — token refresh and device auth both post
         # config.client_id.  Credential application lives behind the download
-        # adapter's seam so playlist import and downloads share one resolver.
-        try:
-            fingerprint = _tidal_adapter.apply_client_credentials(session)
-        except _tidal_adapter.TidalCredentialsError as exc:
-            raise TidalServiceError(str(exc)) from exc
+        # adapter's seam so playlist import and downloads share one resolver;
+        # a configured pair wins, otherwise the session keeps its embedded
+        # defaults.
+        fingerprint = _tidal_adapter.apply_client_credentials(session)
 
         # Fast path: load existing session from disk — but only when it was
         # minted under the current client pair.  An unfingerprinted file
@@ -251,13 +250,7 @@ class TidalService(StreamingService):
         try:
             _CACHE_DIR.mkdir(parents=True, exist_ok=True)
             session = tidalapi.Session()
-            try:
-                fingerprint = _tidal_adapter.apply_client_credentials(session)
-            except _tidal_adapter.TidalCredentialsError as exc:
-                # The silent path never raises into startup — missing
-                # credentials just mean there is nothing to restore.
-                log.warning("%s", exc)
-                return None
+            fingerprint = _tidal_adapter.apply_client_credentials(session)
             if not _session_fingerprint_ok(fingerprint):
                 log.info(
                     "Cached Tidal session was minted under different client "

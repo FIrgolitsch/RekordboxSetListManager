@@ -16,10 +16,11 @@ The Redirect URI is fixed at `http://127.0.0.1:8888/callback`.  Make sure this e
 
 ## Tidal
 
-Tidal requires your own API client credentials — a `client_id`/`client_secret` pair set via the `SET_MANAGER_TIDAL_CLIENT_ID`/`SET_MANAGER_TIDAL_CLIENT_SECRET` environment variables or the `tidal_client_id`/`tidal_client_secret` keys in `config.json`.  Authentication uses a device-code flow initiated from the Import dialog.  See [Connecting Streaming Services → Tidal](connecting-services.md#tidal) for setup instructions.
+Tidal connects via a device-code flow — click **Connect to Tidal…**, approve the login in your browser once, and the session stays cached on this machine.  No credentials are required.  See [Connecting Streaming Services → Tidal](connecting-services.md#tidal) for details, including the optional client-credential override.
 
 | Button | Description |
 |---|---|
+| **Connect to Tidal…** | Start the device-code login.  A browser link appears while the app waits for approval. |
 | **Clear Cached Tidal Session** | Delete the stored session file.  The next connection will require a new browser login. |
 
 ---

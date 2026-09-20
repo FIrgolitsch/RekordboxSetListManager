@@ -542,27 +542,18 @@ def test_authenticate_falls_back_to_config_credentials(mock_cls, monkeypatch):
 
 
 @patch("tidalapi.Session")
-def test_authenticate_missing_credentials_raises_actionable_error(mock_cls, monkeypatch):
-    """No credentials anywhere raises before any session load or login."""
+def test_authenticate_without_credentials_uses_embedded_pair(mock_cls, monkeypatch):
+    """No configured pair keeps tidalapi's embedded credentials — auth just works."""
     monkeypatch.delenv("SET_MANAGER_TIDAL_CLIENT_ID", raising=False)
     monkeypatch.delenv("SET_MANAGER_TIDAL_CLIENT_SECRET", raising=False)
     session = _make_session()
+    session.config.client_id = "embedded-id"
+    session.config.client_secret = "embedded-secret"  # noqa: S105 — fixture value
     mock_cls.return_value = session
 
-    with pytest.raises(TidalServiceError) as excinfo:
-        TidalService().authenticate()
-
-    message = str(excinfo.value)
-    for identifier in (
-        "SET_MANAGER_TIDAL_CLIENT_ID",
-        "SET_MANAGER_TIDAL_CLIENT_SECRET",
-        "tidal_client_id",
-        "tidal_client_secret",
-    ):
-        assert identifier in message
-    session.load_session_from_file.assert_not_called()
-    session.login_oauth_simple.assert_not_called()
-    session.login_oauth.assert_not_called()
+    assert TidalService().authenticate() == "DJ Test"
+    assert session.config.client_id == "embedded-id"
+    assert session.config.client_secret == "embedded-secret"  # noqa: S105
 
 
 @patch("tidalapi.Session")
@@ -646,21 +637,40 @@ def test_authenticate_records_client_fingerprint_after_fresh_login(mock_cls, tmp
 
 
 @patch("tidalapi.Session")
-def test_try_silent_authenticate_without_credentials_warns_and_returns_none(
-    mock_cls, tmp_path, monkeypatch, caplog
+def test_try_silent_authenticate_without_credentials_discards_mismatched_file(
+    mock_cls, tmp_path, monkeypatch
 ):
-    """The silent path warns instead of raising when no credentials exist."""
-    _existing_session_file(tmp_path, monkeypatch)
+    """With no configured pair, a file minted under another client is discarded."""
+    session_file = _existing_session_file(tmp_path, monkeypatch)
     monkeypatch.delenv("SET_MANAGER_TIDAL_CLIENT_ID", raising=False)
     monkeypatch.delenv("SET_MANAGER_TIDAL_CLIENT_SECRET", raising=False)
     session = _make_session()
+    session.config.client_id = "embedded-id"
+    session.config.client_secret = "embedded-secret"  # noqa: S105 — fixture value
     mock_cls.return_value = session
 
-    with caplog.at_level(logging.WARNING, logger=svc_mod.__name__):
-        assert TidalService().try_silent_authenticate() is None
-
+    assert TidalService().try_silent_authenticate() is None
+    assert not session_file.exists()
     session.load_session_from_file.assert_not_called()
-    assert any("SET_MANAGER_TIDAL_CLIENT_ID" in record.getMessage() for record in caplog.records)
+
+
+@patch("tidalapi.Session")
+def test_try_silent_authenticate_embedded_pair_restores_matching_file(
+    mock_cls, tmp_path, monkeypatch
+):
+    """A session minted under the embedded client restores with no configured pair."""
+    _existing_session_file(tmp_path, monkeypatch)
+    monkeypatch.delenv("SET_MANAGER_TIDAL_CLIENT_ID", raising=False)
+    monkeypatch.delenv("SET_MANAGER_TIDAL_CLIENT_SECRET", raising=False)
+    config_mod.set_value(
+        "tidal_session_client", _tidal_download_adapter.client_fingerprint("embedded-id")
+    )
+    session = _make_session()
+    session.config.client_id = "embedded-id"
+    session.config.client_secret = "embedded-secret"  # noqa: S105 — fixture value
+    mock_cls.return_value = session
+
+    assert TidalService().try_silent_authenticate() == "DJ Test"
 
 
 @patch("tidalapi.Session")

@@ -183,6 +183,19 @@ def test_apply_client_credentials_sets_session_and_fingerprint():
     assert fingerprint != adapter.client_fingerprint("other-id")
 
 
+def test_apply_client_credentials_falls_back_to_embedded_pair():
+    """No configured pair keeps the session's embedded credentials untouched."""
+    session = _FakeSession()
+    session.config.client_id = "embedded-id"
+    session.config.client_secret = "embedded-secret"  # noqa: S105
+
+    fingerprint = adapter.apply_client_credentials(session)
+
+    assert session.config.client_id == "embedded-id"
+    assert session.config.client_secret == "embedded-secret"  # noqa: S105
+    assert fingerprint == adapter.client_fingerprint("embedded-id")
+
+
 # ---------------------------------------------------------------------------
 # RateGate
 # ---------------------------------------------------------------------------
