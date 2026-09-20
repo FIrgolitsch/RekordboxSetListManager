@@ -10,13 +10,43 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import rekordbox_set_list_manager.services.tidal_service as svc_mod
+import rekordbox_set_list_manager.utils.config as config_mod
 from rekordbox_set_list_manager.models.enums import MatchStatus, TrackSource
+from rekordbox_set_list_manager.services import _tidal_download_adapter
 from rekordbox_set_list_manager.services.streaming_base import PlaylistResult
 from rekordbox_set_list_manager.services.tidal_service import (
     TidalService,
     TidalServiceError,
     _tidal_to_track,
 )
+
+_TEST_CLIENT_ID = "test-client-id"
+_TEST_CLIENT_SECRET = "test-client-secret"  # noqa: S105 — fixture value, not a real secret
+
+
+@pytest.fixture(autouse=True)
+def _isolate_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Isolate config and run every test under a fixed credential pair.
+
+    The pre-existing suite predates the credential requirement, so it runs
+    under a fixed env pair plus the matching stored minting-client
+    fingerprint — the credential and fingerprint gates stay transparent to
+    it.  Tests that exercise those gates override env/config in the test
+    body.  ``_SESSION_FILE`` is redirected too so no test can touch the real
+    cached session file.
+    """
+    config_dir = tmp_path / "config"
+    monkeypatch.setattr(config_mod, "_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(config_mod, "_CONFIG_PATH", config_dir / "config.json")
+    monkeypatch.setattr(config_mod, "_cache", None)
+    monkeypatch.delenv("SET_MANAGER_TIDAL_CLIENT_ID", raising=False)
+    monkeypatch.delenv("SET_MANAGER_TIDAL_CLIENT_SECRET", raising=False)
+    monkeypatch.setenv("SET_MANAGER_TIDAL_CLIENT_ID", _TEST_CLIENT_ID)
+    monkeypatch.setenv("SET_MANAGER_TIDAL_CLIENT_SECRET", _TEST_CLIENT_SECRET)
+    monkeypatch.setattr(svc_mod, "_SESSION_FILE", tmp_path / "tidal_session.json")
+    config_mod.set_value(
+        "tidal_session_client", _tidal_download_adapter.client_fingerprint(_TEST_CLIENT_ID)
+    )
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -427,3 +457,239 @@ def test_try_silent_authenticate_chmods_session_file(mock_cls, tmp_path, monkeyp
 
     assert name == "DJ Test"
     assert (session_file.stat().st_mode & 0o777) == 0o600
+
+
+# ---------------------------------------------------------------------------
+# Credential wiring — the user-supplied client pair must land on the session
+# before any session-file load or login, and the cached session file is bound
+# to the client that minted it via the ``tidal_session_client`` fingerprint.
+# ---------------------------------------------------------------------------
+
+
+def _existing_session_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Create a cached-session file inside the isolated tmp dir."""
+    session_file = tmp_path / "tidal_session.json"
+    session_file.write_text("{}")
+    monkeypatch.setattr(svc_mod, "_SESSION_FILE", session_file)
+    return session_file
+
+
+@patch("tidalapi.Session")
+def test_authenticate_applies_env_credentials_before_session_load(mock_cls, monkeypatch):
+    """The resolved client pair lands on session.config before any session I/O."""
+    monkeypatch.setenv("SET_MANAGER_TIDAL_CLIENT_ID", "env-id")
+    monkeypatch.setenv("SET_MANAGER_TIDAL_CLIENT_SECRET", "env-secret")
+    session = _make_session()
+    seen = {}
+
+    def _load(_path):
+        seen["client_id"] = session.config.client_id
+        seen["client_secret"] = session.config.client_secret
+        return True
+
+    session.load_session_from_file.side_effect = _load
+    mock_cls.return_value = session
+
+    assert TidalService().authenticate() == "DJ Test"
+    assert seen == {"client_id": "env-id", "client_secret": "env-secret"}
+
+
+@patch("tidalapi.Session")
+def test_authenticate_env_credentials_beat_config(mock_cls, monkeypatch):
+    """The env pair wins when both env and config.json carry credentials."""
+    config_mod.set_value("tidal_client_id", "cfg-id")
+    config_mod.set_value("tidal_client_secret", "cfg-secret")
+    monkeypatch.setenv("SET_MANAGER_TIDAL_CLIENT_ID", "env-id")
+    monkeypatch.setenv("SET_MANAGER_TIDAL_CLIENT_SECRET", "env-secret")
+    session = _make_session()
+    seen = {}
+
+    def _load(_path):
+        seen["client_id"] = session.config.client_id
+        seen["client_secret"] = session.config.client_secret
+        return True
+
+    session.load_session_from_file.side_effect = _load
+    mock_cls.return_value = session
+
+    TidalService().authenticate()
+
+    assert seen == {"client_id": "env-id", "client_secret": "env-secret"}
+
+
+@patch("tidalapi.Session")
+def test_authenticate_falls_back_to_config_credentials(mock_cls, monkeypatch):
+    """With no env pair, the config.json pair is applied to the session."""
+    monkeypatch.delenv("SET_MANAGER_TIDAL_CLIENT_ID", raising=False)
+    monkeypatch.delenv("SET_MANAGER_TIDAL_CLIENT_SECRET", raising=False)
+    config_mod.set_value("tidal_client_id", "cfg-id")
+    config_mod.set_value("tidal_client_secret", "cfg-secret")
+    session = _make_session()
+    seen = {}
+
+    def _load(_path):
+        seen["client_id"] = session.config.client_id
+        seen["client_secret"] = session.config.client_secret
+        return True
+
+    session.load_session_from_file.side_effect = _load
+    mock_cls.return_value = session
+
+    TidalService().authenticate()
+
+    assert seen == {"client_id": "cfg-id", "client_secret": "cfg-secret"}
+
+
+@patch("tidalapi.Session")
+def test_authenticate_missing_credentials_raises_actionable_error(mock_cls, monkeypatch):
+    """No credentials anywhere raises before any session load or login."""
+    monkeypatch.delenv("SET_MANAGER_TIDAL_CLIENT_ID", raising=False)
+    monkeypatch.delenv("SET_MANAGER_TIDAL_CLIENT_SECRET", raising=False)
+    session = _make_session()
+    mock_cls.return_value = session
+
+    with pytest.raises(TidalServiceError) as excinfo:
+        TidalService().authenticate()
+
+    message = str(excinfo.value)
+    for identifier in (
+        "SET_MANAGER_TIDAL_CLIENT_ID",
+        "SET_MANAGER_TIDAL_CLIENT_SECRET",
+        "tidal_client_id",
+        "tidal_client_secret",
+    ):
+        assert identifier in message
+    session.load_session_from_file.assert_not_called()
+    session.login_oauth_simple.assert_not_called()
+    session.login_oauth.assert_not_called()
+
+
+@patch("tidalapi.Session")
+def test_authenticate_matching_fingerprint_keeps_cached_session(
+    mock_cls, tmp_path, monkeypatch
+):
+    """A session minted under the current client loads without re-auth."""
+    session_file = _existing_session_file(tmp_path, monkeypatch)
+    session = _make_session()
+    mock_cls.return_value = session
+
+    assert TidalService().authenticate() == "DJ Test"
+    assert session_file.exists()
+    session.load_session_from_file.assert_called_once()
+    session.login_oauth_simple.assert_not_called()
+    session.login_oauth.assert_not_called()
+
+
+@patch("tidalapi.Session")
+def test_authenticate_mismatched_fingerprint_discards_session_and_reauths(
+    mock_cls, tmp_path, monkeypatch
+):
+    """A session minted under another client is deleted before load and re-authed."""
+    session_file = _existing_session_file(tmp_path, monkeypatch)
+    config_mod.set_value("tidal_session_client", "fingerprint-of-another-client")
+    session = _make_session(login_ok=False)
+    session.check_login.return_value = True
+    session.save_session_to_file.side_effect = lambda path: Path(path).write_text("{}")
+    seen = {}
+
+    def _load(_path):
+        seen["file_existed_at_load"] = session_file.exists()
+        return False
+
+    session.load_session_from_file.side_effect = _load
+    mock_cls.return_value = session
+
+    assert TidalService().authenticate() == "DJ Test"
+    assert seen["file_existed_at_load"] is False
+    session.login_oauth_simple.assert_called_once()
+    assert config_mod.get("tidal_session_client") == (
+        _tidal_download_adapter.client_fingerprint(_TEST_CLIENT_ID)
+    )
+
+
+@patch("tidalapi.Session")
+def test_authenticate_unfingerprinted_session_is_discarded(mock_cls, tmp_path, monkeypatch):
+    """A pre-existing session file with no recorded fingerprint re-authenticates."""
+    session_file = _existing_session_file(tmp_path, monkeypatch)
+    config_mod._cache.pop("tidal_session_client", None)
+    session = _make_session(login_ok=False)
+    session.check_login.return_value = True
+    session.save_session_to_file.side_effect = lambda path: Path(path).write_text("{}")
+    seen = {}
+
+    def _load(_path):
+        seen["file_existed_at_load"] = session_file.exists()
+        return False
+
+    session.load_session_from_file.side_effect = _load
+    mock_cls.return_value = session
+
+    assert TidalService().authenticate() == "DJ Test"
+    assert seen["file_existed_at_load"] is False
+    session.login_oauth_simple.assert_called_once()
+
+
+@patch("tidalapi.Session")
+def test_authenticate_records_client_fingerprint_after_fresh_login(
+    mock_cls, tmp_path, monkeypatch
+):
+    """A fresh device-code login stores the minting client's fingerprint."""
+    monkeypatch.setattr(svc_mod, "_SESSION_FILE", tmp_path / "tidal_session.json")
+    monkeypatch.setenv("SET_MANAGER_TIDAL_CLIENT_ID", "env-id")
+    monkeypatch.setenv("SET_MANAGER_TIDAL_CLIENT_SECRET", "env-secret")
+    session = _make_session(login_ok=False)
+    session.check_login.return_value = True
+    session.save_session_to_file.side_effect = lambda path: Path(path).write_text("{}")
+    mock_cls.return_value = session
+
+    assert TidalService().authenticate() == "DJ Test"
+    assert config_mod.get("tidal_session_client") == (
+        _tidal_download_adapter.client_fingerprint("env-id")
+    )
+
+
+@patch("tidalapi.Session")
+def test_try_silent_authenticate_without_credentials_warns_and_returns_none(
+    mock_cls, tmp_path, monkeypatch, caplog
+):
+    """The silent path warns instead of raising when no credentials exist."""
+    _existing_session_file(tmp_path, monkeypatch)
+    monkeypatch.delenv("SET_MANAGER_TIDAL_CLIENT_ID", raising=False)
+    monkeypatch.delenv("SET_MANAGER_TIDAL_CLIENT_SECRET", raising=False)
+    session = _make_session()
+    mock_cls.return_value = session
+
+    with caplog.at_level(logging.WARNING, logger=svc_mod.__name__):
+        assert TidalService().try_silent_authenticate() is None
+
+    session.load_session_from_file.assert_not_called()
+    assert any(
+        "SET_MANAGER_TIDAL_CLIENT_ID" in record.getMessage() for record in caplog.records
+    )
+
+
+@patch("tidalapi.Session")
+def test_try_silent_authenticate_mismatched_fingerprint_deletes_file(
+    mock_cls, tmp_path, monkeypatch
+):
+    """A session minted under another client is deleted and not restored."""
+    session_file = _existing_session_file(tmp_path, monkeypatch)
+    config_mod.set_value("tidal_session_client", "fingerprint-of-another-client")
+    session = _make_session()
+    mock_cls.return_value = session
+
+    assert TidalService().try_silent_authenticate() is None
+    assert not session_file.exists()
+    session.load_session_from_file.assert_not_called()
+
+
+@patch("tidalapi.Session")
+def test_try_silent_authenticate_matching_fingerprint_restores(
+    mock_cls, tmp_path, monkeypatch
+):
+    """A session minted under the current client restores silently."""
+    session_file = _existing_session_file(tmp_path, monkeypatch)
+    mock_cls.return_value = _make_session()
+
+    assert TidalService().try_silent_authenticate() == "DJ Test"
+    assert session_file.exists()
