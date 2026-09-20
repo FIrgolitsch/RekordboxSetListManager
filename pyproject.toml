@@ -50,6 +50,7 @@ dev = [
     "coverage[toml]>=7.7",
     "ruff>=0.15",
     "ty>=0.0.36",
+    "pytest-xdist>=3.8",
 ]
 
 # ---------------------------------------------------------------------------
@@ -253,9 +254,24 @@ type-assertion-failure = "error"
 # ---------------------------------------------------------------------------
 
 [tool.pytest.ini_options]
+minversion = "9.0"
 testpaths = ["tests"]
 pythonpath = ["src"]
 qt_api = "pyside6"
+# WARNING — never override addopts on the command line (`-o addopts=...` or
+# `--override-ini`): it silently strips the xdist flags and drops the suite to
+# single-process. To run serially for debugging, pass BOTH:
+#   uv run pytest -q -p no:xdist -o addopts="-ra --strict-markers"
+# The worker cap lives in the repo-root conftest.py (PYTEST_XDIST_AUTO_NUM_WORKERS)
+# so xdist sees it before command-line parsing.
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "-n",
+    "auto",
+    "--dist=loadscope",
+    "--max-worker-restart=0",
+]
 
 # ---------------------------------------------------------------------------
 # Coverage
