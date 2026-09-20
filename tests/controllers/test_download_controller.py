@@ -6,6 +6,7 @@ import queue
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import pytest
@@ -13,6 +14,7 @@ import pytest
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+import rekordbox_set_list_manager.utils.config as config_mod
 from rekordbox_set_list_manager.controllers.download_controller import (
     DownloadController,
     QueueItem,
@@ -26,7 +28,10 @@ from rekordbox_set_list_manager.gui.widgets.common.download_worker import (
 from rekordbox_set_list_manager.services.tidal_download import (
     DownloadErrorKind,
     DownloadResult,
+    RateGate,
     TidalDownloadError,
+    TidalDownloadService,
+    abort_aware_sleeper,
 )
 
 _TERMINAL = {QueueItemState.FINISHED, QueueItemState.FAILED, QueueItemState.CANCELLED}
@@ -62,6 +67,35 @@ def _queue_record(item_id, tidal_id="t", batch_id="b"):
         label="label",
         batch_id=batch_id,
         cancel_event=threading.Event(),
+    )
+
+
+class _FakeTidalService:
+    """TidalService stand-in for the controller's session + re-auth seams.
+
+    ``try_silent_authenticate`` is scriptable: it counts calls, optionally
+    blocks on ``auth_gate`` (to keep a re-auth attempt in flight), and
+    returns ``auth_result``.  ``session`` is whatever the test installed.
+    """
+
+    def __init__(self, *, session=None, auth_result=None, block_auth=False):
+        self.session = session
+        self.auth_result = auth_result
+        self.block_auth = block_auth
+        self.auth_calls = 0
+        self.auth_gate = threading.Event()
+
+    def try_silent_authenticate(self):
+        self.auth_calls += 1
+        if self.block_auth:
+            self.auth_gate.wait(10)
+        return self.auth_result
+
+
+def _fake_session():
+    """Minimal session stand-in — only the ``config`` attrs the adapter needs."""
+    return SimpleNamespace(
+        config=SimpleNamespace(client_id="fake-client", client_secret="fake-secret")
     )
 
 
@@ -109,6 +143,25 @@ class _Capture:
         ]
 
 
+@pytest.fixture(autouse=True)
+def _isolate_config(tmp_path, monkeypatch):
+    """Redirect config to a per-test dir and seed dummy client credentials.
+
+    The controller's default factory constructs real ``TidalDownloadService``
+    instances whose constructor applies resolved credentials — the seeded
+    pair keeps that path hermetic against the developer's real config.
+    """
+    config_dir = tmp_path / "config"
+    monkeypatch.setattr(config_mod, "_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(config_mod, "_CONFIG_PATH", config_dir / "config.json")
+    monkeypatch.setattr(config_mod, "_cache", None)
+    monkeypatch.delenv("SET_MANAGER_TIDAL_CLIENT_ID", raising=False)
+    monkeypatch.delenv("SET_MANAGER_TIDAL_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("SET_MANAGER_TIDAL_DOWNLOAD_WORKERS", raising=False)
+    config_mod.set_value("tidal_client_id", "test-client-id")
+    config_mod.set_value("tidal_client_secret", "test-client-secret")
+
+
 @pytest.fixture
 def make_ctrl(qtbot):
     """Factory creating controllers; every instance is shut down at teardown."""
@@ -116,9 +169,26 @@ def make_ctrl(qtbot):
 
     def _factory(**kwargs):
         fake = _FakeService()
-        ctrl = DownloadController(service_factory=lambda: fake, **kwargs)
+        kwargs.setdefault("service_factory", lambda: fake)
+        ctrl = DownloadController(**kwargs)
         created.append(ctrl)
         return ctrl, fake
+
+    yield _factory
+
+    for ctrl in created:
+        ctrl.shutdown()
+
+
+@pytest.fixture
+def make_default_ctrl(qtbot):
+    """Controllers on the real default-factory path; shut down at teardown."""
+    created = []
+
+    def _factory(**kwargs):
+        ctrl = DownloadController(**kwargs)
+        created.append(ctrl)
+        return ctrl
 
     yield _factory
 
@@ -429,6 +499,135 @@ def test_item_failed_message_strips_url_query(make_ctrl, qtbot):
     assert "token=" not in msg
     assert "SECRET" not in msg
     assert "#frag" not in msg
+
+
+# --- Default service factory + shared abort-aware gate -----------------------
+
+
+def test_default_factory_no_session_fails_auth_and_pauses(make_default_ctrl, qtbot):
+    """Cold-start with no Tidal session: the factory's AUTH error drives the
+    same item_failed + pause + auth_required path as a mid-queue expiry."""
+    tidal = _FakeTidalService(session=None, block_auth=True)
+    ctrl = make_default_ctrl(tidal_service=tidal)
+    cap = _Capture(ctrl)
+
+    ids = ctrl.enqueue([("t1", "L1"), ("t2", "L2")])
+
+    qtbot.waitUntil(lambda: bool(cap.of("auth")), timeout=5000)
+    qtbot.wait(300)
+    failed = cap.of("failed", ids[0])
+    assert len(failed) == 1
+    assert failed[0][1] == DownloadErrorKind.AUTH
+    assert ctrl._worker._paused.is_set()  # drain paused — t2 must not start
+    tidal.auth_gate.set()  # release any in-flight silent re-auth
+    qtbot.waitUntil(
+        lambda: getattr(ctrl, "_reauth_thread", None) is None, timeout=3000
+    )
+
+
+def test_default_factory_builds_real_service_per_item_with_shared_gate(
+    make_default_ctrl, qtbot, monkeypatch
+):
+    """The default factory mints a real TidalDownloadService per dequeued
+    item, each carrying the controller's one shared rate gate."""
+    built = []
+    real_cls = TidalDownloadService
+
+    def _recording_ctor(session, *, gate=None, **kwargs):
+        svc = real_cls(session, gate=gate, **kwargs)
+        built.append(svc)
+        return svc
+
+    monkeypatch.setattr(
+        "rekordbox_set_list_manager.controllers.download_controller.TidalDownloadService",
+        _recording_ctor,
+    )
+    monkeypatch.setattr(
+        real_cls,
+        "download_track",
+        lambda self, track_id, *, progress_cb=None, cancel_event=None: _result(
+            track_id
+        ),
+    )
+    session = _fake_session()
+    tidal = _FakeTidalService(session=session)
+    ctrl = make_default_ctrl(tidal_service=tidal)
+    cap = _Capture(ctrl)
+
+    ctrl.enqueue([("t1", "L1"), ("t2", "L2")])
+
+    qtbot.waitUntil(
+        lambda: len(built) == 2 or bool(cap.of("failed")), timeout=5000
+    )
+    assert len(built) == 2
+    assert all(svc._session is session for svc in built)
+    assert all(svc._gate is ctrl._gate for svc in built)
+    qtbot.waitUntil(lambda: len(cap.of("finished")) == 2, timeout=5000)
+
+
+def test_default_factory_reads_current_session_each_call(
+    make_default_ctrl, qtbot, monkeypatch
+):
+    """A session rebound between items (e.g. by silent re-auth) is picked up
+    by the very next factory call — no controller reconstruction needed."""
+    sessions_seen = []
+
+    class _RecordingService:
+        def __init__(self, session, *, gate=None):
+            sessions_seen.append(session)
+
+        def download_track(self, track_id, *, progress_cb=None, cancel_event=None):
+            return _result(track_id)
+
+    monkeypatch.setattr(
+        "rekordbox_set_list_manager.controllers.download_controller.TidalDownloadService",
+        _RecordingService,
+    )
+    first, second = _fake_session(), _fake_session()
+    tidal = _FakeTidalService(session=first)
+    ctrl = make_default_ctrl(tidal_service=tidal)
+    cap = _Capture(ctrl)
+
+    ctrl.enqueue([("t1", "L1")])
+    qtbot.waitUntil(
+        lambda: len(cap.of("finished")) == 1 or bool(cap.of("failed")),
+        timeout=5000,
+    )
+    assert len(cap.of("finished")) == 1
+
+    tidal.session = second  # rebind — next item must see the new object
+    ctrl.enqueue([("t2", "L2")])
+    qtbot.waitUntil(
+        lambda: len(cap.of("finished")) == 2 or bool(cap.of("failed")),
+        timeout=5000,
+    )
+
+    assert sessions_seen == [first, second]
+
+
+def test_abort_aware_sleeper_raises_out_of_gate_acquire():
+    """A set abort must raise out of acquire() — a sleeper that merely
+    early-returns still lets the caller fire one more request."""
+    abort = threading.Event()
+    gate = RateGate(sleep=abort_aware_sleeper(abort))
+
+    gate.acquire()  # stamps the baseline release; no wait on first call
+    abort.set()
+
+    with pytest.raises(InterruptedError):
+        gate.acquire()
+
+
+def test_controller_gate_sleeper_aborts_when_abort_work_set(make_ctrl):
+    """The controller's shared gate sleeps through _abort_work, so a 300 s
+    Retry-After wait is interrupted by cancel/shutdown."""
+    ctrl, _fake = make_ctrl()
+
+    ctrl._gate.acquire()  # baseline release stamp
+    ctrl._abort_work.set()
+
+    with pytest.raises(InterruptedError):
+        ctrl._gate.acquire()
 
 
 # --- Invariant battery -------------------------------------------------------

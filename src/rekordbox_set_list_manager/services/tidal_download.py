@@ -25,6 +25,7 @@ from rekordbox_set_list_manager.services import (
 )
 from rekordbox_set_list_manager.services._tidal_download_adapter import (
     PlaybackInfo,
+    RateGate,
     SegmentPlan,
     TidalAuthError,
     TidalCredentialsError,
@@ -42,6 +43,7 @@ __all__ = [
     "DownloadErrorKind",
     "DownloadResult",
     "PlaybackInfo",
+    "RateGate",
     "SegmentPlan",
     "TidalDownloadError",
     "TidalDownloadService",
@@ -206,6 +208,26 @@ class _MergedEvent(threading.Event):
                 return self.is_set()
             super().wait(min(remaining, 0.05))
         return True
+
+
+def abort_aware_sleeper(abort: threading.Event) -> Callable[[float], None]:
+    """Return a ``RateGate`` ``sleep`` callable wired to an abort event.
+
+    Parameters
+    ----------
+    abort : threading.Event
+        Cooperative abort flag checked before and during the wait.
+
+    Returns
+    -------
+    Callable[[float], None]
+        A sleeper suitable for ``RateGate(sleep=...)``.
+    """
+
+    def _sleep(seconds: float) -> None:
+        abort.wait(seconds)
+
+    return _sleep
 
 
 def _sanitize_component(value: str) -> str:

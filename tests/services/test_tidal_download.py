@@ -532,6 +532,85 @@ def test_merged_event_wait_observes_source_events():
     assert merged.wait(0.5) is True
 
 
+# ---------------------------------------------------------------------------
+# abort_aware_sleeper — the RateGate sleeper must RAISE on abort, not
+# early-return: a completed sleep still lets fetch_bytes run one more GET.
+# ---------------------------------------------------------------------------
+
+
+class _FakeAbortEvent:
+    """``threading.Event`` stand-in with a scripted ``wait`` result."""
+
+    def __init__(self, *, is_set=False, wait_result=None):
+        self._is_set = is_set
+        self._wait_result = is_set if wait_result is None else wait_result
+        self.waits = []
+
+    def is_set(self):
+        return self._is_set
+
+    def wait(self, seconds):
+        self.waits.append(seconds)
+        return self._wait_result
+
+
+def test_abort_aware_sleeper_raises_when_abort_already_set():
+    abort = _FakeAbortEvent(is_set=True)
+    sleep = tidal_download.abort_aware_sleeper(abort)
+
+    with pytest.raises(InterruptedError):
+        sleep(5.0)
+
+    assert abort.waits == []  # already set — must not wait at all
+
+
+def test_abort_aware_sleeper_raises_when_abort_fires_during_wait():
+    abort = _FakeAbortEvent(wait_result=True)
+    sleep = tidal_download.abort_aware_sleeper(abort)
+
+    with pytest.raises(InterruptedError):
+        sleep(0.25)
+
+    assert abort.waits == [0.25]
+
+
+def test_abort_aware_sleeper_sleeps_full_duration_when_unset():
+    abort = _FakeAbortEvent()
+    sleep = tidal_download.abort_aware_sleeper(abort)
+
+    assert sleep(0.25) is None
+    assert abort.waits == [0.25]
+
+
+def test_abort_aware_sleeper_real_event_waits_full_duration():
+    abort = threading.Event()
+    sleep = tidal_download.abort_aware_sleeper(abort)
+
+    start = time.monotonic()
+    sleep(0.02)
+
+    assert time.monotonic() - start >= 0.015
+
+
+def test_abort_aware_sleeper_real_event_set_returns_promptly():
+    abort = threading.Event()
+    abort.set()
+    sleep = tidal_download.abort_aware_sleeper(abort)
+
+    start = time.monotonic()
+    with pytest.raises(InterruptedError):
+        sleep(30.0)
+
+    assert time.monotonic() - start < 1.0
+
+
+def test_rate_gate_is_publicly_reexported():
+    """RateGate is part of tidal_download's public surface — callers must not
+    reach into the private adapter module to build or share a gate."""
+    assert "RateGate" in tidal_download.__all__
+    assert tidal_download.RateGate is _tidal_download_adapter.RateGate
+
+
 def test_classify_local_permission_error_is_io_not_auth():
     """A filesystem PermissionError must not masquerade as a Tidal auth
     failure — only the adapter's TidalAuthError means HTTP 401/403."""

@@ -179,6 +179,18 @@ class TidalService(StreamingService):
         """
         return self._session is not None
 
+    @property
+    def session(self) -> tidalapi.Session | None:
+        """The current authenticated session, or ``None``.
+
+        Returns
+        -------
+        tidalapi.Session | None
+            The live session object — ``None`` until a successful
+            :meth:`authenticate` or :meth:`try_silent_authenticate`.
+        """
+        return None
+
     # ------------------------------------------------------------------
     # Playlists
     # ------------------------------------------------------------------

@@ -200,6 +200,45 @@ def test_authenticate_raises_on_exception(mock_cls):
 
 
 # ---------------------------------------------------------------------------
+# session accessor
+# ---------------------------------------------------------------------------
+
+
+def test_session_returns_none_when_unauthenticated():
+    assert TidalService().session is None
+
+
+@patch("tidalapi.Session")
+def test_session_returns_live_session_after_authenticate(mock_cls):
+    """The accessor is a live view — it must return the exact session object
+    that authenticate() bound, not a copy or a stale reference."""
+    session = _make_session()
+    mock_cls.return_value = session
+    svc = TidalService()
+
+    svc.authenticate()
+
+    assert svc.session is session
+
+
+@patch("tidalapi.Session")
+def test_session_tracks_rebound_session_after_reauth(mock_cls):
+    """A re-auth that rebinds the session is visible through the accessor —
+    callers must never pin a stale session object."""
+    first = _make_session(username="First")
+    second = _make_session(username="Second")
+    mock_cls.return_value = first
+    svc = TidalService()
+    svc.authenticate()
+    assert svc.session is first
+
+    mock_cls.return_value = second
+    svc.authenticate()
+
+    assert svc.session is second
+
+
+# ---------------------------------------------------------------------------
 # get_playlists
 # ---------------------------------------------------------------------------
 

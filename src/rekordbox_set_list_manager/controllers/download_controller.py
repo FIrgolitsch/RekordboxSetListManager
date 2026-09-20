@@ -12,14 +12,19 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QObject, QThread, Signal
 
 from rekordbox_set_list_manager.gui.widgets.common.download_worker import DownloadWorker
+from rekordbox_set_list_manager.services.tidal_download import (
+    DownloadErrorKind,
+    RateGate,
+    TidalDownloadError,
+    TidalDownloadService,
+    abort_aware_sleeper,
+)
+from rekordbox_set_list_manager.services.tidal_service import TidalService
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
-    from rekordbox_set_list_manager.services.tidal_download import (
-        DownloadResult,
-        TidalDownloadService,
-    )
+    from rekordbox_set_list_manager.services.tidal_download import DownloadResult
 
 log = logging.getLogger(__name__)
 
@@ -106,22 +111,35 @@ class DownloadController(QObject):
 
     def __init__(
         self,
-        service_factory: Callable[[], TidalDownloadService],
+        service_factory: Callable[[], TidalDownloadService] | None = None,
         *,
+        tidal_service: TidalService | None = None,
         monotonic: Callable[[], float] = time.monotonic,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
-        self._service_factory = service_factory
+        # Controller-owned TidalService: it picks up the session file a
+        # settings dialog already persisted, and silent re-auth rebinds its
+        # session in place so the per-item factory sees the fresh object.
+        self._tidal = tidal_service if tidal_service is not None else TidalService()
         self._queue: queue.Queue[QueueItem] = queue.Queue()
         self._shutdown = threading.Event()
         self._paused = threading.Event()
         self._abort_work = threading.Event()
+        # One gate for the controller's lifetime — request spacing persists
+        # across per-item service instances, and the abort-aware sleeper lets
+        # cancel/shutdown interrupt a long Retry-After wait promptly.
+        self._gate = RateGate(sleep=abort_aware_sleeper(self._abort_work))
+        self._service_factory = (
+            service_factory
+            if service_factory is not None
+            else self._default_service_factory
+        )
         self._items: dict[str, QueueItem] = {}
         self._batches_done: set[str] = set()
         self._worker = DownloadWorker(
             self._queue,
-            service_factory=service_factory,
+            service_factory=self._service_factory,
             shutdown=self._shutdown,
             paused=self._paused,
             abort_work=self._abort_work,
@@ -301,6 +319,12 @@ class DownloadController(QObject):
 
     def _on_worker_drained(self) -> None:
         self.queue_drained.emit()
+
+    def _default_service_factory(self) -> TidalDownloadService:
+        raise TidalDownloadError(
+            "No authenticated Tidal session",
+            kind=DownloadErrorKind.AUTH,
+        )
 
     def _on_auth_required(self) -> None:
         self.auth_required.emit()
