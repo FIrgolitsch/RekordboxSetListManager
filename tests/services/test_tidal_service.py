@@ -48,6 +48,7 @@ def _isolate_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         "tidal_session_client", _tidal_download_adapter.client_fingerprint(_TEST_CLIENT_ID)
     )
 
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -565,9 +566,7 @@ def test_authenticate_missing_credentials_raises_actionable_error(mock_cls, monk
 
 
 @patch("tidalapi.Session")
-def test_authenticate_matching_fingerprint_keeps_cached_session(
-    mock_cls, tmp_path, monkeypatch
-):
+def test_authenticate_matching_fingerprint_keeps_cached_session(mock_cls, tmp_path, monkeypatch):
     """A session minted under the current client loads without re-auth."""
     session_file = _existing_session_file(tmp_path, monkeypatch)
     session = _make_session()
@@ -630,9 +629,7 @@ def test_authenticate_unfingerprinted_session_is_discarded(mock_cls, tmp_path, m
 
 
 @patch("tidalapi.Session")
-def test_authenticate_records_client_fingerprint_after_fresh_login(
-    mock_cls, tmp_path, monkeypatch
-):
+def test_authenticate_records_client_fingerprint_after_fresh_login(mock_cls, tmp_path, monkeypatch):
     """A fresh device-code login stores the minting client's fingerprint."""
     monkeypatch.setattr(svc_mod, "_SESSION_FILE", tmp_path / "tidal_session.json")
     monkeypatch.setenv("SET_MANAGER_TIDAL_CLIENT_ID", "env-id")
@@ -663,9 +660,7 @@ def test_try_silent_authenticate_without_credentials_warns_and_returns_none(
         assert TidalService().try_silent_authenticate() is None
 
     session.load_session_from_file.assert_not_called()
-    assert any(
-        "SET_MANAGER_TIDAL_CLIENT_ID" in record.getMessage() for record in caplog.records
-    )
+    assert any("SET_MANAGER_TIDAL_CLIENT_ID" in record.getMessage() for record in caplog.records)
 
 
 @patch("tidalapi.Session")
@@ -684,9 +679,7 @@ def test_try_silent_authenticate_mismatched_fingerprint_deletes_file(
 
 
 @patch("tidalapi.Session")
-def test_try_silent_authenticate_matching_fingerprint_restores(
-    mock_cls, tmp_path, monkeypatch
-):
+def test_try_silent_authenticate_matching_fingerprint_restores(mock_cls, tmp_path, monkeypatch):
     """A session minted under the current client restores silently."""
     session_file = _existing_session_file(tmp_path, monkeypatch)
     mock_cls.return_value = _make_session()

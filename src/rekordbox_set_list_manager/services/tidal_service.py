@@ -17,13 +17,23 @@ if TYPE_CHECKING:
 
 from rekordbox_set_list_manager.models.enums import MatchStatus, TrackSource
 from rekordbox_set_list_manager.models.track import Track
+from rekordbox_set_list_manager.services import (
+    _tidal_download_adapter as _tidal_adapter,
+)
 from rekordbox_set_list_manager.services.skipped_item import SkippedItem
 from rekordbox_set_list_manager.services.streaming_base import PlaylistResult, StreamingService
+from rekordbox_set_list_manager.utils import config
 
 log = logging.getLogger(__name__)
 
 _CACHE_DIR = Path(platformdirs.user_cache_dir("rekordbox_set_list_manager"))
 _SESSION_FILE = _CACHE_DIR / "tidal_session.json"
+
+# Config key recording which OAuth client minted the cached session file.
+# tidalapi's session file cannot identify its own minting client, so the app
+# stores a truncated sha256 of the client id at save time and refuses to load
+# a session whose fingerprint does not match the resolved credentials.
+_SESSION_CLIENT_KEY = "tidal_session_client"
 
 # Poll interval while waiting on the device-code future so a cancel
 # request is honoured within a fraction of a second.
@@ -85,10 +95,27 @@ class TidalService(StreamingService):
         """
         _CACHE_DIR.mkdir(parents=True, exist_ok=True)
         session = tidalapi.Session()
+        # The user-supplied client pair must sit on the session before any
+        # session-file load or login — token refresh and device auth both post
+        # config.client_id.  Credential application lives behind the download
+        # adapter's seam so playlist import and downloads share one resolver.
+        try:
+            fingerprint = _tidal_adapter.apply_client_credentials(session)
+        except _tidal_adapter.TidalCredentialsError as exc:
+            raise TidalServiceError(str(exc)) from exc
 
-        # Fast path: load existing session from disk; tighten a loose file first.
+        # Fast path: load existing session from disk — but only when it was
+        # minted under the current client pair.  An unfingerprinted file
+        # (pre-dating the binding) counts as a mismatch and is re-authed.
         if _SESSION_FILE.exists():
-            _restrict_session_permissions()
+            if _session_fingerprint_ok(fingerprint):
+                _restrict_session_permissions()
+            else:
+                log.info(
+                    "Cached Tidal session was minted under different client "
+                    "credentials; re-authenticating"
+                )
+                _SESSION_FILE.unlink(missing_ok=True)
         try:
             loaded = session.load_session_from_file(_SESSION_FILE) and session.check_login()
         except Exception:
@@ -101,6 +128,7 @@ class TidalService(StreamingService):
                 _oauth_login(session, fn, cancel_check)
                 session.save_session_to_file(_SESSION_FILE)
                 _restrict_session_permissions()
+                _record_session_client(fingerprint)
             except TidalServiceError:
                 raise
             except Exception as exc:
@@ -223,6 +251,20 @@ class TidalService(StreamingService):
         try:
             _CACHE_DIR.mkdir(parents=True, exist_ok=True)
             session = tidalapi.Session()
+            try:
+                fingerprint = _tidal_adapter.apply_client_credentials(session)
+            except _tidal_adapter.TidalCredentialsError as exc:
+                # The silent path never raises into startup — missing
+                # credentials just mean there is nothing to restore.
+                log.warning("%s", exc)
+                return None
+            if not _session_fingerprint_ok(fingerprint):
+                log.info(
+                    "Cached Tidal session was minted under different client "
+                    "credentials; discarding it"
+                )
+                _SESSION_FILE.unlink(missing_ok=True)
+                return None
             loaded = session.load_session_from_file(_SESSION_FILE) and session.check_login()
             if not loaded:
                 return None
@@ -292,6 +334,48 @@ def _restrict_session_permissions() -> None:
         _SESSION_FILE.chmod(0o600)
     except OSError:
         log.debug("Could not restrict Tidal session file permissions", exc_info=True)
+
+
+def _session_fingerprint_ok(fingerprint: str) -> bool:
+    """Return ``True`` when the cached session's minting client matches.
+
+    Compares the fingerprint recorded under ``tidal_session_client`` at
+    session-save time with *fingerprint* of the currently resolved client
+    pair.  A file with no recorded fingerprint predates the binding and
+    counts as a mismatch — a session is never trusted under an unknown
+    minting client.
+
+    Parameters
+    ----------
+    fingerprint : str
+        The :func:`client_fingerprint` of the resolved client pair.
+
+    Returns
+    -------
+    bool
+        ``True`` when the stored fingerprint matches the current client.
+
+    """
+    return config.get(_SESSION_CLIENT_KEY) == fingerprint
+
+
+def _record_session_client(fingerprint: str) -> None:
+    """Record which client minted the session file (best-effort).
+
+    A write failure must not sink a successful authentication, so errors are
+    logged at debug level and swallowed.
+
+    Parameters
+    ----------
+    fingerprint : str
+        The :func:`client_fingerprint` of the client pair that minted the
+        freshly saved session.
+
+    """
+    try:
+        config.set_value(_SESSION_CLIENT_KEY, fingerprint)
+    except OSError:
+        log.debug("Could not persist the Tidal session client fingerprint", exc_info=True)
 
 
 def _convert_tracks(raw_tracks: list) -> tuple[list[Track], list[SkippedItem]]:
