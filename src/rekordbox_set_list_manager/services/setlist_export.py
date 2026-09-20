@@ -58,6 +58,11 @@ def _safe_name(name: str) -> str:
     return cleaned[:_NAME_CAP] or "setlist"
 
 
+def _one_line(value: str) -> str:
+    """Collapse CR/LF runs to a space so an emitted line stays single-line."""
+    return re.sub(r"[\r\n]+", " ", value)
+
+
 def export_setlist(
     project: Project,
     out_dir: Path,
@@ -147,7 +152,7 @@ def _render_txt(project: Project) -> tuple[str, list[SkippedItem]]:
     for section in project.sections:
         if lines:
             lines.append("")
-        lines.append(section.name)
+        lines.append(_one_line(section.name))
         lines.append("")
         for tid in section.track_ids:
             track = project.get_track(tid)
@@ -155,7 +160,8 @@ def _render_txt(project: Project) -> tuple[str, list[SkippedItem]]:
                 skipped.append(SkippedItem(str(tid), "referenced track not in project"))
                 continue
             n += 1
-            lines.append(f"{n}. {track.artist} – {track.title}{_txt_suffix(track)}")  # noqa: RUF001
+            line = f"{n}. {track.artist} – {track.title}{_txt_suffix(track)}"  # noqa: RUF001
+            lines.append(_one_line(line))
     return "\n".join(lines) + "\n", skipped
 
 
@@ -235,8 +241,8 @@ def _render_m3u8(project: Project, include_uris: bool) -> tuple[str, list[Skippe
                 )
                 continue
             secs = track.duration if track.duration is not None else -1
-            lines.append(f"#EXTINF:{secs},{track.display_name}")
-            lines.append(uri)
+            lines.append(f"#EXTINF:{secs},{_one_line(track.display_name)}")
+            lines.append(_one_line(uri))
     return "\n".join(lines) + "\n", skipped
 
 
