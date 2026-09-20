@@ -55,6 +55,17 @@ class _FakeResp:
         self.status_code = status_code
         self._body = body
         self.headers = headers or {}
+        self.closed = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
+
+    def close(self):
+        self.closed = True
 
     def iter_content(self, chunk_size):
         for index in range(0, len(self._body), chunk_size):
@@ -328,6 +339,20 @@ def test_fetch_bytes_429_exhaustion_raises_timeout_error():
     with pytest.raises(TimeoutError):
         adapter.fetch_bytes(_SEGMENT_URL, http=http, gate=_fake_gate())
     assert len(http.calls) == 5
+
+
+def test_fetch_bytes_closes_streamed_responses_on_every_exit():
+    """A streamed body holds its connection until closed — retry and error
+    paths must release it or the pool starves under 429/5xx churn."""
+    rate_limited, server_error, refused = _FakeResp(429), _FakeResp(500), _FakeResp(401)
+    http = _FakeHttp([rate_limited, server_error, refused])
+
+    with pytest.raises(PermissionError):
+        adapter.fetch_bytes(_SEGMENT_URL, http=http, gate=_fake_gate())
+
+    assert rate_limited.closed
+    assert server_error.closed
+    assert refused.closed
 
 
 @pytest.mark.parametrize(

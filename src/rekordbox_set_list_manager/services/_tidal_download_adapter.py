@@ -324,27 +324,32 @@ def fetch_bytes(
             raise InterruptedError("download cancelled")
         gate.acquire()
         try:
-            resp = http.get(url, stream=True, timeout=(10, 30))
-            # Status code first — a 429 body is not valid JSON.
-            if resp.status_code == _STATUS_TOO_MANY_REQUESTS:
-                if attempt == _MAX_RETRIES - 1:
-                    break
-                gate.backoff(attempt, hint=_retry_after(resp))
-                continue
-            if resp.status_code in (401, 403):
-                raise PermissionError(f"Tidal segment GET refused ({resp.status_code}): {url}")
-            if resp.status_code >= _STATUS_SERVER_ERROR_MIN:
-                if attempt == _MAX_RETRIES - 1:
-                    break
-                gate.backoff(attempt)
-                continue
-            resp.raise_for_status()
-            chunks = []
-            for chunk in resp.iter_content(1 << 16):
-                if cancel is not None and cancel.is_set():
-                    raise InterruptedError("download cancelled mid-body")
-                chunks.append(chunk)
-            return b"".join(chunks)
+            # A streamed body must be closed (or fully consumed) before
+            # urllib3 returns the connection to the pool — the `with`
+            # guarantees close() on every retry and raise path below.
+            with http.get(url, stream=True, timeout=(10, 30)) as resp:
+                # Status code first — a 429 body is not valid JSON.
+                if resp.status_code == _STATUS_TOO_MANY_REQUESTS:
+                    if attempt == _MAX_RETRIES - 1:
+                        break
+                    gate.backoff(attempt, hint=_retry_after(resp))
+                    continue
+                if resp.status_code in (401, 403):
+                    raise PermissionError(
+                        f"Tidal segment GET refused ({resp.status_code}): {url}"
+                    )
+                if resp.status_code >= _STATUS_SERVER_ERROR_MIN:
+                    if attempt == _MAX_RETRIES - 1:
+                        break
+                    gate.backoff(attempt)
+                    continue
+                resp.raise_for_status()
+                chunks = []
+                for chunk in resp.iter_content(1 << 16):
+                    if cancel is not None and cancel.is_set():
+                        raise InterruptedError("download cancelled mid-body")
+                    chunks.append(chunk)
+                return b"".join(chunks)
         except requests.RequestException:
             if attempt == _MAX_RETRIES - 1:
                 raise

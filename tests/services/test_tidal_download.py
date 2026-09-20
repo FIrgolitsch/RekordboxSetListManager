@@ -89,6 +89,17 @@ class _FakeResp:
         self.status_code = status_code
         self._body = body
         self.headers = headers or {}
+        self.closed = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
+
+    def close(self):
+        self.closed = True
 
     def iter_content(self, chunk_size):
         for index in range(0, len(self._body), chunk_size):
