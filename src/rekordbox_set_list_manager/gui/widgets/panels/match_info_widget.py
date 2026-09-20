@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from html import escape
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -93,9 +94,9 @@ class MatchInfoWidget(QWidget):
     def _streaming_uri_html(track) -> str:
         source = str(track.source).lower()
         if source == "spotify" and track.spotify_id:
-            url = f"https://open.spotify.com/track/{track.spotify_id}"
+            url = f"https://open.spotify.com/track/{escape(track.spotify_id, quote=True)}"
             return f'<a href="{url}">Open in Spotify</a>'
         if source == "tidal" and track.tidal_id:
-            url = f"https://tidal.com/browse/track/{track.tidal_id}"
+            url = f"https://tidal.com/browse/track/{escape(track.tidal_id, quote=True)}"
             return f'<a href="{url}">Open in Tidal</a>'
         return "—"
