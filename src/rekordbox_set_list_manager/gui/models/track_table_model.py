@@ -17,7 +17,12 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QColor
 
 from rekordbox_set_list_manager.models.enums import RekordboxColor
-from rekordbox_set_list_manager.models.harmonic import format_key, key_relationship
+from rekordbox_set_list_manager.models.harmonic import (
+    ENERGY_RELATIONS,
+    SAFE_RELATIONS,
+    format_key,
+    key_relationship,
+)
 from rekordbox_set_list_manager.models.track import Track
 from rekordbox_set_list_manager.utils.constants import REKORDBOX_COLOR_HEX
 
@@ -32,12 +37,20 @@ _CENTER_COLS = {0, 3, 4, 5, 6}  # #, BPM, Key, Duration, Status
 
 _COL_TITLE = 1
 _COL_KEY = 4
+_COL_STATUS = 6
 
 _STATUS_LABELS = {
     "unmatched": "—",
     "matched": "✓",
     "manually_matched": "M",
     "conflicted": "!",
+}
+
+_STATUS_TOOLTIPS = {
+    "unmatched": "Not matched to the Rekordbox collection — right-click to fix",
+    "matched": "Matched to the Rekordbox collection",
+    "manually_matched": "Manually matched to the Rekordbox collection",
+    "conflicted": "Match conflict — right-click to fix",
 }
 
 # Strategies that warrant a numeric score badge instead of plain "✓"
@@ -152,6 +165,29 @@ class TrackTableModel(QAbstractTableModel):
         self._compat = {}
         self.endResetModel()
 
+    def set_dup_ids(self, dup_ids: set[UUID]) -> None:
+        """Update the duplicate flags without resetting the model.
+
+        Emits ``dataChanged`` for the Title column only, so views keep
+        their selection and scroll position when the flags change.
+
+        Parameters
+        ----------
+        dup_ids : set of UUID
+            Track IDs that appear in more than one section.
+
+        """
+        new = set(dup_ids)
+        if new == self._dup_ids:
+            return
+        self._dup_ids = new
+        if self._ids:
+            self.dataChanged.emit(
+                self.index(0, _COL_TITLE),
+                self.index(len(self._ids) - 1, _COL_TITLE),
+                [Qt.ItemDataRole.UserRole],
+            )
+
     def track_id_at(self, row: int) -> UUID | None:
         """Return the track UUID at *row*, or None if out of range."""
         if 0 <= row < len(self._ids):
@@ -206,6 +242,29 @@ class TrackTableModel(QAbstractTableModel):
             if col == _COL_TITLE:
                 return True if self._ids[row] in self._dup_ids else None
             return None
+        if role == Qt.ItemDataRole.ToolTipRole:
+            return self._tooltip(row, col, track)
+        return None
+
+    def _tooltip(self, row: int, col: int, track: Track) -> str | None:
+        if col == _COL_KEY:
+            rel = self._compat.get(row)
+            if rel in SAFE_RELATIONS:
+                return "Mix-safe key transition (green marker)"
+            if rel in ENERGY_RELATIONS:
+                return "Energy-shift key transition (amber marker)"
+            return None
+        if col == _COL_TITLE and self._ids[row] in self._dup_ids:
+            return "Track appears in more than one section (lavender marker)"
+        if col == _COL_STATUS:
+            status = str(track.match_status)
+            if (
+                status == "matched"
+                and (track.match_strategy or "") in _FUZZY_STRATEGIES
+                and track.match_score is not None
+            ):
+                return f"Fuzzy match — {track.match_score * 100:.0f}% confidence"
+            return _STATUS_TOOLTIPS.get(status)
         return None
 
     def _display(self, row: int, col: int, track: Track) -> str:
