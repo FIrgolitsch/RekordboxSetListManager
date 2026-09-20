@@ -1,10 +1,13 @@
 """End-to-end tests for TidalDownloadService against recorded fixtures."""
 
 import base64
+import datetime
 import json
 import shutil
+import struct
 import subprocess
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -40,6 +43,7 @@ def _isolate_config(tmp_path, monkeypatch):
     monkeypatch.setattr(config_mod, "_cache", None)
     monkeypatch.delenv("SET_MANAGER_TIDAL_CLIENT_ID", raising=False)
     monkeypatch.delenv("SET_MANAGER_TIDAL_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("SET_MANAGER_TIDAL_DOWNLOAD_WORKERS", raising=False)
     config_mod.set_value("tidal_client_id", "test-client-id")
     config_mod.set_value("tidal_client_secret", "test-client-secret")
 
@@ -61,6 +65,21 @@ def _mpd_bodies():
         b"MEDIA-SEGMENT-2",
         b"MEDIA-SEGMENT-3",
     ]
+
+
+_MPD_URLS = (
+    "https://audio.tidal.com/placeholder/init.mp4",
+    "https://audio.tidal.com/placeholder/seg-0.m4a",
+    "https://audio.tidal.com/placeholder/seg-1.m4a",
+    "https://audio.tidal.com/placeholder/seg-2.m4a",
+    "https://audio.tidal.com/placeholder/seg-3.m4a",
+)
+_BTS_SEG_URL = "https://audio.tidal.com/placeholder/seg0.flac"
+
+
+def _mpd_url_bodies():
+    """``{url: body}`` mapping matching the MPD fixture's expanded plan."""
+    return dict(zip(_MPD_URLS, _mpd_bodies(), strict=True))
 
 
 class _FakeResp:
@@ -94,6 +113,99 @@ class _FakeHttp:
         return _FakeResp(200, b"")
 
 
+class _FakeHttpByUrl:
+    """HTTP stand-in keyed by exact URL — parallel fetches can't share a queue.
+
+    Values may be ``_FakeResp`` instances (reused across retries — the fake
+    response is stateless) or exceptions (raised on every GET for that URL).
+    ``max_inflight`` records the deepest concurrent ``get`` overlap seen.
+    """
+
+    def __init__(self, mapping):
+        self._mapping = dict(mapping)
+        self.calls = []
+        self.calls_lock = threading.Lock()
+        self.inflight = 0
+        self.max_inflight = 0
+
+    def get(self, url, stream=False, timeout=None):
+        with self.calls_lock:
+            self.calls.append(url)
+            self.inflight += 1
+            self.max_inflight = max(self.max_inflight, self.inflight)
+        try:
+            outcome = self._mapping[url]
+        except KeyError:
+            outcome = _FakeResp(404)
+        with self.calls_lock:
+            self.inflight -= 1
+        if isinstance(outcome, Exception):
+            raise outcome
+        if isinstance(outcome, bytes):
+            outcome = _FakeResp(200, outcome)
+        return outcome
+
+
+class _ChainedResp(_FakeResp):
+    """Response whose body reports when it has been fully consumed."""
+
+    def __init__(self, body, on_consumed):
+        super().__init__(200, body)
+        self._on_consumed = on_consumed
+
+    def iter_content(self, chunk_size):
+        yield from super().iter_content(chunk_size)
+        self._on_consumed()
+
+
+class _ReverseOrderHttp:
+    """Fake http forcing strictly reversed completion order.
+
+    The GET for ``urls[i]`` returns only after the body of ``urls[i + 1]``
+    was fully consumed, so the first segment always finishes last.  A merge
+    honoring completion order instead of URL position would produce the
+    payload reversed — this fake is what makes the ordering assertion a real
+    proof rather than a coincidence of sequential fetching.
+
+    If the successor segment never gets requested (a sequential fetcher) the
+    wait bails out after a short grace period so the fake can never deadlock
+    a non-parallel pipeline.
+    """
+
+    def __init__(self, url_bodies):
+        self._items = list(url_bodies)  # [(url, body)] in plan order
+        self._consumed = [False] * len(self._items)
+        self._cond = threading.Condition()
+        self.calls = []
+        self.inflight = 0
+        self.max_inflight = 0
+
+    def get(self, url, stream=False, timeout=None):
+        index = next(i for i, (u, _b) in enumerate(self._items) if u == url)
+        with self._cond:
+            self.calls.append(url)
+            self.inflight += 1
+            self.max_inflight = max(self.max_inflight, self.inflight)
+            nxt = index + 1
+            if nxt < len(self._items):
+                started = time.monotonic()
+                while not self._consumed[nxt]:
+                    successor_called = self._items[nxt][0] in self.calls
+                    waited = time.monotonic() - started
+                    if not successor_called and waited > 0.5:
+                        break  # sequential fetcher — nothing to wait for
+                    if waited > 10:
+                        break  # safety bound; never hang the suite
+                    self._cond.wait(timeout=0.1)
+        return _ChainedResp(self._items[index][1], lambda i=index: self._mark(i))
+
+    def _mark(self, index):
+        with self._cond:
+            self._consumed[index] = True
+            self.inflight -= 1
+            self._cond.notify_all()
+
+
 class _FakeSession:
     """tidalapi Session stand-in serving a fixture playback-info payload."""
 
@@ -118,19 +230,26 @@ def _fake_tidal_track(
     album="Test Album",
     track_num=1,
     duration=1,
+    isrc="USABC1234567",
+    release_date=None,
+    image_url=None,
 ):
     return SimpleNamespace(
         id=12345678,
         title=title,
-        artist=SimpleNamespace(name=artist),
-        album=SimpleNamespace(
-            id=42,
-            name=album,
-            release_date=None,
-            image=lambda _dim=640: None,
+        artist=SimpleNamespace(name=artist) if artist is not None else None,
+        album=(
+            SimpleNamespace(
+                id=42,
+                name=album,
+                release_date=release_date,
+                image=lambda _dim=640: image_url,
+            )
+            if album is not None
+            else None
         ),
         track_num=track_num,
-        isrc="USABC1234567",
+        isrc=isrc,
         bpm=None,
         duration=duration,
         stream_start_date=None,
@@ -278,7 +397,7 @@ def test_download_track_skips_existing_without_new_segment_gets(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_download_track_mpd_fetches_urls_in_plan_order(tmp_path, monkeypatch):
+def test_download_track_mpd_fetches_all_urls_and_merges_in_plan_order(tmp_path, monkeypatch):
     bodies = _mpd_bodies()
     captured = []
 
@@ -287,22 +406,110 @@ def test_download_track_mpd_fetches_urls_in_plan_order(tmp_path, monkeypatch):
         _write_real_wav(dest_part)
 
     monkeypatch.setattr(_tidal_audio, "decode_to_wav", _record_decode)
-    service, _session, http = _make_service(tmp_path, "playback_mpd_dash.json", bodies=bodies)
+    session = _FakeSession(
+        _load_fixture("playback_mpd_dash.json"), _fake_tidal_track()
+    )
+    http = _FakeHttpByUrl(_mpd_url_bodies())
+    service = TidalDownloadService(session, download_dir=tmp_path / "downloads", http=http)
 
     result = service.download_track("12345678")
 
-    assert len(http.calls) == 5
-    assert http.calls[0].endswith("init.mp4")
-    assert [u.rsplit("-", 1)[-1] for u in http.calls[1:]] == [
-        "0.m4a",
-        "1.m4a",
-        "2.m4a",
-        "3.m4a",
-    ]
+    # Every URL in the plan is fetched exactly once (order is worker
+    # scheduling, not contract — the *merge* order is what matters).
+    assert sorted(http.calls) == sorted(_MPD_URLS)
     # Concatenation order == plan order: init + media segments.
     assert captured[0][0] == "mp4"
     assert captured[0][1] == b"".join(bodies)
     assert result.filepath.exists()
+
+
+def test_download_track_parallel_fetch_overlaps_and_merges_in_url_order(
+    tmp_path, monkeypatch
+):
+    """Bounded worker pool: fetches overlap, completion order is reversed,
+    merged payload still follows manifest URL position."""
+    monkeypatch.setenv("SET_MANAGER_TIDAL_DOWNLOAD_WORKERS", "5")
+    captured = []
+
+    def _record_decode(payload, container, dest_part, bit_depth, **_kwargs):
+        captured.append(payload)
+        _write_real_wav(dest_part)
+
+    monkeypatch.setattr(_tidal_audio, "decode_to_wav", _record_decode)
+    session = _FakeSession(
+        _load_fixture("playback_mpd_dash.json"), _fake_tidal_track()
+    )
+    http = _ReverseOrderHttp(_mpd_url_bodies().items())
+    service = TidalDownloadService(session, download_dir=tmp_path / "downloads", http=http)
+
+    result = service.download_track("12345678")
+
+    # All five workers held an in-flight GET at once — real overlap, and the
+    # held-back segment 0 always completes last.
+    assert http.max_inflight == len(_MPD_URLS)
+    assert captured[0] == b"".join(_mpd_bodies())
+    assert result.filepath.exists()
+
+
+def test_download_track_workers_kwarg_and_env_override(tmp_path, monkeypatch):
+    monkeypatch.delenv("SET_MANAGER_TIDAL_DOWNLOAD_WORKERS", raising=False)
+    service, _session, _http = _make_service(
+        tmp_path, "playback_bts_flac_clear.json", bodies=[_flac_payload()], workers=3
+    )
+    assert service._workers == 3
+
+    monkeypatch.setenv("SET_MANAGER_TIDAL_DOWNLOAD_WORKERS", "2")
+    service2, _s2, _h2 = _make_service(
+        tmp_path, "playback_bts_flac_clear.json", bodies=[_flac_payload()], workers=3
+    )
+    assert service2._workers == 2
+
+
+def test_download_track_segment_failure_cleans_every_seg_part(tmp_path):
+    """A failing segment aborts its siblings and leaves no .seg/.part behind."""
+    bodies = _mpd_url_bodies()
+    bodies[_MPD_URLS[2]] = requests.ConnectionError("segment host unreachable")
+    session = _FakeSession(
+        _load_fixture("playback_mpd_dash.json"), _fake_tidal_track()
+    )
+    http = _FakeHttpByUrl(bodies)
+    service = TidalDownloadService(session, download_dir=tmp_path / "downloads", http=http)
+
+    with pytest.raises(TidalDownloadError) as excinfo:
+        service.download_track("12345678")
+
+    assert excinfo.value.kind == DownloadErrorKind.NETWORK
+    download_dir = tmp_path / "downloads"
+    assert list(download_dir.rglob("*.wav")) == []
+    assert list(download_dir.rglob("*.part")) == []
+    assert list(download_dir.rglob("*.seg*")) == []
+
+
+def test_download_track_cancel_mid_fetch_leaves_no_strays(tmp_path):
+    """A cancel raised while the pool is mid-flight cleans indexed parts."""
+    cancel = threading.Event()
+
+    class _CancellingHttp(_FakeHttpByUrl):
+        def get(self, url, stream=False, timeout=None):
+            resp = super().get(url, stream=stream, timeout=timeout)
+            if len(self.calls) >= 2:
+                cancel.set()
+            return resp
+
+    session = _FakeSession(
+        _load_fixture("playback_mpd_dash.json"), _fake_tidal_track()
+    )
+    http = _CancellingHttp(_mpd_url_bodies())
+    service = TidalDownloadService(session, download_dir=tmp_path / "downloads", http=http)
+
+    with pytest.raises(TidalDownloadError) as excinfo:
+        service.download_track("12345678", cancel_event=cancel)
+
+    assert excinfo.value.kind == DownloadErrorKind.CANCELLED
+    download_dir = tmp_path / "downloads"
+    assert list(download_dir.rglob("*.wav")) == []
+    assert list(download_dir.rglob("*.part")) == []
+    assert list(download_dir.rglob("*.seg*")) == []
 
 
 # ---------------------------------------------------------------------------

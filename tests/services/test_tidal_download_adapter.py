@@ -213,6 +213,66 @@ def test_rate_gate_backoff_grows_exponentially():
     assert clock.sleeps == [0.25, 0.5, 1.0]
 
 
+class _BarrierClock:
+    """Fake clock proving concurrent ``acquire`` calls never overlap sleeps.
+
+    ``sleep`` rendezvous on a 2-party barrier: when a second caller enters
+    ``sleep`` while another is still inside (no gate lock), the barrier
+    completes and ``overlapped`` flips.  A lock-serialized gate leaves every
+    barrier alone until it times out, so the flag stays ``False``.
+
+    ``monotonic`` records every read — a serialized gate produces contiguous
+    ``[elapsed, release]`` pairs per acquire, so ``reads[1::2]`` are the
+    release stamps and must be spaced >= interval.
+    """
+
+    def __init__(self, start=100.0):
+        self.now = start
+        self.reads = []
+        self.sleeps = []
+        self.overlapped = False
+        self._barrier = threading.Barrier(2)
+
+    def monotonic(self):
+        self.reads.append(self.now)
+        return self.now
+
+    def sleep(self, seconds):
+        try:
+            self._barrier.wait(timeout=0.05)
+        except threading.BrokenBarrierError:
+            pass
+        else:
+            self.overlapped = True
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+def test_rate_gate_serializes_concurrent_acquires():
+    """The gate's critical section is lock-guarded: releases stay globally
+    spaced even with several workers calling acquire() at the same time."""
+    clock = _BarrierClock()
+    gate = adapter.RateGate(
+        interval=0.25, sleep=clock.sleep, monotonic=clock.monotonic, rng=lambda: 0.0
+    )
+    gate._last_release = clock.monotonic()  # every caller starts "due"
+    clock.reads.clear()
+
+    threads = [threading.Thread(target=gate.acquire) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+        assert not thread.is_alive()
+
+    assert clock.overlapped is False
+    assert len(clock.reads) == 2 * len(threads)
+    release_stamps = clock.reads[1::2]
+    assert release_stamps == sorted(release_stamps)
+    for earlier, later in zip(release_stamps, release_stamps[1:]):
+        assert later - earlier >= 0.25
+
+
 # ---------------------------------------------------------------------------
 # fetch_bytes — URL guard, statuses, transport retries
 # ---------------------------------------------------------------------------
@@ -321,6 +381,25 @@ def test_fetch_bytes_cancel_event_interrupts_mid_body():
 
     with pytest.raises(InterruptedError):
         adapter.fetch_bytes(_SEGMENT_URL, http=http, gate=_fake_gate(), cancel=cancel)
+
+
+def test_fetch_bytes_cancel_checked_before_each_retry():
+    """A cancel raised between attempts must stop the retry loop — a worker
+    draining after a sibling failure or a user cancel should not burn the
+    remaining attempts."""
+    cancel = threading.Event()
+
+    class _CancellingHttp(_FakeHttp):
+        def get(self, url, stream=False, timeout=None):
+            resp = super().get(url, stream=stream, timeout=timeout)
+            cancel.set()
+            return resp
+
+    http = _CancellingHttp([_FakeResp(500), _FakeResp(500), _FakeResp(500)])
+
+    with pytest.raises(InterruptedError):
+        adapter.fetch_bytes(_SEGMENT_URL, http=http, gate=_fake_gate(), cancel=cancel)
+    assert len(http.calls) == 1
 
 
 # ---------------------------------------------------------------------------
