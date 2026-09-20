@@ -69,7 +69,7 @@ def export_setlist(
     """Write the selected setlist artifacts; one shared timestamp per call.
 
     Every requested format is rendered into *out_dir* under a single
-    ``{project}_{YYYY-MM-DD_HHmm}`` basename so the files are visibly one
+    ``{project}_{YYYY-MM-DD_HHmmss}`` basename so the files are visibly one
     export run.  Reads the project only — the export never mutates it.
 
     Parameters
@@ -102,7 +102,9 @@ def export_setlist(
     unknown = sorted(set(formats) - {"txt", "csv", "m3u8"})
     if unknown:
         raise ValueError(f"Unknown setlist export format(s): {unknown}")
-    stamp = (now or datetime.now(UTC).astimezone()).strftime("%Y-%m-%d_%H%M")
+    # Seconds in the stamp keep same-minute re-exports from overwriting
+    # the previous run's artifacts.
+    stamp = (now or datetime.now(UTC).astimezone()).strftime("%Y-%m-%d_%H%M%S")
     base = f"{_safe_name(project.name)}_{stamp}"
     renderers = {
         "txt": _render_txt,

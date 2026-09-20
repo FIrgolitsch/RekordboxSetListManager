@@ -27,7 +27,7 @@ def test_txt_section_headers_and_continuous_numbering(project, tmp_path):
 
     result = export_setlist(project, tmp_path, {"txt"}, now=_NOW)
 
-    assert [p.name for p in result.written] == ["Summer Tour_2026-01-02_0304.txt"]
+    assert [p.name for p in result.written] == ["Summer Tour_2026-01-02_030400.txt"]
     assert result.skipped == []
     text = result.written[0].read_text(encoding="utf-8")
     assert "Peak" in text
@@ -126,9 +126,9 @@ def test_all_formats_share_one_timestamped_basename(project, tmp_path):
     result = export_setlist(project, tmp_path, {"txt", "csv", "m3u8"}, now=_NOW)
 
     assert sorted(p.name for p in result.written) == [
-        "Summer Tour_2026-01-02_0304.csv",
-        "Summer Tour_2026-01-02_0304.m3u8",
-        "Summer Tour_2026-01-02_0304.txt",
+        "Summer Tour_2026-01-02_030400.csv",
+        "Summer Tour_2026-01-02_030400.m3u8",
+        "Summer Tour_2026-01-02_030400.txt",
     ]
 
 
@@ -144,7 +144,7 @@ def test_export_to_missing_directory_raises_with_path(project, tmp_path):
     with pytest.raises(SetlistExportError) as exc_info:
         export_setlist(project, out_dir, {"txt"}, now=_NOW)
 
-    assert exc_info.value.path == out_dir / "Summer Tour_2026-01-02_0304.txt"
+    assert exc_info.value.path == out_dir / "Summer Tour_2026-01-02_030400.txt"
     assert exc_info.value.__cause__ is not None
 
 
@@ -182,7 +182,7 @@ def test_now_injection_gives_literal_stem_on_every_format(project, tmp_path):
     result = export_setlist(project, tmp_path, {"txt", "csv", "m3u8"}, now=_NOW)
 
     stems = {p.name.rsplit(".", 1)[0] for p in result.written}
-    assert stems == {"Summer Tour_2026-01-02_0304"}
+    assert stems == {"Summer Tour_2026-01-02_030400"}
 
 
 def test_safe_name_matrix():
