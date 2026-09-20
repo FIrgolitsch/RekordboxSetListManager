@@ -146,7 +146,9 @@ class TrackTableModel(QAbstractTableModel):
         """Clear all tracks from the model."""
         self.beginResetModel()
         self._ids = []
+        self._tracks = {}
         self._bg = None
+        self._section_id = None
         self._dup_ids = set()
         self._compat = {}
         self.endResetModel()
