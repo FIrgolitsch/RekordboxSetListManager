@@ -308,7 +308,8 @@ def _check_payload_magic(payload: bytes) -> str:
 def _validate_wav(part: Path, expected_s: int | None) -> None:
     """Verify the decoded ``.part`` file: RIFF/WAVE magic plus duration."""
     try:
-        head = part.open("rb").read(12)
+        with part.open("rb") as fh:
+            head = fh.read(12)
     except OSError as exc:
         raise TidalDownloadError(
             f"Decoded output could not be read: {exc}",
