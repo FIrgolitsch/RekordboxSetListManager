@@ -321,10 +321,21 @@ class DownloadController(QObject):
         self.queue_drained.emit()
 
     def _default_service_factory(self) -> TidalDownloadService:
-        raise TidalDownloadError(
-            "No authenticated Tidal session",
-            kind=DownloadErrorKind.AUTH,
-        )
+        """Build a download service from the current Tidal session.
+
+        Consulted once per dequeued item so a session rebound by silent
+        re-auth is picked up without reconstructing the controller.  A
+        missing session raises the classified AUTH error — the worker's
+        existing ``TidalDownloadError`` route turns it into
+        ``item_failed`` + pause + ``auth_required`` with no special-casing.
+        """
+        session = self._tidal.session
+        if session is None:
+            raise TidalDownloadError(
+                "No authenticated Tidal session",
+                kind=DownloadErrorKind.AUTH,
+            )
+        return TidalDownloadService(session, gate=self._gate)
 
     def _on_auth_required(self) -> None:
         self.auth_required.emit()

@@ -183,13 +183,20 @@ class TidalService(StreamingService):
     def session(self) -> tidalapi.Session | None:
         """The current authenticated session, or ``None``.
 
+        This is a live view, not a copy: the returned object's identity
+        changes on every successful :meth:`authenticate` /
+        :meth:`try_silent_authenticate`, so callers that need a session must
+        read this property fresh rather than caching it — pinning a stale
+        session object is exactly what the accessor exists to prevent.
+        Callers must not mutate the returned session.
+
         Returns
         -------
         tidalapi.Session | None
             The live session object — ``None`` until a successful
             :meth:`authenticate` or :meth:`try_silent_authenticate`.
         """
-        return None
+        return self._session
 
     # ------------------------------------------------------------------
     # Playlists

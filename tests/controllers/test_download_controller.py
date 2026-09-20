@@ -95,7 +95,10 @@ class _FakeTidalService:
 def _fake_session():
     """Minimal session stand-in — only the ``config`` attrs the adapter needs."""
     return SimpleNamespace(
-        config=SimpleNamespace(client_id="fake-client", client_secret="fake-secret")
+        config=SimpleNamespace(
+            client_id="fake-client",
+            client_secret="fake-secret",  # noqa: S106 — fixture value, not a real secret
+        )
     )
 
 

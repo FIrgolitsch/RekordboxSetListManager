@@ -213,6 +213,13 @@ class _MergedEvent(threading.Event):
 def abort_aware_sleeper(abort: threading.Event) -> Callable[[float], None]:
     """Return a ``RateGate`` ``sleep`` callable wired to an abort event.
 
+    A sleeper that merely early-returns on abort still lets the caller —
+    ``acquire``/``backoff`` — stamp a release and let ``fetch_bytes`` fire
+    one more GET; the sleeper must *raise* out of the gate lock instead.
+    ``InterruptedError`` classifies to ``CANCELLED`` via
+    ``_classify_download_error``, so a cancelled download shuts a 300 s
+    ``Retry-After`` wait down promptly instead of sleeping it out.
+
     Parameters
     ----------
     abort : threading.Event
@@ -222,10 +229,16 @@ def abort_aware_sleeper(abort: threading.Event) -> Callable[[float], None]:
     -------
     Callable[[float], None]
         A sleeper suitable for ``RateGate(sleep=...)``.
+
+    Raises
+    ------
+    InterruptedError
+        When *abort* is set before the wait starts or fires during it.
     """
 
     def _sleep(seconds: float) -> None:
-        abort.wait(seconds)
+        if abort.is_set() or abort.wait(seconds):
+            raise InterruptedError("download aborted during rate-limit wait")
 
     return _sleep
 
