@@ -188,17 +188,13 @@ class DownloadWorker(QObject):
             result = service.download_track(
                 item.tidal_id,
                 progress_cb=self._throttled(item),
-                cancel_event=_MergedEvent(
-                    item.cancel_event, self._shutdown, self._abort_work
-                ),
+                cancel_event=_MergedEvent(item.cancel_event, self._shutdown, self._abort_work),
             )
         except TidalDownloadError as exc:
             self._handle_download_error(item, exc)
         except Exception as exc:  # broad catch is deliberate — one bad item
             # must never strand the rest of the queue.
-            log.debug(
-                "Download item %s raised unexpectedly", item.item_id, exc_info=True
-            )
+            log.debug("Download item %s raised unexpectedly", item.item_id, exc_info=True)
             self.item_failed.emit(
                 item.item_id, DownloadErrorKind.NETWORK, _sanitize_message(str(exc))
             )

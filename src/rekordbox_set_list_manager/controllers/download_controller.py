@@ -12,6 +12,9 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QObject, QThread, Signal
 
 from rekordbox_set_list_manager.gui.widgets.common.download_worker import DownloadWorker
+from rekordbox_set_list_manager.gui.widgets.streaming.auth_worker import (
+    StreamingAuthWorker,
+)
 from rekordbox_set_list_manager.services.tidal_download import (
     DownloadErrorKind,
     RateGate,
@@ -131,12 +134,17 @@ class DownloadController(QObject):
         # cancel/shutdown interrupt a long Retry-After wait promptly.
         self._gate = RateGate(sleep=abort_aware_sleeper(self._abort_work))
         self._service_factory = (
-            service_factory
-            if service_factory is not None
-            else self._default_service_factory
+            service_factory if service_factory is not None else self._default_service_factory
         )
         self._items: dict[str, QueueItem] = {}
         self._batches_done: set[str] = set()
+        # Re-auth lifecycle state: the last item_failed kind (delivered ahead
+        # of auth_required by queued-signal order) decides whether an auth
+        # pause means "restore the session" or "the client config is bad".
+        self._last_failure_kind: object | None = None
+        self._reauth_running = False
+        self._reauth_thread: QThread | None = None
+        self._reauth_worker: StreamingAuthWorker | None = None
         self._worker = DownloadWorker(
             self._queue,
             service_factory=self._service_factory,
@@ -249,6 +257,14 @@ class DownloadController(QObject):
             for record in self._items.values():
                 if record.state not in _TERMINAL_STATES:
                     record.cancel_event.set()
+            if self._reauth_worker is not None:
+                self._reauth_worker.cancel()
+        # A re-auth thread blocked inside the service call cannot process
+        # quit() until it returns — the wait is deliberately shorter than
+        # the worker's so shutdown stays responsive.
+        if self._reauth_thread is not None and self._reauth_thread.isRunning():
+            self._reauth_thread.quit()
+            self._reauth_thread.wait(1000)
         if self._thread.isRunning():
             self._thread.quit()
             self._thread.wait(3000)
@@ -265,14 +281,8 @@ class DownloadController(QObject):
         record = self._items.get(item_id)
         if record is None:
             return
-        state = (
-            QueueItemState.RUNNING
-            if record.state is QueueItemState.QUEUED
-            else record.state
-        )
-        self._items[item_id] = dataclasses.replace(
-            record, state=state, progress=frac
-        )
+        state = QueueItemState.RUNNING if record.state is QueueItemState.QUEUED else record.state
+        self._items[item_id] = dataclasses.replace(record, state=state, progress=frac)
         self.item_progress.emit(item_id, frac)
 
     def _on_worker_finished(self, item_id: str, result: DownloadResult) -> None:
@@ -293,6 +303,10 @@ class DownloadController(QObject):
         record = self._items.get(item_id)
         if record is None:
             return
+        # auth_required arrives right after this emission — remember the
+        # kind so its handler can tell a stale session (AUTH) from a bad
+        # client credential (INVALID_CLIENT).
+        self._last_failure_kind = kind
         record = dataclasses.replace(
             record, state=QueueItemState.FAILED, error_kind=str(kind), error=msg
         )
@@ -338,4 +352,58 @@ class DownloadController(QObject):
         return TidalDownloadService(session, gate=self._gate)
 
     def _on_auth_required(self) -> None:
+        """Re-emit the signal, then act on the failure kind behind it.
+
+        The worker always emits ``item_failed`` immediately before
+        ``auth_required``, so ``_last_failure_kind`` is the classified cause
+        by the time this slot runs.
+        """
         self.auth_required.emit()
+        if self._last_failure_kind is DownloadErrorKind.INVALID_CLIENT:
+            # A rejected client credential is a configuration fault — a
+            # fresh session cannot repair it, so flush the queue rather
+            # than spinning a doomed re-auth worker.
+            self.cancel_all()
+            return
+        self._start_silent_reauth()
+
+    def _start_silent_reauth(self) -> None:
+        """Spawn the silent re-auth worker on its own one-shot thread.
+
+        One attempt at a time: a second ``auth_required`` while a re-auth
+        is in flight (or after shutdown began) is ignored — the drain is
+        already paused, so nothing is lost by waiting on the first try.
+        """
+        if self._reauth_running or self._shutdown.is_set():
+            return
+        self._reauth_running = True
+        thread = QThread(self)
+        worker = StreamingAuthWorker(self._tidal, silent=True)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(self._on_reauth_finished)
+        worker.silent_failed.connect(self._on_reauth_failed)
+        worker.error.connect(self._on_reauth_failed)
+        worker.finished.connect(thread.quit)
+        worker.silent_failed.connect(thread.quit)
+        worker.error.connect(thread.quit)
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._on_reauth_thread_finished)
+        self._reauth_thread = thread
+        self._reauth_worker = worker
+        thread.start()
+
+    def _on_reauth_finished(self, _username: str) -> None:
+        """Unpause the drain — the next item's factory reads the new session."""
+        self.resume()
+
+    def _on_reauth_failed(self, *_args: object) -> None:
+        """Silent re-auth could not restore a session — flush the queue."""
+        self.cancel_all()
+
+    def _on_reauth_thread_finished(self) -> None:
+        """Drop the one-shot thread/worker refs once the thread has ended."""
+        self._reauth_running = False
+        self._reauth_thread = None
+        self._reauth_worker = None

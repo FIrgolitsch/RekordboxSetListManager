@@ -423,9 +423,7 @@ def test_auth_failure_pauses_and_emits_auth_required(qtbot):
         factory_calls.append(1)
         return fake
 
-    ctrl = DownloadController(
-        service_factory=_counting_factory, tidal_service=tidal
-    )
+    ctrl = DownloadController(service_factory=_counting_factory, tidal_service=tidal)
     try:
         cap = _Capture(ctrl)
 
@@ -445,9 +443,7 @@ def test_auth_failure_pauses_and_emits_auth_required(qtbot):
         qtbot.waitUntil(lambda: len(cap.of("finished")) == 1, timeout=5000)
         assert fake.calls == ["t1", "t2"]
         assert len(factory_calls) == 2  # t2's service was minted post-re-auth
-        qtbot.waitUntil(
-            lambda: getattr(ctrl, "_reauth_thread", None) is None, timeout=3000
-        )
+        qtbot.waitUntil(lambda: getattr(ctrl, "_reauth_thread", None) is None, timeout=3000)
     finally:
         tidal.auth_gate.set()
         ctrl.shutdown()
@@ -471,9 +467,7 @@ def test_silent_reauth_failure_cancels_remaining_items(make_ctrl, qtbot):
     assert failed[0][1] == DownloadErrorKind.AUTH
     assert cap.of("finished") == []
     assert fake.calls == ["t1"]
-    qtbot.waitUntil(
-        lambda: getattr(ctrl, "_reauth_thread", None) is None, timeout=3000
-    )
+    qtbot.waitUntil(lambda: getattr(ctrl, "_reauth_thread", None) is None, timeout=3000)
 
 
 def test_invalid_client_aborts_queue_without_silent_reauth(make_ctrl, qtbot):
@@ -516,9 +510,7 @@ def test_second_auth_required_during_reauth_does_not_respawn(make_ctrl, qtbot):
     qtbot.wait(300)
     assert tidal.auth_calls == 1
     tidal.auth_gate.set()
-    qtbot.waitUntil(
-        lambda: getattr(ctrl, "_reauth_thread", None) is None, timeout=3000
-    )
+    qtbot.waitUntil(lambda: getattr(ctrl, "_reauth_thread", None) is None, timeout=3000)
 
 
 def test_shutdown_during_reauth_is_bounded_and_leaks_no_thread(make_ctrl, qtbot):
@@ -541,8 +533,9 @@ def test_shutdown_during_reauth_is_bounded_and_leaks_no_thread(make_ctrl, qtbot)
     assert all(s in _TERMINAL for s in states.values())
     tidal.auth_gate.set()  # let the cancelled silent auth return
     qtbot.waitUntil(
-        lambda: getattr(ctrl, "_reauth_thread", None) is None
-        or not ctrl._reauth_thread.isRunning(),
+        lambda: (
+            getattr(ctrl, "_reauth_thread", None) is None or not ctrl._reauth_thread.isRunning()
+        ),
         timeout=3000,
     )
 
@@ -569,18 +562,14 @@ def test_snapshot_insertion_order_and_states(make_ctrl, qtbot):
 
     fake.handlers["t1"] = block
     ids = ctrl.enqueue([("t1", "L1"), ("t2", "L2")])
-    qtbot.waitUntil(
-        lambda: ctrl.snapshot()[0].state is QueueItemState.RUNNING, timeout=3000
-    )
+    qtbot.waitUntil(lambda: ctrl.snapshot()[0].state is QueueItemState.RUNNING, timeout=3000)
     snap = ctrl.snapshot()
     assert [r.item_id for r in snap] == ids
     assert snap[0].state is QueueItemState.RUNNING
     assert snap[1].state is QueueItemState.QUEUED
     assert QueueItem.__dataclass_params__.frozen is True
     gate.set()
-    qtbot.waitUntil(
-        lambda: all(r.state in _TERMINAL for r in ctrl.snapshot()), timeout=5000
-    )
+    qtbot.waitUntil(lambda: all(r.state in _TERMINAL for r in ctrl.snapshot()), timeout=5000)
     assert all(r.state is QueueItemState.FINISHED for r in ctrl.snapshot())
 
 
@@ -644,9 +633,7 @@ def test_default_factory_no_session_fails_auth_and_pauses(make_default_ctrl, qtb
     assert failed[0][1] == DownloadErrorKind.AUTH
     assert ctrl._worker._paused.is_set()  # drain paused — t2 must not start
     tidal.auth_gate.set()  # release any in-flight silent re-auth
-    qtbot.waitUntil(
-        lambda: getattr(ctrl, "_reauth_thread", None) is None, timeout=3000
-    )
+    qtbot.waitUntil(lambda: getattr(ctrl, "_reauth_thread", None) is None, timeout=3000)
 
 
 def test_default_factory_builds_real_service_per_item_with_shared_gate(
@@ -669,9 +656,7 @@ def test_default_factory_builds_real_service_per_item_with_shared_gate(
     monkeypatch.setattr(
         real_cls,
         "download_track",
-        lambda self, track_id, *, progress_cb=None, cancel_event=None: _result(
-            track_id
-        ),
+        lambda self, track_id, *, progress_cb=None, cancel_event=None: _result(track_id),
     )
     session = _fake_session()
     tidal = _FakeTidalService(session=session)
@@ -680,18 +665,14 @@ def test_default_factory_builds_real_service_per_item_with_shared_gate(
 
     ctrl.enqueue([("t1", "L1"), ("t2", "L2")])
 
-    qtbot.waitUntil(
-        lambda: len(built) == 2 or bool(cap.of("failed")), timeout=5000
-    )
+    qtbot.waitUntil(lambda: len(built) == 2 or bool(cap.of("failed")), timeout=5000)
     assert len(built) == 2
     assert all(svc._session is session for svc in built)
     assert all(svc._gate is ctrl._gate for svc in built)
     qtbot.waitUntil(lambda: len(cap.of("finished")) == 2, timeout=5000)
 
 
-def test_default_factory_reads_current_session_each_call(
-    make_default_ctrl, qtbot, monkeypatch
-):
+def test_default_factory_reads_current_session_each_call(make_default_ctrl, qtbot, monkeypatch):
     """A session rebound between items (e.g. by silent re-auth) is picked up
     by the very next factory call — no controller reconstruction needed."""
     sessions_seen = []
