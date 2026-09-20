@@ -152,3 +152,29 @@ def test_import_setlist_export():
     assert SetlistExportError is not None
     assert SetlistExportResult is not None
     assert format_total_duration is not None
+
+
+def test_import_tidal_download_modules():
+    from rekordbox_set_list_manager.services import (
+        _tidal_audio,
+        _tidal_crypto,
+        _tidal_download_adapter,
+    )
+    from rekordbox_set_list_manager.services.tidal_download import (
+        DownloadBatch,
+        DownloadErrorKind,
+        DownloadResult,
+        SegmentPlan,
+        TidalDownloadError,
+        TidalDownloadService,
+    )
+
+    assert TidalDownloadService is not None
+    assert DownloadResult is not None
+    assert DownloadBatch is not None
+    assert TidalDownloadError is not None
+    assert DownloadErrorKind is not None
+    assert SegmentPlan is not None
+    assert hasattr(_tidal_download_adapter, "RateGate")
+    assert hasattr(_tidal_audio, "decode_to_wav")
+    assert hasattr(_tidal_crypto, "decrypt_file")

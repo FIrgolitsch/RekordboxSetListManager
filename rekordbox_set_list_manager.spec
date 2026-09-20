@@ -13,6 +13,8 @@ import re
 import sys
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_dynamic_libs
+
 src = Path("src/rekordbox_set_list_manager")
 
 # ── Single-source version: read directly from __init__.py ──────────────────
@@ -39,7 +41,11 @@ def _resource_datas() -> list[tuple[str, str]]:
 a = Analysis(
     [str(src / "__main__.py")],
     pathex=["src"],
-    binaries=[],
+    # soundfile is a single-file module, so collect_dynamic_libs("soundfile")
+    # finds nothing; its wheel bundles libsndfile inside the _soundfile_data
+    # package instead. Collect from there or the frozen app raises
+    # OSError("sndfile library not found") on the first decode.
+    binaries=collect_dynamic_libs("_soundfile_data"),
     datas=_resource_datas(),
     hiddenimports=[
         "PySide6.QtCore",
@@ -53,6 +59,13 @@ a = Analysis(
         "pydantic",
         "pydantic.v1",
         "sqlcipher3",
+        "mutagen",
+        "pyaes",
+        "requests",
+        "soundfile",
+        # soundfile.py does `import _soundfile_data` at runtime to locate the
+        # bundled libsndfile — the package must be importable in the bundle.
+        "_soundfile_data",
     ],
     hookspath=[],
     hooksconfig={},
