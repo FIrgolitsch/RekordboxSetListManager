@@ -699,6 +699,25 @@ def test_decode_via_ffmpeg_forces_wav_muxer(tmp_path, monkeypatch):
     assert cmd[-1].endswith(".part")
 
 
+def test_download_track_ffmpeg_timeout_classifies_as_decode(tmp_path, monkeypatch):
+    """``subprocess.TimeoutExpired`` is a SubprocessError, not OSError —
+    without an explicit catch it would fall through to NETWORK."""
+    monkeypatch.setattr(shutil, "which", lambda _name: "/fake/bin/ffmpeg")
+
+    def _timeout_run(cmd, check, timeout):
+        raise subprocess.TimeoutExpired(cmd, timeout)
+
+    monkeypatch.setattr(subprocess, "run", _timeout_run)
+    service, _session, _http = _make_service(
+        tmp_path, "playback_mpd_dash.json", bodies=_mpd_bodies()
+    )
+
+    with pytest.raises(TidalDownloadError) as excinfo:
+        service.download_track("12345678")
+
+    assert excinfo.value.kind == DownloadErrorKind.DECODE
+
+
 # ---------------------------------------------------------------------------
 # Encrypted manifests — real decrypt through the pipeline
 # ---------------------------------------------------------------------------

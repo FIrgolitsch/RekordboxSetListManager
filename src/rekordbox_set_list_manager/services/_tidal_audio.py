@@ -168,7 +168,11 @@ def _decode_via_ffmpeg(payload: bytes, dest_part: Path, bit_depth: int) -> None:
             check=True,
             timeout=300,
         )
-    except subprocess.CalledProcessError as exc:
+    except (subprocess.SubprocessError, FileNotFoundError) as exc:
+        # SubprocessError covers CalledProcessError and TimeoutExpired; a
+        # FileNotFoundError means the binary vanished between which() and
+        # run().  All three are decode failures — surface them as
+        # RuntimeError so the caller classifies DECODE, not NETWORK/IO.
         raise RuntimeError(f"ffmpeg could not decode the payload: {exc}") from exc
     finally:
         src_tmp.unlink(missing_ok=True)
