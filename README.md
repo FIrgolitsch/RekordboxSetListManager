@@ -54,7 +54,7 @@ uv run ruff check
 
 ## Configuration (Spotify)
 
-Tidal authentication happens via a PKCE login in the browser — click **Connect to Tidal…** in **Project → Service Settings…** or the Import dialog, then paste the "Oops" page URL back. No credentials are required. An optional `client_id`/`client_secret` override exists via the `SET_MANAGER_TIDAL_CLIENT_ID`/`SET_MANAGER_TIDAL_CLIENT_SECRET` environment variables or `config.json` — see [Connecting Streaming Services](docs/connecting-services.md#tidal) for details.
+Tidal authentication happens via a PKCE login — click **Connect to Tidal…** in **Project → Service Settings…** or the Import dialog and log in in the embedded login window that opens. No credentials are required. An optional `client_id`/`client_secret` override exists via the `SET_MANAGER_TIDAL_CLIENT_ID`/`SET_MANAGER_TIDAL_CLIENT_SECRET` environment variables or `config.json` — see [Connecting Streaming Services](docs/connecting-services.md#tidal) for details.
 
 For Spotify you need a Client ID:
 

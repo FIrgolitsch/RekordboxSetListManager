@@ -20,6 +20,13 @@ from PySide6.QtWidgets import (
 from rekordbox_set_list_manager.gui.widgets.common.busy_dialog import BusyDialog, show_error_dialog
 from rekordbox_set_list_manager.gui.widgets.streaming.auth_worker import StreamingAuthWorker
 
+try:
+    from rekordbox_set_list_manager.gui.widgets.dialogs.tidal_login_dialog import (
+        run_tidal_login,
+    )
+except ImportError:  # QtWebEngine unavailable — the paste row stays the fallback
+    run_tidal_login = None  # type: ignore[assignment]
+
 if TYPE_CHECKING:
     from rekordbox_set_list_manager.services.streaming_base import (
         PlaylistResult,
@@ -44,6 +51,7 @@ class StreamingServiceTab(QWidget):
         self._auto_select_id: str | None = None
         self._thread: QThread | None = None
         self._worker: StreamingAuthWorker | None = None
+        self._pending_login_url: str | None = None
 
         # ── Connect row ──────────────────────────────────────────────────
         self._connect_btn = QPushButton("Connect")
@@ -156,6 +164,7 @@ class StreamingServiceTab(QWidget):
         match = re.search(r"https?://\S+", msg)
         if match:
             url = match.group(0)
+            self._pending_login_url = url
             self._link_label.setText(f'Open in browser to log in: <a href="{url}">{url}</a>')
         else:
             self._link_label.setText(msg)
@@ -163,11 +172,32 @@ class StreamingServiceTab(QWidget):
         self._auth_label.setText("Waiting for approval…")
 
     def _on_redirect_requested(self) -> None:
-        """Show the paste-back field when the PKCE flow needs the redirect URL."""
+        """Complete the PKCE login in an embedded browser dialog.
+
+        Falls back to the manual paste row when QtWebEngine is unavailable
+        or no login URL was captured.
+        """
+        if self._pending_login_url and run_tidal_login is not None:
+            url = run_tidal_login(self._pending_login_url, self)
+            if url and self._worker is not None:
+                self._auth_label.setText("Finishing login…")
+                self._worker.provide_redirect(url)
+            else:
+                self._cancel_pending_auth()
+            return
         self._redirect_hint.setVisible(True)
         self._redirect_container.setVisible(True)
         self._redirect_input.setFocus()
         self._auth_label.setText("Paste the 'Oops' page URL to finish…")
+
+    def _cancel_pending_auth(self) -> None:
+        """Abort an in-flight auth that the user dismissed mid-flow."""
+        if self._worker is not None:
+            self._worker.cancel()
+        if self._thread is not None:
+            self._thread.quit()
+        self._auth_label.setText("Not connected")
+        self._connect_btn.setEnabled(True)
 
     def _on_redirect_submit(self) -> None:
         url = self._redirect_input.text().strip()

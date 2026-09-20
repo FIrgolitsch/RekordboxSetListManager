@@ -321,9 +321,7 @@ def _retriable_status_hint(resp: requests.Response, url: str) -> float | None:
     if _STATUS_REDIRECT_MIN <= status < _STATUS_BAD_REQUEST_MIN:
         raise ValueError(f"Refusing redirect for segment GET ({status}): {url}")
     if status >= _STATUS_BAD_REQUEST_MIN:
-        raise ValueError(
-            f"Tidal segment GET returned non-retriable status {status}: {url}"
-        )
+        raise ValueError(f"Tidal segment GET returned non-retriable status {status}: {url}")
     return None
 
 
@@ -389,9 +387,7 @@ def fetch_bytes(
             # guarantees close() on every retry and raise path below.
             # Redirects are refused outright: requests would follow them to
             # any host, silently defeating the allowlist check above.
-            with http.get(
-                url, stream=True, timeout=(10, 30), allow_redirects=False
-            ) as resp:
+            with http.get(url, stream=True, timeout=(10, 30), allow_redirects=False) as resp:
                 # Status code first — a 429 body is not valid JSON.
                 hint = _retriable_status_hint(resp, url)
                 if hint is not None:

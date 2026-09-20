@@ -60,15 +60,16 @@ Either of these works — both run the same flow and share the same cached sessi
 
 Then:
 
-1. A login link appears in the dialog.  Open it in a browser and log in with your Tidal account.
-2. After logging in, the browser is redirected to an **"Oops"** page — this is expected.  Copy that page's full address (it starts with `https://tidal.com/android/login/auth?code=…`).
-3. Paste it into the **Complete Login** field in the dialog.
+1. A **Log in to Tidal** window opens with the Tidal login page embedded — log in with your Tidal account.
+2. That's it.  When Tidal redirects after login, the app catches the redirect automatically and finishes connecting.
+
+If the embedded login doesn't work for you (e.g. a social sign-in that insists on a real browser), use the **open it in your browser** link at the bottom of the login window: log in there, and when the browser lands on an **"Oops"** page, copy its full address (it starts with `https://tidal.com/android/login/auth?code=…`) into the paste field.
 
 ### Step 2 — Done
 
 The session is cached to disk.  On future launches, Rekordbox Set List Manager reuses the cached session — the browser flow is only needed once (or if you clear the session manually).
 
-The cached session records which client credentials minted it.  If you configure a different `client_id`/`client_secret`, the app detects the change, discards the stale session, and re-runs the device-code flow automatically — a session minted under a different client can never silently keep serving at that client's quality cap.
+The cached session records which client credentials minted it.  If you configure a different `client_id`/`client_secret`, the app detects the change, discards the stale session, and re-runs the login flow automatically — a session minted under a different client can never silently keep serving at that client's quality cap.
 
 ### Optional — your own client credentials
 
@@ -79,7 +80,7 @@ The PKCE flow uses the app's built-in client pair and needs no configuration.  A
 
 ### Clearing the cached Tidal session
 
-Open **Project → Service Settings…** and click **Clear Cached Tidal Session**.  The next time you connect, the device-code flow runs again.
+Open **Project → Service Settings…** and click **Clear Cached Tidal Session**.  The next time you connect, the login flow runs again.
 
 ---
 
