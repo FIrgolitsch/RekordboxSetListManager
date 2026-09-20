@@ -49,8 +49,18 @@ class IndicatorDelegate(QStyledItemDelegate):
     ) -> None:
         """Paint the cell, overlaying an indicator dot when a payload exists."""
         payload = index.data(Qt.ItemDataRole.UserRole)
+        # StrEnum members arrive as plain str through the QVariant boundary —
+        # coerce back so the tier lookup below actually fires.
+        if isinstance(payload, str):
+            try:
+                payload = KeyRelation(payload)
+            except ValueError:
+                payload = None
         is_compat = isinstance(payload, KeyRelation)
-        if not is_compat and payload is not True:
+        # Unknown tiers fall back to plain paint — never raise inside
+        # paint() and never invent a marker for an unmapped relation.
+        fill_hex = self._TIER_HEX.get(payload) if is_compat else _DUP_HEX
+        if fill_hex is None or (not is_compat and payload is not True):
             super().paint(painter, option, index)
             return
 
@@ -64,7 +74,7 @@ class IndicatorDelegate(QStyledItemDelegate):
         dot = max(0, min(_DOT_MAX, opt.rect.height() - 8))
         cx = opt.rect.left() + _DOT_LEFT + dot / 2
         cy = opt.rect.center().y()
-        fill = QColor(self._TIER_HEX[payload] if is_compat else _DUP_HEX)
+        fill = QColor(fill_hex)
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(QPen(fill.darker(_BORDER_FACTOR), 1))
