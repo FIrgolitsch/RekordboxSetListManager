@@ -147,7 +147,12 @@ def format_key(text: str | None) -> str:
     if not text:
         return "—"
     pk = parse_key(text)
-    return f"{text} ({pk.number}{pk.letter})" if pk else text
+    if pk is None:
+        return text
+    # A stored Camelot spelling needs no parenthetical duplicate of itself.
+    if text.strip() == f"{pk.number}{pk.letter}":
+        return text
+    return f"{text} ({pk.number}{pk.letter})"
 
 
 # Grading tiers for indicator badges: SAFE = mix-safe (green),
