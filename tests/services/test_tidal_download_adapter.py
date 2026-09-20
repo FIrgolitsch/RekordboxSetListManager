@@ -325,18 +325,21 @@ def test_fetch_bytes_retries_429_and_honors_retry_after():
     assert clock.sleeps == [2.0]
 
 
-def test_fetch_bytes_401_raises_permission_error():
+def test_fetch_bytes_401_raises_auth_error():
     http = _FakeHttp([_FakeResp(401)])
 
-    with pytest.raises(PermissionError):
+    # TidalAuthError subclasses PermissionError so existing callers still
+    # catch it — but the distinct type keeps local PermissionError
+    # (filesystem denials) out of the AUTH classification.
+    with pytest.raises(adapter.TidalAuthError):
         adapter.fetch_bytes(_SEGMENT_URL, http=http, gate=_fake_gate())
     assert len(http.calls) == 1
 
 
-def test_fetch_bytes_403_raises_permission_error():
+def test_fetch_bytes_403_raises_auth_error():
     http = _FakeHttp([_FakeResp(403)])
 
-    with pytest.raises(PermissionError):
+    with pytest.raises(adapter.TidalAuthError):
         adapter.fetch_bytes(_SEGMENT_URL, http=http, gate=_fake_gate())
     assert len(http.calls) == 1
 

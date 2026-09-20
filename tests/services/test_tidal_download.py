@@ -19,7 +19,12 @@ import soundfile as sf
 from mutagen.wave import WAVE
 
 import rekordbox_set_list_manager.utils.config as config_mod
-from rekordbox_set_list_manager.services import _tidal_audio, _tidal_crypto
+from rekordbox_set_list_manager.services import (
+    _tidal_audio,
+    _tidal_crypto,
+    _tidal_download_adapter,
+    tidal_download,
+)
 from rekordbox_set_list_manager.services.tidal_download import (
     DownloadErrorKind,
     TidalDownloadError,
@@ -513,6 +518,18 @@ def test_download_track_cancel_mid_fetch_leaves_no_strays(tmp_path):
     assert list(download_dir.rglob("*.wav")) == []
     assert list(download_dir.rglob("*.part")) == []
     assert list(download_dir.rglob("*.seg*")) == []
+
+
+def test_classify_local_permission_error_is_io_not_auth():
+    """A filesystem PermissionError must not masquerade as a Tidal auth
+    failure — only the adapter's TidalAuthError means HTTP 401/403."""
+    local = tidal_download._classify_download_error(PermissionError("disk denied"))
+    remote = tidal_download._classify_download_error(
+        _tidal_download_adapter.TidalAuthError("refused")
+    )
+
+    assert local.kind is DownloadErrorKind.IO
+    assert remote.kind is DownloadErrorKind.AUTH
 
 
 # ---------------------------------------------------------------------------

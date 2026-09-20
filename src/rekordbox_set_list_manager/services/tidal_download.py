@@ -25,6 +25,7 @@ from rekordbox_set_list_manager.services import (
 from rekordbox_set_list_manager.services._tidal_download_adapter import (
     PlaybackInfo,
     SegmentPlan,
+    TidalAuthError,
     TidalCredentialsError,
 )
 from rekordbox_set_list_manager.services.skipped_item import SkippedItem
@@ -323,8 +324,13 @@ def _classify_download_error(exc: Exception) -> TidalDownloadError:
         kind, msg = DownloadErrorKind.RATE_LIMIT, f"Tidal rate limit exceeded: {exc}"
     elif isinstance(exc, InterruptedError):
         kind, msg = DownloadErrorKind.CANCELLED, "Download cancelled"
-    elif isinstance(exc, PermissionError):
+    elif isinstance(exc, TidalAuthError):
         kind, msg = DownloadErrorKind.AUTH, f"Tidal authorization failed: {exc}"
+    elif isinstance(exc, PermissionError):
+        # A bare PermissionError reaching here is a LOCAL filesystem denial
+        # (unwritable download dir) — HTTP 401/403 arrives as the
+        # TidalAuthError subclass handled above.
+        kind, msg = DownloadErrorKind.IO, f"Could not write download output: {exc}"
     elif isinstance(exc, requests.RequestException):
         kind, msg = (
             DownloadErrorKind.NETWORK,

@@ -8,11 +8,11 @@ failure.
 
 Error boundary: this module raises :class:`TidalCredentialsError` for missing
 client credentials and lets tidalapi exceptions (``TooManyRequests``,
-``ObjectNotFound``, ``StreamNotAvailable``) plus builtin ``PermissionError`` /
-``TimeoutError`` / ``InterruptedError`` propagate; ``tidal_download`` maps
-them onto its classified error kinds.  Keeping that edge one-directional
-avoids a circular import (the service imports the adapter, never the
-reverse).
+``ObjectNotFound``, ``StreamNotAvailable``) plus :class:`TidalAuthError` and
+builtin ``TimeoutError`` / ``InterruptedError`` propagate;
+``tidal_download`` maps them onto its classified error kinds.  Keeping that
+edge one-directional avoids a circular import (the service imports the
+adapter, never the reverse).
 """
 
 import hashlib
@@ -57,6 +57,16 @@ _RETRY_AFTER_CAP = 300.0  # seconds
 
 class TidalCredentialsError(Exception):
     """Raised when no user-supplied Tidal client credentials are configured."""
+
+
+class TidalAuthError(PermissionError):
+    """Raised when Tidal refuses a request with HTTP 401/403.
+
+    Subclasses ``PermissionError`` so existing ``except PermissionError``
+    callers still catch it, while the distinct type lets the download
+    classifier tell a Tidal authorization refusal (AUTH) apart from a
+    local filesystem permission problem (IO).
+    """
 
 
 def resolve_client_credentials() -> tuple[str, str]:
@@ -283,7 +293,7 @@ def _retriable_status_hint(resp: requests.Response, url: str) -> float | None:
 
     Returns the ``Retry-After`` hint (``0.0`` when absent) for a retriable
     status — 429 or 5xx — and ``None`` when the body may be read.  Terminal
-    statuses raise instead: 401/403 as :class:`PermissionError`, redirects
+    statuses raise instead: 401/403 as :class:`TidalAuthError`, redirects
     as :class:`ValueError` (redirect-following is disabled, so a manifest
     cannot steer the GET off the ``*.tidal.com`` allowlist), and any other
     error status via ``raise_for_status``.
@@ -292,7 +302,7 @@ def _retriable_status_hint(resp: requests.Response, url: str) -> float | None:
     if status == _STATUS_TOO_MANY_REQUESTS:
         return _retry_after(resp)
     if status in (401, 403):
-        raise PermissionError(f"Tidal segment GET refused ({status}): {url}")
+        raise TidalAuthError(f"Tidal segment GET refused ({status}): {url}")
     if status >= _STATUS_SERVER_ERROR_MIN:
         return 0.0
     if _STATUS_REDIRECT_MIN <= status < _STATUS_BAD_REQUEST_MIN:
@@ -336,8 +346,10 @@ def fetch_bytes(
     Raises
     ------
     ValueError
-        If *url* fails the scheme/host allowlist before any request.
-    PermissionError
+        If *url* fails the scheme/host allowlist before any request, or
+        the server answers with a redirect (redirect-following is disabled
+        so the allowlist cannot be bypassed).
+    TidalAuthError
         On 401/403 (caller maps to AUTH).
     TimeoutError
         When the retry ceiling is exhausted on 429/5xx statuses (caller maps
@@ -539,6 +551,7 @@ __all__ = [
     "PlaybackInfo",
     "RateGate",
     "SegmentPlan",
+    "TidalAuthError",
     "TidalCredentialsError",
     "apply_client_credentials",
     "build_segment_plan",
