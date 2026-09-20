@@ -91,9 +91,7 @@ def test_decrypt_security_token_tampered_first_block_unwraps_wrong_key():
     check downstream is what catches it (CTR is unauthenticated)."""
     token = bytearray(base64.b64decode(_fixture_key_id()))
     token[20] ^= 0xFF  # inside the first ciphertext block
-    key, nonce = _tidal_crypto.decrypt_security_token(
-        base64.b64encode(bytes(token)).decode()
-    )
+    key, nonce = _tidal_crypto.decrypt_security_token(base64.b64encode(bytes(token)).decode())
 
     assert key != _EXPECTED_KEY
     ciphertext = (_FIXTURES / "payload_encrypted.bin").read_bytes()

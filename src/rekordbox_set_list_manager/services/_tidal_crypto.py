@@ -64,9 +64,7 @@ def decrypt_security_token(token_b64: str) -> tuple[bytes, bytes]:
             f"Malformed security token: expected iv + whole blocks, got {len(token)} bytes"
         )
     try:
-        decrypter = pyaes.Decrypter(
-            pyaes.AESModeOfOperationCBC(_MASTER_KEY, iv=token[:_IV_LEN])
-        )
+        decrypter = pyaes.Decrypter(pyaes.AESModeOfOperationCBC(_MASTER_KEY, iv=token[:_IV_LEN]))
         plain = decrypter.feed(ciphertext) + decrypter.feed()
     except (ValueError, TypeError) as exc:
         raise TidalCryptoError(f"Security token failed to unwrap: {exc}") from exc
