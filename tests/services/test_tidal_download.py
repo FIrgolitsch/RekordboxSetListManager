@@ -1,8 +1,10 @@
 """End-to-end tests for TidalDownloadService against recorded fixtures."""
 
 import base64
+import datetime
 import json
 import shutil
+import struct
 import subprocess
 import threading
 import time
@@ -740,3 +742,109 @@ def test_download_track_malformed_keyid_fails_decrypt(tmp_path):
     assert list(download_dir.rglob("*.wav")) == []
     assert list(download_dir.rglob("*.part")) == []
     assert list(download_dir.rglob("*.seg*")) == []
+
+
+# ---------------------------------------------------------------------------
+# Dual tagging — ID3 + RIFF LIST-INFO + cover APIC
+# ---------------------------------------------------------------------------
+
+_JPEG_BYTES = b"\xff\xd8\xff\xe0" + bytes(range(64)) + b"\xff\xd9"
+_COVER_URL = "https://resources.tidal.com/images/abc/640x640.jpg"
+
+
+def _find_info_block(data: bytes) -> bytes | None:
+    """Extract the RIFF ``LIST``/``INFO`` payload, walking top-level chunks."""
+    if len(data) < 12 or data[:4] != b"RIFF" or data[8:12] != b"WAVE":
+        return None
+    offset = 12
+    while offset + 8 <= len(data):
+        cid = data[offset : offset + 4]
+        (csize,) = struct.unpack_from("<I", data, offset + 4)
+        if cid == b"LIST" and data[offset + 8 : offset + 12] == b"INFO":
+            return data[offset + 12 : offset + 8 + csize]
+        offset += 8 + csize + (csize % 2)
+    return None
+
+
+def test_download_track_wav_carries_riff_info_chunk(tmp_path):
+    """Rekordbox reads WAV metadata from RIFF INFO — it must be dual-written
+    alongside the ID3 chunk mutagen manages."""
+    track = _fake_tidal_track(release_date=datetime.date(2024, 3, 7))
+    service, _session, _http = _make_service(
+        tmp_path,
+        "playback_bts_flac_clear.json",
+        bodies=[_flac_payload()],
+        tidal_track=track,
+    )
+
+    result = service.download_track("12345678")
+
+    data = result.filepath.read_bytes()
+    assert b"LIST" in data
+    assert b"INFO" in data
+    assert b"Test Artist" in data
+    info = _find_info_block(data)
+    assert info is not None
+    assert b"INAM" in info and b"Test Title" in info
+    assert b"IART" in info and b"Test Artist" in info
+    assert b"IPRD" in info and b"Test Album" in info
+    assert b"ITRK" in info and b"01" in info
+    assert b"ISRC" in info and b"USABC1234567" in info
+    assert b"ICRD" in info and b"2024" in info
+    assert b"None" not in info
+    # The chunk must not corrupt the WAV — it still parses end to end.
+    assert WAVE(result.filepath).info.length == pytest.approx(1.0, abs=0.1)
+
+
+def test_download_track_info_omits_missing_fields(tmp_path):
+    """Absent source fields are omitted entirely — never written as the
+    literal string ``None``."""
+    track = _fake_tidal_track(album=None, isrc=None)
+    service, _session, _http = _make_service(
+        tmp_path,
+        "playback_bts_flac_clear.json",
+        bodies=[_flac_payload()],
+        tidal_track=track,
+    )
+
+    result = service.download_track("12345678")
+
+    data = result.filepath.read_bytes()
+    assert b"None" not in data
+    info = _find_info_block(data)
+    assert info is not None
+    assert b"INAM" in info and b"Test Title" in info
+    assert b"IART" in info and b"Test Artist" in info
+    for absent in (b"IPRD", b"ISRC", b"ICRD"):
+        assert absent not in info
+
+
+def test_download_track_embeds_cover_art_as_apic(tmp_path):
+    """``track.album.image(640)`` bytes land in an APIC frame."""
+    session = _FakeSession(
+        _load_fixture("playback_bts_flac_clear.json"),
+        _fake_tidal_track(image_url=_COVER_URL),
+    )
+    http = _FakeHttpByUrl({_BTS_SEG_URL: _flac_payload(), _COVER_URL: _JPEG_BYTES})
+    service = TidalDownloadService(session, download_dir=tmp_path / "downloads", http=http)
+
+    result = service.download_track("12345678")
+
+    apic = WAVE(result.filepath).tags.getall("APIC")
+    assert len(apic) == 1
+    assert apic[0].data == _JPEG_BYTES
+
+
+def test_download_track_cover_failure_still_succeeds(tmp_path):
+    """A failed cover GET is best-effort: no APIC, download still delivers."""
+    session = _FakeSession(
+        _load_fixture("playback_bts_flac_clear.json"),
+        _fake_tidal_track(image_url=_COVER_URL),
+    )
+    http = _FakeHttpByUrl({_BTS_SEG_URL: _flac_payload(), _COVER_URL: _FakeResp(500)})
+    service = TidalDownloadService(session, download_dir=tmp_path / "downloads", http=http)
+
+    result = service.download_track("12345678")
+
+    assert result.filepath.exists()
+    assert WAVE(result.filepath).tags.getall("APIC") == []
