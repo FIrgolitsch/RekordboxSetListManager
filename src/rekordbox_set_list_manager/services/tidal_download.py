@@ -102,6 +102,10 @@ class DownloadResult:
         Expected track duration in seconds.
     skipped_existing : bool
         ``True`` when the file already existed and nothing was fetched.
+        Dedup is path-only: a *different* Tidal track rendering to the same
+        templated path also reports ``skipped_existing`` — the file then
+        holds the earlier track's audio while the result carries the new
+        ``track_id``.
     """
 
     filepath: Path
