@@ -80,7 +80,6 @@ class TrackTableModel(QAbstractTableModel):
     """
 
     tracks_reordered = Signal(list)  # list[UUID]
-    about_to_reorder = Signal()  # fired before drag-drop reorder commits
 
     def __init__(self, parent=None) -> None:
         """Initialise an empty track table model."""
@@ -283,7 +282,6 @@ class TrackTableModel(QAbstractTableModel):
         if not src_rows:
             return False
 
-        self.about_to_reorder.emit()  # capture undo state before mutating
         dest = row if row >= 0 else len(self._ids)
 
         moving = [self._ids[r] for r in src_rows if 0 <= r < len(self._ids)]
