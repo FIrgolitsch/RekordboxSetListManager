@@ -398,7 +398,10 @@ class TidalDownloadService:
         self._session = session
         raw_dir = download_dir if download_dir is not None else config.get(_CFG_DOWNLOAD_DIR)
         self._download_dir = (
-            Path(str(raw_dir))
+            # expanduser: a hand-edited config.json commonly writes "~" —
+            # pathlib leaves it literal, which would create a "~" directory
+            # under the CWD.
+            Path(str(raw_dir)).expanduser()
             if raw_dir
             else Path(platformdirs.user_music_path()) / "Set Manager Downloads"
         )

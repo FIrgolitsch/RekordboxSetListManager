@@ -587,6 +587,19 @@ def test_download_track_respects_config_keys(tmp_path):
     assert result.downgraded is True
 
 
+def test_download_dir_tilde_expands_to_home(tmp_path, monkeypatch):
+    """A hand-edited ``download_dir`` like ``~/Music/Downloads`` must expand
+    to the real home — pathlib leaves a literal ``~`` component otherwise,
+    which would create a ``~`` directory under the process CWD."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    session = _FakeSession(_load_fixture("playback_bts_flac_clear.json"), _fake_tidal_track())
+
+    service = TidalDownloadService(session, download_dir="~/dl", http=_FakeHttp())
+
+    assert service._download_dir == tmp_path / "dl"
+
+
 def test_render_path_sanitizes_unsafe_characters(tmp_path):
     download_dir = tmp_path / "downloads"
     service, _session, _http = _make_service(
