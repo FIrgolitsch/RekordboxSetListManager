@@ -856,3 +856,194 @@ def test_download_track_cover_failure_still_succeeds(tmp_path):
 
     assert result.filepath.exists()
     assert WAVE(result.filepath).tags.getall("APIC") == []
+
+
+# ---------------------------------------------------------------------------
+# download_many — batch aggregation over classified per-track outcomes
+# ---------------------------------------------------------------------------
+
+
+class _FakeMultiSession:
+    """Session fake keyed by track id for batch tests.
+
+    ``raw_map`` maps track id → playback-info payload; ``track_map`` maps
+    track id → tidalapi-shaped track; ``on_request`` (optional) fires inside
+    the playback-info call so tests can flip a cancel event mid-batch.
+    """
+
+    def __init__(self, raw_map, track_map, on_request=None):
+        self.config = SimpleNamespace(quality=None, client_id=None, client_secret=None)
+        self._raw_map = raw_map
+        self._track_map = track_map
+        self._on_request = on_request
+        self.request_calls = []
+        self.request = SimpleNamespace(request=self._request)
+
+    def _request(self, method, path, params=None):
+        self.request_calls.append((method, path, params))
+        track_id = path.split("/")[1]
+        if self._on_request is not None:
+            self._on_request(track_id)
+        return SimpleNamespace(json=lambda: self._raw_map[track_id])
+
+    def track(self, track_id=None, with_album=False):
+        return self._track_map[track_id]
+
+
+def _bts_raw_for(track_id):
+    """BTS playback fixture cloned with a track-specific segment URL."""
+    raw = _load_fixture("playback_bts_flac_clear.json")
+    manifest = json.loads(base64.b64decode(raw["manifest"]))
+    manifest["urls"] = [f"https://audio.tidal.com/placeholder/seg-{track_id}.flac"]
+    raw["manifest"] = base64.b64encode(json.dumps(manifest).encode()).decode()
+    return raw
+
+
+def _seg_url(track_id):
+    return f"https://audio.tidal.com/placeholder/seg-{track_id}.flac"
+
+
+def _track_map_for(track_ids):
+    """Distinct titles → distinct templated paths per track id."""
+    return {tid: _fake_tidal_track(title=f"Title {tid}") for tid in track_ids}
+
+
+def _batch_service(tmp_path, raw_map, track_ids, http_map, on_request=None, **kwargs):
+    session = _FakeMultiSession(raw_map, _track_map_for(track_ids), on_request=on_request)
+    http = _FakeHttpByUrl(http_map)
+    return TidalDownloadService(session, download_dir=tmp_path / "downloads", http=http, **kwargs)
+
+
+def test_download_many_aggregates_classified_outcomes(tmp_path):
+    """ok + preview + below-floor + ok → results carry only delivered files,
+    failures carry classified reasons, nothing aborts the batch."""
+    service = _batch_service(
+        tmp_path,
+        {
+            "ok1": _bts_raw_for("ok1"),
+            "prev": _load_fixture("playback_preview.json"),
+            "low": _load_fixture("playback_low_quality.json"),
+            "ok2": _bts_raw_for("ok2"),
+        },
+        ("ok1", "prev", "low", "ok2"),
+        {_seg_url("ok1"): _flac_payload(), _seg_url("ok2"): _flac_payload()},
+    )
+
+    batch = service.download_many(["ok1", "prev", "low", "ok2"])
+
+    assert [r.track_id for r in batch.results] == ["ok1", "ok2"]
+    assert batch.downgrades == []
+    assert [f.label for f in batch.failures] == ["prev", "low"]
+    assert batch.failures[0].reason.startswith("preview:")
+    assert batch.failures[1].reason.startswith("quality_cap:")
+    assert batch.cancelled is False
+    for result in batch.results:
+        assert result.filepath.exists()
+
+
+def test_download_many_min_quality_any_reports_downgrade(tmp_path):
+    """A delivered-but-downgraded track lands in results AND downgrades —
+    never in failures."""
+    service = _batch_service(
+        tmp_path,
+        {
+            "ok": _bts_raw_for("ok"),
+            "low": _load_fixture("playback_low_quality.json"),
+        },
+        ("ok", "low"),
+        {_seg_url("ok"): _flac_payload(), _BTS_SEG_URL: _flac_payload()},
+        min_quality="any",
+    )
+
+    batch = service.download_many(["ok", "low"])
+
+    assert [r.track_id for r in batch.results] == ["ok", "low"]
+    assert [r.track_id for r in batch.downgrades] == ["low"]
+    assert batch.downgrades[0].downgraded is True
+    assert batch.failures == []
+    assert batch.cancelled is False
+
+
+def test_download_many_failure_isolates_one_track(tmp_path):
+    """A transport error on one track is classified and does not abort the
+    rest of the batch."""
+    service = _batch_service(
+        tmp_path,
+        {tid: _bts_raw_for(tid) for tid in ("t1", "t2", "t3")},
+        ("t1", "t2", "t3"),
+        {
+            _seg_url("t1"): _flac_payload(),
+            _seg_url("t2"): requests.ConnectionError("host unreachable"),
+            _seg_url("t3"): _flac_payload(),
+        },
+    )
+
+    batch = service.download_many(["t1", "t2", "t3"])
+
+    assert [r.track_id for r in batch.results] == ["t1", "t3"]
+    assert [f.label for f in batch.failures] == ["t2"]
+    assert batch.failures[0].reason.startswith("network:")
+    assert batch.cancelled is False
+
+
+def test_download_many_cancel_stops_between_tracks(tmp_path):
+    """Cancel raised mid-batch: the in-flight track fails classified, later
+    tracks are never attempted, completed results stay reported."""
+    cancel = threading.Event()
+
+    def _on_request(track_id):
+        if track_id == "t2":
+            cancel.set()
+
+    service = _batch_service(
+        tmp_path,
+        {tid: _bts_raw_for(tid) for tid in ("t1", "t2", "t3")},
+        ("t1", "t2", "t3"),
+        {_seg_url(tid): _flac_payload() for tid in ("t1", "t2", "t3")},
+        on_request=_on_request,
+    )
+
+    batch = service.download_many(["t1", "t2", "t3"], cancel_event=cancel)
+
+    assert batch.cancelled is True
+    assert [r.track_id for r in batch.results] == ["t1"]
+    assert [f.label for f in batch.failures] == ["t2"]
+    assert batch.failures[0].reason.startswith("cancelled:")
+    # t3's playback-info was never requested.
+    assert not any("/t3/" in path for _m, path, _p in service._session.request_calls)
+    download_dir = tmp_path / "downloads"
+    assert list(download_dir.rglob("*.part")) == []
+    assert list(download_dir.rglob("*.seg*")) == []
+
+
+def test_download_many_skipped_existing_counts_as_result(tmp_path):
+    """An existing file is a delivered result, not a failure."""
+    service = _batch_service(
+        tmp_path,
+        {"t1": _bts_raw_for("t1"), "t2": _bts_raw_for("t2")},
+        ("t1", "t2"),
+        {_seg_url("t2"): _flac_payload()},
+    )
+    download_dir = tmp_path / "downloads"
+    existing = download_dir / "Test Artist" / "Test Album" / "01 - Title t1.wav"
+    existing.parent.mkdir(parents=True)
+    existing.write_bytes(b"existing")
+
+    batch = service.download_many(["t1", "t2"])
+
+    assert [r.track_id for r in batch.results] == ["t1", "t2"]
+    assert batch.results[0].skipped_existing is True
+    assert batch.results[0].filepath == existing.resolve()
+    assert batch.failures == []
+
+
+def test_download_many_empty_batch(tmp_path):
+    session = _FakeMultiSession({}, {})
+    service = TidalDownloadService(session, download_dir=tmp_path / "downloads")
+
+    batch = service.download_many([])
+
+    assert batch.results == []
+    assert batch.downgrades == []
+    assert batch.failures == []
+    assert batch.cancelled is False
