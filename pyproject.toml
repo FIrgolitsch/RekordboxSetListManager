@@ -21,6 +21,7 @@ dependencies = [
     "pyaes>=1.6.1,<2",
     "requests>=2.32.3,<3",
     "soundfile>=0.14,<0.15",
+    "pillow>=12.3.0",
 ]
 
 # Dev tooling lives in [dependency-groups] (uv-native, synced by default);

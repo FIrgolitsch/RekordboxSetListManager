@@ -2,6 +2,7 @@
 
 import base64
 import datetime
+import io
 import json
 import shutil
 import struct
@@ -17,6 +18,7 @@ import pytest
 import requests
 import soundfile as sf
 from mutagen.wave import WAVE
+from PIL import Image
 
 import rekordbox_set_list_manager.utils.config as config_mod
 from rekordbox_set_list_manager.services import (
@@ -965,6 +967,31 @@ def test_download_track_id3_chunk_is_uppercase(tmp_path):
     tags = WAVE(result.filepath).tags
     assert len(tags.getall("APIC")) == 1
     assert str(tags["TIT2"]) == "Test Title"
+
+
+def test_download_track_progressive_cover_reencoded_to_baseline(tmp_path):
+    """Rekordbox cannot decode progressive JPEG — a progressive cover must
+    be re-encoded to baseline before landing in the APIC frame."""
+    buf = io.BytesIO()
+    Image.new("RGB", (16, 16), (200, 30, 30)).save(buf, "JPEG", progressive=True)
+    progressive_jpeg = buf.getvalue()
+    session = _FakeSession(
+        _load_fixture("playback_bts_flac_clear.json"),
+        _fake_tidal_track(image_url=_COVER_URL),
+    )
+    http = _FakeHttpByUrl({_BTS_SEG_URL: _flac_payload(), _COVER_URL: progressive_jpeg})
+    service = TidalDownloadService(session, download_dir=tmp_path / "downloads", http=http)
+
+    result = service.download_track("12345678")
+
+    apic = WAVE(result.filepath).tags.getall("APIC")
+    assert len(apic) == 1
+    assert apic[0].mime == "image/jpeg"
+    embedded = Image.open(io.BytesIO(apic[0].data))
+    embedded.load()
+    assert not embedded.info.get("progressive")
+    assert not embedded.info.get("progression")
+    assert embedded.size == (16, 16)
 
 
 def test_download_track_png_cover_tags_image_png(tmp_path):

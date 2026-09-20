@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 import soundfile as sf
 from mutagen.id3 import APIC, TALB, TBPM, TDRC, TIT2, TPE1, TRCK, TSRC, TXXX
 from mutagen.wave import WAVE
+from PIL import Image
 
 if TYPE_CHECKING:
     import threading
@@ -243,10 +244,8 @@ def tag_wav(
         tags.add(TDRC(encoding=3, text=str(release_date)[:10]))
     tags.add(TXXX(encoding=3, desc="TIDAL_QUALITY", text=served_quality))
     if cover:
-        # Covers are usually JPEG, but a PNG payload must not be tagged
-        # with the wrong MIME type.
-        mime = "image/png" if cover.startswith(b"\x89PNG") else "image/jpeg"
-        tags.add(APIC(encoding=3, mime=mime, type=3, data=cover))
+        data, mime = _normalize_cover(cover)
+        tags.add(APIC(encoding=3, mime=mime, type=3, data=data))
     tags.save(path)
     _uppercase_id3_chunk(path)
     _write_riff_info(path, _info_fields(tidal_track))
@@ -305,6 +304,29 @@ def _build_info_chunk(fields: list[tuple[str, str]]) -> bytes:
     if len(payload) % 2:
         chunk += b"\x00"
     return chunk
+
+
+def _normalize_cover(cover: bytes) -> tuple[bytes, str]:
+    """Return ``(data, mime)`` for embedding, re-encoding progressive JPEGs.
+
+    Rekordbox cannot decode progressive JPEG — Tidal serves covers in that
+    encoding, so they are re-saved as baseline.  Any decode or encode
+    failure keeps the original bytes: a cosmetic tag must never sink a
+    completed download.
+    """
+    if cover.startswith(b"\x89PNG"):
+        return cover, "image/png"
+    if cover.startswith(b"\xff\xd8"):
+        try:
+            img = Image.open(io.BytesIO(cover))
+            if img.info.get("progressive") or img.info.get("progression"):
+                out = io.BytesIO()
+                img.convert("RGB").save(out, "JPEG", quality=95)
+                return out.getvalue(), "image/jpeg"
+        except Exception:  # noqa: BLE001 — best-effort cover normalization
+            log.debug("Could not inspect/re-encode cover art; embedding as-is")
+        return cover, "image/jpeg"
+    return cover, "image/jpeg"
 
 
 def _uppercase_id3_chunk(path: Path) -> None:
