@@ -340,7 +340,9 @@ class MultiSectionView(QWidget):
             lambda tid, sec=section: self.fix_match_requested.emit(tid, sec)
         )
         block.add_to_section_requested.connect(self._on_add_to_section)
+        block.filtered_count_changed.connect(self._update_filter_empty_state)
         block.collapsed_changed.connect(self._content.adjustSize)
+        block.activated.connect(lambda b=block: self._on_block_activated(b))
         if self._filter.text():
             block.set_filter_text(self._filter.text())
         for col in range(self._shared_header.count()):
@@ -435,6 +437,19 @@ class MultiSectionView(QWidget):
         self.project_changed.emit()
 
     # ──────────────── selection / filter / cross-section DnD ──────────────
+
+    def _on_block_activated(self, block: SectionBlock) -> None:
+        """Mark *block* active so Ctrl+T / context actions target its section.
+
+        A 0-track section can never gain a table selection, so clicking its
+        header or empty-state row is the only way to aim shortcuts at it.
+        Any selection in the previous block is cleared — activation moves
+        the visual focus, never leaves two highlighted rows.
+        """
+        prev = self._active_block
+        self._active_block = block
+        if prev is not None and prev is not block:
+            prev.clear_selection()
 
     def _on_block_track_selected(self, track_id, block: SectionBlock) -> None:
         if track_id is not None and self._active_block is not block:

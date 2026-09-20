@@ -49,11 +49,11 @@ def _reveal_command(filepath: str) -> tuple[str, list[str]]:
     from pathlib import Path  # noqa: PLC0415
 
     if sys.platform == "darwin":
-        return "Reveal in Finder", ["/usr/bin/open", "-R", filepath]
+        return "Re&veal in Finder", ["/usr/bin/open", "-R", filepath]
     if sys.platform == "win32":
-        return "Show in Explorer", ["explorer", f"/select,{filepath}"]
+        return "Show in &Explorer", ["explorer", f"/select,{filepath}"]
     # Linux / other: open the parent directory
-    return "Open Containing Folder", ["xdg-open", str(Path(filepath).parent)]
+    return "Open &Containing Folder", ["xdg-open", str(Path(filepath).parent)]
 
 
 def _header_hex(color: RekordboxColor | None) -> str:
@@ -84,6 +84,8 @@ class SectionBlock(QFrame):
         object, object, object
     )  # track_id, src_section_id, target_section_id
     collapsed_changed = Signal()
+    activated = Signal()  # user clicked the header or the empty-state row
+    filtered_count_changed = Signal()  # proxy row set changed (filter/membership)
 
     def __init__(
         self,
@@ -102,18 +104,19 @@ class SectionBlock(QFrame):
         self._edit = edit_ctrl
         self._collapsed = False
         self._dup_ids: set[UUID] = set()
+        self._hdr_suffix = ""
 
         self._toggle_btn = QPushButton("▼")
         self._toggle_btn.setFixedWidth(24)
         self._toggle_btn.setFlat(True)
-        self._toggle_btn.setStyleSheet("color: white; font-size: 10px; padding: 0;")
+        self._toggle_btn.setStyleSheet("color: #cdd6f4; font-size: 10px; padding: 0;")
         self._toggle_btn.setToolTip("Collapse / expand")
         self._toggle_btn.clicked.connect(self._on_toggle)
 
         self._hdr_label = QLabel()
-        self._hdr_label.setStyleSheet("color: white; font-weight: bold;")
+        self._hdr_label.setStyleSheet("color: #cdd6f4; font-weight: bold;")
         self._type_badge = QLabel()
-        self._type_badge.setStyleSheet("color: rgba(255,255,255,0.65); font-size: 11px;")
+        self._type_badge.setStyleSheet("color: #a6adc8; font-size: 11px;")
 
         self._hdr_frame = QFrame()
         self._hdr_frame.setFixedHeight(_HDR_H)
@@ -174,6 +177,9 @@ class SectionBlock(QFrame):
         self._empty_row = QLabel("No tracks yet — press Ctrl+T or right-click to add one.")
         self._empty_row.setStyleSheet("color: #a6adc8; padding: 4px 8px;")
         self._empty_row.setVisible(False)
+        self._empty_row.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._empty_row.customContextMenuRequested.connect(self._on_empty_context_menu)
+        self._empty_row.installEventFilter(self)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -201,9 +207,19 @@ class SectionBlock(QFrame):
         self._sync_model()
 
     def set_dup_ids(self, ids: set[UUID]) -> None:
-        """Store the cross-section duplicate track IDs and refresh the model."""
-        self._dup_ids = set(ids)
-        self._sync_model()
+        """Store the cross-section duplicate track IDs and refresh the markers.
+
+        A no-op when the set is unchanged — ``project_changed`` fires on
+        every mutation (including each note keystroke), and a full model
+        reset would clear the table selection and wipe the note editor.
+        Changed flags go through a targeted ``dataChanged`` instead of a
+        model reset for the same reason.
+        """
+        new = set(ids)
+        if new == self._dup_ids:
+            return
+        self._dup_ids = new
+        self._model.set_dup_ids(new)
 
     def filtered_row_count(self) -> int:
         """Return the number of rows currently visible through the filter proxy."""
@@ -267,18 +283,49 @@ class SectionBlock(QFrame):
             if (track := self._tracks.get(tid)) is not None
         )
         if total > 0:
-            self._hdr_label.setText(f"{self._section.name}  ({n} · {format_total_duration(total)})")
+            self._hdr_suffix = f" ({n} · {format_total_duration(total)})"
         else:
-            self._hdr_label.setText(f"{self._section.name}  ({n})")
+            self._hdr_suffix = f" ({n})"
+        self._apply_header_text()
+
+    def _apply_header_text(self) -> None:
+        """Compose the header text, eliding the name so the suffix stays visible."""
+        name = self._section.name
+        suffix = self._hdr_suffix
+        fm = self._hdr_label.fontMetrics()
+        # Room available to the label inside the header row: frame width
+        # minus the toggle button, type badge, margins, and inter-widget
+        # spacing — padded so the (n · M:SS) suffix is never clipped.
+        avail = (
+            self._hdr_frame.width()
+            - 12  # contents margins (4 + 8)
+            - self._toggle_btn.width()
+            - 8  # spacing either side of the label
+            - self._type_badge.sizeHint().width()
+            - 4  # safety pad
+        )
+        if avail > 0:
+            name_room = max(0, avail - fm.horizontalAdvance(suffix))
+            name = fm.elidedText(name, Qt.TextElideMode.ElideRight, name_room)
+        self._hdr_label.setText(name + suffix)
 
     def _update_view_height(self) -> None:
         n = self._proxy.rowCount()
         self._view.setFixedHeight(n * _ROW_H + 4)
         self._view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # Surfaced so the view can re-evaluate filter-dependent chrome (the
+        # no-results banner) *after* the row set has actually changed — the
+        # project_changed signal fires mid-mutation, before the re-sync.
+        self.filtered_count_changed.emit()
 
     def _on_toggle(self) -> None:
         self._collapsed = not self._collapsed
+        # Expanding signals interest in this section; collapsing is a
+        # dismissive gesture and must not steal activation (which would
+        # clear a selection elsewhere).
+        if not self._collapsed:
+            self.activated.emit()
         if self._collapsed:
             self._view.setFixedHeight(0)
             self._view.setVisible(False)
@@ -302,11 +349,12 @@ class SectionBlock(QFrame):
 
     def _on_track_context_menu(self, pos) -> None:
         menu = QMenu(self)
+        menu.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         tid = self.selected_track_id()
         if tid is not None:
-            menu.addAction("Remove from section", self._remove_selected)
+            menu.addAction("&Remove from Section", self._remove_selected)
             menu.addAction(
-                "Fix Match…",
+                "&Fix Match…",
                 lambda: self.fix_match_requested.emit(self.selected_track_id()),
             )
             # "Reveal in file manager" if the track has a local file path
@@ -317,7 +365,7 @@ class SectionBlock(QFrame):
             # "Add to section" submenu — list all sections except current
             other_sections = [s for s in self._project.sections if s.id != self._section.id]
             if other_sections:
-                add_menu = menu.addMenu("Add to section")
+                add_menu = menu.addMenu("&Add to Section")
                 for sec in other_sections:
                     add_menu.addAction(
                         sec.name,
@@ -326,23 +374,44 @@ class SectionBlock(QFrame):
                         ),
                     )
         menu.addSeparator()
-        menu.addAction("Add track…", self.add_track_requested.emit)
-        menu.addAction("Add from Rekordbox DB…", self.add_from_rekordbox_requested.emit)
+        self._add_track_actions(menu)
         menu.exec(self._view.viewport().mapToGlobal(pos))
 
-    def _on_header_context_menu(self, pos) -> None:
+    def _add_track_actions(self, menu: QMenu) -> None:
+        """Append 'Add Track…' / 'Add from Rekordbox DB…' actions to *menu*."""
+        menu.addAction("Add &Track…", self.add_track_requested.emit)
+        menu.addAction("Add from Rekordbox &DB…", self.add_from_rekordbox_requested.emit)
+
+    def _build_empty_menu(self) -> QMenu:
+        """Build the context menu for the no-tracks hint row."""
         menu = QMenu(self)
-        menu.addAction("Edit Section…", self.edit_requested.emit)
+        menu.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self._add_track_actions(menu)
+        return menu
+
+    def _on_empty_context_menu(self, pos) -> None:
+        self._build_empty_menu().exec(self._empty_row.mapToGlobal(pos))
+
+    def _build_header_menu(self) -> QMenu:
+        """Build the section-header context menu."""
+        menu = QMenu(self)
+        menu.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self._add_track_actions(menu)
+        menu.addSeparator()
+        menu.addAction("&Edit Section…", self.edit_requested.emit)
         if self._project.themes:
-            theme_menu = menu.addMenu("Apply Theme")
+            theme_menu = menu.addMenu("&Apply Theme")
             for theme in self._project.themes:
                 theme_menu.addAction(
                     theme.name,
                     lambda checked=False, n=theme.name: self.theme_requested.emit(n),
                 )
         menu.addSeparator()
-        menu.addAction("Delete Section", self.delete_requested.emit)
-        menu.exec(self._hdr_frame.mapToGlobal(pos))
+        menu.addAction("De&lete Section", self.delete_requested.emit)
+        return menu
+
+    def _on_header_context_menu(self, pos) -> None:
+        self._build_header_menu().exec(self._hdr_frame.mapToGlobal(pos))
 
     def _remove_selected(self) -> None:
         tid = self.selected_track_id()
@@ -362,14 +431,22 @@ class SectionBlock(QFrame):
         ):
             self._remove_selected()
             return True
+        if (
+            source in (self._hdr_frame, self._empty_row)
+            and event.type() == QEvent.Type.MouseButtonPress
+        ):
+            self.activated.emit()
         if source is self._hdr_frame:
+            if event.type() == QEvent.Type.Resize:
+                self._apply_header_text()
+                return False
             if event.type() in (
                 QEvent.Type.DragEnter,
                 QEvent.Type.DragMove,
             ) and event.mimeData().hasFormat(_MIME_TYPE):
                 if event.type() == QEvent.Type.DragEnter:
                     self._hdr_frame.setStyleSheet(
-                        self._hdr_normal_css + " border-bottom: 2px solid rgba(255,255,255,0.8);"
+                        self._hdr_normal_css + " border-bottom: 2px solid rgba(205, 214, 244, 0.8);"
                     )
                 event.acceptProposedAction()
                 return True
