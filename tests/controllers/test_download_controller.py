@@ -5,10 +5,13 @@ from __future__ import annotations
 import queue
 import threading
 import time
-from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from rekordbox_set_list_manager.controllers.download_controller import (
     DownloadController,
@@ -147,7 +150,7 @@ def test_happy_path_serial_with_bookend_progress(make_ctrl, qtbot):
 
 
 def test_queue_drained_fires_once_per_busy_idle(make_ctrl, qtbot):
-    ctrl, fake = make_ctrl()
+    ctrl, _fake = make_ctrl()
     drained = []
     ctrl.queue_drained.connect(lambda: drained.append(True))
     qtbot.wait(300)
@@ -275,7 +278,7 @@ def test_abort_if_current_only_aborts_the_running_item(qapp):
     shutdown, paused, abort = threading.Event(), threading.Event(), threading.Event()
     worker = DownloadWorker(
         work_queue,
-        service_factory=lambda: _FakeService(),
+        service_factory=_FakeService,
         shutdown=shutdown,
         paused=paused,
         abort_work=abort,

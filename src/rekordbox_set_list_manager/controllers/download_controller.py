@@ -5,6 +5,7 @@ import logging
 import queue
 import threading
 import time
+import uuid
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
@@ -143,6 +144,9 @@ class DownloadController(QObject):
     def enqueue(self, entries: Iterable[tuple[str, str]]) -> list[str]:
         """Queue ``(tidal_id, label)`` pairs for background download.
 
+        Entries whose ``tidal_id`` is already QUEUED or RUNNING are skipped;
+        terminal items may re-enqueue and mint a fresh item id.
+
         Parameters
         ----------
         entries : Iterable[tuple[str, str]]
@@ -151,11 +155,35 @@ class DownloadController(QObject):
         Returns
         -------
         list[str]
-            Opaque item ids for the accepted entries.
+            Opaque item ids for the accepted entries — empty after shutdown.
         """
         if self._shutdown.is_set():
             return []
-        return []
+        batch_id = uuid.uuid4().hex
+        active = {
+            record.tidal_id
+            for record in self._items.values()
+            if record.state in (QueueItemState.QUEUED, QueueItemState.RUNNING)
+        }
+        minted: list[str] = []
+        for tidal_id, label in entries:
+            tid = str(tidal_id)
+            if tid in active:
+                continue
+            item_id = uuid.uuid4().hex
+            record = QueueItem(
+                item_id=item_id,
+                tidal_id=tid,
+                label=label,
+                batch_id=batch_id,
+                cancel_event=threading.Event(),
+            )
+            self._items[item_id] = record
+            active.add(tid)
+            self._queue.put(record)
+            self.item_added.emit(item_id, label, batch_id)
+            minted.append(item_id)
+        return minted
 
     def cancel(self, item_id: str) -> None:
         """Cancel one item — queued items skip the service call; running abort.
@@ -165,9 +193,21 @@ class DownloadController(QObject):
         item_id : str
             The opaque id returned by :meth:`enqueue`.
         """
+        record = self._items.get(item_id)
+        if record is None or record.state in _TERMINAL_STATES:
+            return
+        record.cancel_event.set()
+        # The worker's own _current marker decides whether the running item
+        # is this one — registry state lags by queued-signal delivery.
+        self._worker.abort_if_current(item_id)
 
     def cancel_all(self) -> None:
         """Cancel every non-terminal item and unpause the queue."""
+        for record in self._items.values():
+            if record.state not in _TERMINAL_STATES:
+                record.cancel_event.set()
+        self._abort_work.set()
+        self._paused.clear()
 
     def pause(self) -> None:
         """Pause the drain loop — the worker starts no further items."""
@@ -178,11 +218,19 @@ class DownloadController(QObject):
         self._paused.clear()
 
     def shutdown(self) -> None:
-        """Stop the worker cooperatively and join it with a bounded wait."""
+        """Stop the worker cooperatively and join it with a bounded wait.
+
+        Idempotent: the flag-setting runs once; the direct ``quit()`` is
+        required because the queued ``done`` → ``quit`` delivery cannot run
+        while the GUI thread blocks inside ``wait()``.
+        """
         if not self._shutdown.is_set():
             self._shutdown.set()
             self._abort_work.set()
             self._paused.clear()
+            for record in self._items.values():
+                if record.state not in _TERMINAL_STATES:
+                    record.cancel_event.set()
         if self._thread.isRunning():
             self._thread.quit()
             self._thread.wait(3000)
@@ -196,19 +244,63 @@ class DownloadController(QObject):
         return tuple(self._items.values())
 
     def _on_worker_progress(self, item_id: str, frac: float) -> None:
-        pass
+        record = self._items.get(item_id)
+        if record is None:
+            return
+        state = (
+            QueueItemState.RUNNING
+            if record.state is QueueItemState.QUEUED
+            else record.state
+        )
+        self._items[item_id] = dataclasses.replace(
+            record, state=state, progress=frac
+        )
+        self.item_progress.emit(item_id, frac)
 
     def _on_worker_finished(self, item_id: str, result: DownloadResult) -> None:
-        pass
+        record = self._items.get(item_id)
+        if record is None:
+            return
+        record = dataclasses.replace(
+            record,
+            state=QueueItemState.FINISHED,
+            progress=1.0,
+            downgraded=result.downgraded,
+        )
+        self._items[item_id] = record
+        self.item_finished.emit(item_id, result)
+        self._check_batch_terminal(record.batch_id)
 
     def _on_worker_failed(self, item_id: str, kind: object, msg: str) -> None:
-        pass
+        record = self._items.get(item_id)
+        if record is None:
+            return
+        record = dataclasses.replace(
+            record, state=QueueItemState.FAILED, error_kind=str(kind), error=msg
+        )
+        self._items[item_id] = record
+        self.item_failed.emit(item_id, kind, msg)
+        self._check_batch_terminal(record.batch_id)
 
     def _on_worker_cancelled(self, item_id: str) -> None:
-        pass
+        record = self._items.get(item_id)
+        if record is None:
+            return
+        record = dataclasses.replace(record, state=QueueItemState.CANCELLED)
+        self._items[item_id] = record
+        self.item_cancelled.emit(item_id)
+        self._check_batch_terminal(record.batch_id)
+
+    def _check_batch_terminal(self, batch_id: str) -> None:
+        if batch_id in self._batches_done:
+            return
+        states = [r.state for r in self._items.values() if r.batch_id == batch_id]
+        if states and all(state in _TERMINAL_STATES for state in states):
+            self._batches_done.add(batch_id)
+            self.batch_finished.emit(batch_id)
 
     def _on_worker_drained(self) -> None:
-        pass
+        self.queue_drained.emit()
 
     def _on_auth_required(self) -> None:
-        pass
+        self.auth_required.emit()
