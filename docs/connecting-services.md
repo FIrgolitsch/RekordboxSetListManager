@@ -49,9 +49,24 @@ The access token is cached locally and reused for subsequent sessions.  You will
 
 ## Tidal
 
-Tidal uses a **device-code flow** — no credentials or Developer App required.
+Tidal uses a **device-code flow**, but requires your own Tidal API client credentials — a `client_id`/`client_secret` pair.  The app ships no built-in pair.
 
-### Step 1 — Authenticate
+**Why credentials are required:** the audio quality Tidal serves is keyed to the OAuth client identity used to authenticate.  Connecting without your own pair — or with a capped one — silently limits every stream to 320 kbps AAC, even when your subscription entitles you to lossless.
+
+### Step 1 — Obtain a client_id/client_secret pair
+
+Create an app in the [Tidal developer portal](https://developer.tidal.com) and copy its `client_id` and `client_secret`, or supply a pair from a source you trust.
+
+### Step 2 — Configure the credentials
+
+Set them in **either** of two places (the environment variables win when both are set):
+
+- The environment variables `SET_MANAGER_TIDAL_CLIENT_ID` and `SET_MANAGER_TIDAL_CLIENT_SECRET`, or
+- The `tidal_client_id` and `tidal_client_secret` keys in `config.json` inside the app's user config directory (e.g. `~/Library/Application Support/rekordbox_set_list_manager/` on macOS).
+
+If neither is set, connecting fails with an error naming these variables and keys.
+
+### Step 3 — Authenticate
 
 1. Open **Project → Import from Streaming Service…**
 2. Select the **Tidal** tab.
@@ -59,9 +74,11 @@ Tidal uses a **device-code flow** — no credentials or Developer App required.
 4. A URL is printed to the terminal (and shown in the dialog).  Open it in a browser and log in with your Tidal account.
 5. Approve access when prompted.
 
-### Step 2 — Done
+### Step 4 — Done
 
 The session is cached to disk.  On future launches, Rekordbox Set List Manager reuses the cached session — the browser flow is only needed once (or if you clear the session manually).
+
+The cached session records which client credentials minted it.  If you change your `client_id`/`client_secret`, the app detects the change, discards the stale session, and re-runs the device-code flow automatically — a session minted under a different client can never silently keep serving at that client's quality cap.
 
 ### Clearing the cached Tidal session
 

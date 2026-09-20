@@ -16,7 +16,7 @@ The Redirect URI is fixed at `http://127.0.0.1:8888/callback`.  Make sure this e
 
 ## Tidal
 
-No credentials are required for Tidal.  Authentication uses a device-code flow initiated from the Import dialog.
+Tidal requires your own API client credentials — a `client_id`/`client_secret` pair set via the `SET_MANAGER_TIDAL_CLIENT_ID`/`SET_MANAGER_TIDAL_CLIENT_SECRET` environment variables or the `tidal_client_id`/`tidal_client_secret` keys in `config.json`.  Authentication uses a device-code flow initiated from the Import dialog.  See [Connecting Streaming Services → Tidal](connecting-services.md#tidal) for setup instructions.
 
 | Button | Description |
 |---|---|

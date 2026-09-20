@@ -71,9 +71,11 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(box)
 
         info = QLabel(
-            "No credentials needed — Tidal uses a device-code login flow. "
-            "Click <b>Connect to Tidal</b> in the Import dialog to authenticate; "
-            "a browser link will appear in the console."
+            "Tidal requires your own API client credentials — set "
+            "<b>SET_MANAGER_TIDAL_CLIENT_ID</b>/<b>SET_MANAGER_TIDAL_CLIENT_SECRET</b> "
+            "or the <b>tidal_client_id</b>/<b>tidal_client_secret</b> config keys. "
+            "Then click <b>Connect to Tidal</b> in the Import dialog to authenticate "
+            "via the device-code login flow."
         )
         info.setWordWrap(True)
 

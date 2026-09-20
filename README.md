@@ -54,7 +54,7 @@ uv run ruff check
 
 ## Configuration (Spotify)
 
-Tidal authentication happens via a device-code login in the browser — no configuration needed.
+Tidal authentication happens via a device-code login in the browser, but requires your own Tidal API client credentials (`client_id`/`client_secret`). Set them via the `SET_MANAGER_TIDAL_CLIENT_ID`/`SET_MANAGER_TIDAL_CLIENT_SECRET` environment variables or the `tidal_client_id`/`tidal_client_secret` keys in `config.json` — see [Connecting Streaming Services](docs/connecting-services.md#tidal) for details.
 
 For Spotify you need a Client ID:
 
