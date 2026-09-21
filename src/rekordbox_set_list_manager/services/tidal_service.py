@@ -385,14 +385,20 @@ def _pkce_login(
     Raises
     ------
     TidalServiceError
-        If *cancel_check* aborts before the login starts, or the captured
-        URL cannot be exchanged for tokens.
+        If *cancel_check* aborts before the login starts, the redirect
+        wait is cancelled, or the captured URL cannot be exchanged for
+        tokens.
     """
     if cancel_check is not None and cancel_check():
         raise TidalServiceError("Authentication cancelled.")
     url_login = session.pkce_login_url()
     fn_print(f"Visit {url_login} to log in to Tidal")
-    url_redirect = redirect_callback()
+    try:
+        url_redirect = redirect_callback()
+    except InterruptedError as exc:
+        # A cancel during the redirect wait surfaces as InterruptedError —
+        # report it as a cancellation, not an authentication failure.
+        raise TidalServiceError("Authentication cancelled.") from exc
     try:
         token = session.pkce_get_auth_token(url_redirect)
     except Exception as exc:
