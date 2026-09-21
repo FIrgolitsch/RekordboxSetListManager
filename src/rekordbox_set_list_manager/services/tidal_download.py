@@ -246,6 +246,19 @@ def abort_aware_sleeper(abort: threading.Event) -> Callable[[float], None]:
     return _sleep
 
 
+def _report_progress(progress_cb: Callable[[float], None], frac: float) -> None:
+    """Invoke *progress_cb* — a callback failure is logged, never propagated.
+
+    A raising UI callback must not abort the download or trip the
+    fetch-failure cleanup path: the bytes were fetched regardless of what
+    the progress sink did with the fraction.
+    """
+    try:
+        progress_cb(frac)
+    except Exception:
+        log.debug("Progress callback raised", exc_info=True)
+
+
 def _sanitize_component(value: str) -> str:
     """One path component → filesystem-safe name (never empty)."""
     cleaned = _UNSAFE_NAME.sub("_", str(value))
@@ -726,7 +739,9 @@ class TidalDownloadService:
                 progress_cb=(
                     None
                     if progress_cb is None
-                    else lambda frac: progress_cb(_FETCH_SHARE + (1 - _FETCH_SHARE) * frac)
+                    else lambda frac: _report_progress(
+                        progress_cb, _FETCH_SHARE + (1 - _FETCH_SHARE) * frac
+                    )
                 ),
                 cancel_event=cancel_event,
             )
@@ -800,7 +815,7 @@ class TidalDownloadService:
                 # sibling's abort noise.
                 future.result()
                 if progress_cb is not None:
-                    progress_cb(_FETCH_SHARE * done / total)
+                    _report_progress(progress_cb, _FETCH_SHARE * done / total)
         except BaseException:
             abort.set()
             # Workers cannot be killed, but shutdown(wait=True) keeps the
