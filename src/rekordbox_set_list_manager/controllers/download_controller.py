@@ -128,7 +128,12 @@ class DownloadController(QObject):
         self._tidal = tidal_service if tidal_service is not None else TidalService()
         self._queue: queue.Queue[QueueItem] = queue.Queue()
         self._shutdown = threading.Event()
+        # Two pause owners share the worker-visible ``_paused`` event: the
+        # user via pause()/resume(), and the worker itself on an auth
+        # failure.  ``_user_paused`` records the user's intent separately so
+        # a successful silent re-auth never clears a deliberate pause.
         self._paused = threading.Event()
+        self._user_paused = threading.Event()
         self._abort_work = threading.Event()
         # One gate for the controller's lifetime — request spacing persists
         # across per-item service instances, and the abort-aware sleeper lets
@@ -235,13 +240,16 @@ class DownloadController(QObject):
                 record.cancel_event.set()
         self._abort_work.set()
         self._paused.clear()
+        self._user_paused.clear()
 
     def pause(self) -> None:
         """Pause the drain loop — the worker starts no further items."""
+        self._user_paused.set()
         self._paused.set()
 
     def resume(self) -> None:
         """Resume the drain loop after :meth:`pause`."""
+        self._user_paused.clear()
         self._paused.clear()
 
     def shutdown(self) -> None:
@@ -255,6 +263,7 @@ class DownloadController(QObject):
             self._shutdown.set()
             self._abort_work.set()
             self._paused.clear()
+            self._user_paused.clear()
             for record in self._items.values():
                 if record.state not in _TERMINAL_STATES:
                     record.cancel_event.set()
@@ -408,8 +417,13 @@ class DownloadController(QObject):
         thread.start()
 
     def _on_reauth_finished(self, _username: str) -> None:
-        """Unpause the drain — the next item's factory reads the new session."""
-        self.resume()
+        """Unpause the drain — the next item's factory reads the new session.
+
+        Only an auth pause is released: when the user deliberately paused
+        the queue, a successful silent re-auth must not drain it.
+        """
+        if not self._user_paused.is_set():
+            self.resume()
 
     def _on_reauth_failed(self, *_args: object) -> None:
         """Silent re-auth could not restore a session — flush the queue."""
