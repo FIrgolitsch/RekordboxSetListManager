@@ -277,6 +277,9 @@ addopts = [
     "--dist=loadscope",
     "--max-worker-restart=0",
 ]
+markers = [
+    "live_tidal: hits the real Tidal API; gated on SET_MANAGER_LIVE_TIDAL_TEST",
+]
 
 # ---------------------------------------------------------------------------
 # Coverage

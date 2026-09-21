@@ -34,6 +34,7 @@ def test_live_tidal_marker_registered():
     assert any("live_tidal" in marker for marker in markers)
 
 
+@pytest.mark.live_tidal
 @pytest.mark.skipif(
     not _LIVE_ENABLED, reason=f"set {_ENV_GATE}=1 to run the live Tidal smoke test"
 )
