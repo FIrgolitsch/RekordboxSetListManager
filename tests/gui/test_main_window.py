@@ -38,6 +38,7 @@ class _FakeDownloadController(QObject):
     """
 
     worker_finished = Signal()
+    reauth_finished = Signal()
 
     def __init__(self, *args, parent=None, **kwargs):
         super().__init__(parent)
