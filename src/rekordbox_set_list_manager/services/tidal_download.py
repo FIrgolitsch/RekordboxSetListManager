@@ -408,8 +408,17 @@ def _validate_aiff(part: Path, expected_s: int | None) -> None:
             kind=DownloadErrorKind.VALIDATION,
         )
     if expected_s:
-        audio = AIFF(part)
-        length = audio.info.length if audio.info is not None else 0.0
+        try:
+            audio = AIFF(part)
+            length = audio.info.length if audio.info is not None else 0.0
+        except Exception as exc:
+            # A file that passes the FORM/AIFF magic check can still have
+            # corrupt chunks — a mutagen failure is a validation failure,
+            # not the NETWORK kind the blanket classifier would assign.
+            raise TidalDownloadError(
+                f"Decoded output could not be parsed as AIFF: {exc}",
+                kind=DownloadErrorKind.VALIDATION,
+            ) from exc
         if abs(length - expected_s) > max(2.0, expected_s * 0.05):
             raise TidalDownloadError(
                 f"Decoded duration {length:.1f}s does not match track duration "
