@@ -10,11 +10,13 @@ from __future__ import annotations
 def test_import_common_widgets():
     from rekordbox_set_list_manager.gui.widgets.common.busy_dialog import BusyDialog
     from rekordbox_set_list_manager.gui.widgets.common.color_picker import ColorPickerWidget
+    from rekordbox_set_list_manager.gui.widgets.common.download_worker import DownloadWorker
     from rekordbox_set_list_manager.gui.widgets.common.qthread_worker import QThreadWorker
     from rekordbox_set_list_manager.gui.widgets.common.track_table import TrackFilterProxyModel
 
     assert BusyDialog is not None
     assert ColorPickerWidget is not None
+    assert DownloadWorker is not None
     assert QThreadWorker is not None
     assert TrackFilterProxyModel is not None
 
@@ -70,6 +72,11 @@ def test_import_streaming_widgets():
 
 
 def test_import_controllers():
+    from rekordbox_set_list_manager.controllers.download_controller import (
+        DownloadController,
+        QueueItem,
+        QueueItemState,
+    )
     from rekordbox_set_list_manager.controllers.edit_controller import EditController
     from rekordbox_set_list_manager.controllers.file_controller import FileController
     from rekordbox_set_list_manager.controllers.import_controller import ImportController
@@ -77,6 +84,9 @@ def test_import_controllers():
     from rekordbox_set_list_manager.controllers.rematch_controller import RematchController
     from rekordbox_set_list_manager.controllers.spotify_sync_controller import SpotifySyncController
 
+    assert DownloadController is not None
+    assert QueueItem is not None
+    assert QueueItemState is not None
     assert EditController is not None
     assert FileController is not None
     assert ImportController is not None

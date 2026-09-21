@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import pytest
-from PySide6.QtGui import QKeySequence
+from PySide6.QtCore import QObject, Signal
+from PySide6.QtGui import QCloseEvent, QKeySequence
 from PySide6.QtWidgets import QMessageBox
 
+from rekordbox_set_list_manager.controllers.download_controller import DownloadController
 from rekordbox_set_list_manager.gui.main_window import MainWindow
 from rekordbox_set_list_manager.models.enums import RekordboxColor, SectionType
 from rekordbox_set_list_manager.models.project import Project
@@ -24,6 +26,69 @@ def window(qtbot, monkeypatch):
     w = MainWindow()
     qtbot.addWidget(w)
     return w
+
+
+class _FakeDownloadController(QObject):
+    """Scriptable DownloadController stand-in for close-ordering tests.
+
+    ``shutdown()`` arms the draining state when ``drain_on_shutdown`` is set;
+    ``finish()`` simulates the worker thread ending by clearing the drain and
+    emitting ``worker_finished`` — the same sequence the real controller
+    produces when its bounded join returns.
+    """
+
+    worker_finished = Signal()
+
+    def __init__(self, *args, parent=None, **kwargs):
+        super().__init__(parent)
+        self.drain_on_shutdown = False
+        self.draining = False
+        self.shutdown_calls = 0
+        self._finished = False
+
+    def is_draining(self):
+        return self.draining
+
+    def shutdown(self):
+        self.shutdown_calls += 1
+        if not self._finished:
+            self.draining = self.drain_on_shutdown
+
+    def finish(self):
+        """Simulate the worker thread ending: drain done, signal emitted."""
+        self._finished = True
+        self.draining = False
+        self.worker_finished.emit()
+
+
+@pytest.fixture
+def window_with_fake_download(qtbot, monkeypatch):
+    """MainWindow whose download controller is swapped for a scriptable fake.
+
+    Returns ``(window, made, confirm_calls)`` — ``made`` captures every
+    controller instance ``MainWindow`` constructed and ``confirm_calls``
+    records each discard-confirmation prompt (and its scripted answer).
+    """
+    made: list[_FakeDownloadController] = []
+    confirm_calls: list[bool] = []
+
+    def _factory(*args, **kwargs):
+        inst = _FakeDownloadController(*args, **kwargs)
+        made.append(inst)
+        return inst
+
+    monkeypatch.setattr(
+        "rekordbox_set_list_manager.gui.main_window.DownloadController",
+        _factory,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "rekordbox_set_list_manager.controllers.file_controller.FileController.confirm_discard",
+        lambda self: confirm_calls.append(True) or True,
+    )
+    w = MainWindow()
+    qtbot.addWidget(w)
+    return w, made, confirm_calls
 
 
 def test_opens_with_empty_project(window):
@@ -146,3 +211,86 @@ def test_edit_menu_actions_present_with_shortcuts(window, monkeypatch):
     )
     ctrl_t.trigger()
     assert any("Add a section before adding a track." in str(args) for args in calls)
+
+
+# ---------------------------------------------------------------------------
+# Download lifecycle: the window owns a DownloadController and must not exit
+# while its worker thread is still draining.
+# ---------------------------------------------------------------------------
+
+
+def test_constructs_live_download_controller(window):
+    """MainWindow owns a real DownloadController with its worker thread running."""
+    ctrl = getattr(window, "_download_ctrl", None)
+    assert isinstance(ctrl, DownloadController)
+    assert ctrl._thread.isRunning()
+
+
+def test_close_accepts_and_shuts_down_idle_queue(window_with_fake_download):
+    """An idle worker drains inside the bounded wait — close accepts immediately."""
+    w, made, confirm_calls = window_with_fake_download
+    assert len(made) == 1
+    fake = made[0]
+
+    event = QCloseEvent()
+    w.closeEvent(event)
+
+    assert event.isAccepted()
+    assert confirm_calls == [True]
+    assert fake.shutdown_calls == 1
+
+
+def test_close_defers_while_draining_then_recloses_without_reprompt(
+    window_with_fake_download, qtbot
+):
+    """A still-draining worker defers the close; the deferred re-close is silent."""
+    w, made, confirm_calls = window_with_fake_download
+    assert len(made) == 1
+    fake = made[0]
+    fake.drain_on_shutdown = True
+    w.show()
+
+    first = QCloseEvent()
+    w.closeEvent(first)
+    assert not first.isAccepted()
+    assert w.isVisible()  # still alive — the drain is in progress
+
+    fake.finish()
+
+    qtbot.waitUntil(lambda: not w.isVisible(), timeout=3000)
+    assert confirm_calls == [True]  # deferred re-entry never re-prompts
+    assert fake.shutdown_calls == 2  # shutdown re-runs idempotently on re-entry
+
+
+def test_close_declined_does_not_shut_down_downloads(window_with_fake_download, monkeypatch):
+    """Cancelling the discard prompt must not touch the download controller."""
+    w, made, confirm_calls = window_with_fake_download
+    monkeypatch.setattr(
+        "rekordbox_set_list_manager.controllers.file_controller.FileController.confirm_discard",
+        lambda self: confirm_calls.append(False) or False,
+    )
+    assert len(made) == 1
+
+    event = QCloseEvent()
+    w.closeEvent(event)
+
+    assert not event.isAccepted()
+    assert made[0].shutdown_calls == 0
+
+
+def test_second_close_while_draining_is_ignored(window_with_fake_download):
+    """A second close during the drain is ignored without re-prompting."""
+    w, made, confirm_calls = window_with_fake_download
+    assert len(made) == 1
+    fake = made[0]
+    fake.drain_on_shutdown = True
+
+    first = QCloseEvent()
+    w.closeEvent(first)
+    assert not first.isAccepted()
+
+    second = QCloseEvent()
+    w.closeEvent(second)
+    assert not second.isAccepted()
+    assert confirm_calls == [True]
+    assert fake.shutdown_calls == 1
