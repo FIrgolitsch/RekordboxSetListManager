@@ -42,6 +42,7 @@ __all__ = [
     "DownloadBatch",
     "DownloadErrorKind",
     "DownloadResult",
+    "MergedEvent",
     "PlaybackInfo",
     "RateGate",
     "SegmentPlan",
@@ -177,7 +178,7 @@ _WINDOWS_RESERVED = {"CON", "PRN", "AUX", "NUL"} | {
 _FETCH_SHARE = 0.6
 
 
-class _MergedEvent(threading.Event):
+class MergedEvent(threading.Event):
     """Reads set when any source event is set — caller cancel or pool abort.
 
     ``fetch_bytes`` accepts a single cancel event; the worker pool feeds both
@@ -776,7 +777,7 @@ class TidalDownloadService:
         if total == 0:
             return seg_paths
         abort = threading.Event()
-        merged = _MergedEvent(*(e for e in (cancel_event, abort) if e is not None))
+        merged = MergedEvent(*(e for e in (cancel_event, abort) if e is not None))
 
         def _fetch_one(index: int, url: str) -> None:
             data = _tidal_download_adapter.fetch_bytes(

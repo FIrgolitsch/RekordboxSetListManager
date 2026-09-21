@@ -553,7 +553,7 @@ def test_merged_event_wait_observes_source_events():
     """``Event.wait`` reads only the instance flag, which merged sources
     never set — the override must observe the sources instead."""
     source = threading.Event()
-    merged = tidal_download._MergedEvent(source)
+    merged = tidal_download.MergedEvent(source)
 
     assert merged.wait(0.05) is False
 

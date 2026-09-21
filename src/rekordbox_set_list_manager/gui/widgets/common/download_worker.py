@@ -11,8 +11,8 @@ from PySide6.QtCore import QObject, Signal
 
 from rekordbox_set_list_manager.services.tidal_download import (
     DownloadErrorKind,
+    MergedEvent,
     TidalDownloadError,
-    _MergedEvent,
 )
 
 if TYPE_CHECKING:
@@ -188,7 +188,7 @@ class DownloadWorker(QObject):
             result = service.download_track(
                 item.tidal_id,
                 progress_cb=self._throttled(item),
-                cancel_event=_MergedEvent(item.cancel_event, self._shutdown, self._abort_work),
+                cancel_event=MergedEvent(item.cancel_event, self._shutdown, self._abort_work),
             )
         except TidalDownloadError as exc:
             self._handle_download_error(item, exc)
