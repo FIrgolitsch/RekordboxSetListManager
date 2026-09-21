@@ -192,10 +192,16 @@ class DownloadController(QObject):
         if self._shutdown.is_set():
             return []
         batch_id = uuid.uuid4().hex
+        # A record whose cancel_event is already set is guaranteed to
+        # terminate — its state just lags behind the queued item_cancelled
+        # signal — so it must not dedup-block a fresh enqueue of the same
+        # track (the new request would otherwise be silently dropped while
+        # the old record drains to CANCELLED).
         active = {
             record.tidal_id
             for record in self._items.values()
             if record.state in (QueueItemState.QUEUED, QueueItemState.RUNNING)
+            and not record.cancel_event.is_set()
         }
         minted: list[str] = []
         for tidal_id, label in entries:
