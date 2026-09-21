@@ -533,11 +533,36 @@ def test_shutdown_during_reauth_is_bounded_and_leaks_no_thread(make_ctrl, qtbot)
     assert all(s in _TERMINAL for s in states.values())
     tidal.auth_gate.set()  # let the cancelled silent auth return
     qtbot.waitUntil(
-        lambda: (
-            getattr(ctrl, "_reauth_thread", None) is None or not ctrl._reauth_thread.isRunning()
-        ),
+        lambda: getattr(ctrl, "_reauth_thread", None) is None and not ctrl._reauth_running,
         timeout=3000,
     )
+
+
+def test_reauth_refs_release_after_deferred_delete(make_ctrl, qtbot):
+    """Regression: the finished slot must not drop the last Python refs
+    synchronously — the thread/worker deleteLater deliveries are still in
+    flight, so a synchronous drop frees the C++ objects under a pending
+    DeferredDelete (use-after-free on the GUI event loop).  Refs park in
+    _reauth_stale_refs for exactly one event-loop turn, and a second re-auth
+    cycle reuses the machinery without leftover wrappers."""
+    tidal = _FakeTidalService(auth_result=None)  # silent auth finds nothing
+    ctrl, fake = make_ctrl(tidal_service=tidal)
+
+    fake.handlers["t1"] = _auth_fail
+    fake.handlers["t2"] = _auth_fail
+    ctrl.enqueue([("t1", "L1")])
+
+    qtbot.waitUntil(lambda: tidal.auth_calls == 1, timeout=3000)
+    qtbot.waitUntil(lambda: getattr(ctrl, "_reauth_thread", None) is None, timeout=3000)
+    # The refs are gone from the controller but parked until the deferred
+    # deletes land — the park drains on the next event-loop turn.
+    qtbot.waitUntil(lambda: not ctrl._reauth_stale_refs, timeout=3000)
+
+    # A second cycle exercises the stale-ref release at _start_silent_reauth.
+    ctrl.enqueue([("t2", "L2")])
+    qtbot.waitUntil(lambda: tidal.auth_calls == 2, timeout=3000)
+    qtbot.waitUntil(lambda: getattr(ctrl, "_reauth_thread", None) is None, timeout=3000)
+    qtbot.waitUntil(lambda: not ctrl._reauth_stale_refs, timeout=3000)
 
 
 def test_pause_freezes_and_resume_continues(make_ctrl, qtbot):

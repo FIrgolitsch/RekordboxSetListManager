@@ -9,7 +9,7 @@ import uuid
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QObject, QThread, Signal
+from PySide6.QtCore import QObject, QThread, QTimer, Signal
 
 from rekordbox_set_list_manager.gui.widgets.common.download_worker import DownloadWorker
 from rekordbox_set_list_manager.gui.widgets.streaming.auth_worker import (
@@ -151,6 +151,9 @@ class DownloadController(QObject):
         self._reauth_running = False
         self._reauth_thread: QThread | None = None
         self._reauth_worker: StreamingAuthWorker | None = None
+        # Refs parked past their objects' deferred-delete delivery — see
+        # _release_reauth_refs.
+        self._reauth_stale_refs: list[tuple[QThread | None, StreamingAuthWorker | None]] = []
         self._worker = DownloadWorker(
             self._queue,
             service_factory=self._service_factory,
@@ -277,12 +280,14 @@ class DownloadController(QObject):
             for record in self._items.values():
                 if record.state not in _TERMINAL_STATES:
                     record.cancel_event.set()
-            if self._reauth_worker is not None:
+            if self._reauth_running and self._reauth_worker is not None:
                 self._reauth_worker.cancel()
         # A re-auth thread blocked inside the service call cannot process
         # quit() until it returns — the wait is deliberately shorter than
-        # the worker's so shutdown stays responsive.
-        if self._reauth_thread is not None and self._reauth_thread.isRunning():
+        # the worker's so shutdown stays responsive.  ``_reauth_running``
+        # also guards the wrapper: once it is False the finished slot ran,
+        # and the parked refs may point at already-deleted C++ objects.
+        if self._reauth_running and self._reauth_thread is not None:
             self._reauth_thread.quit()
             self._reauth_thread.wait(1000)
         if self._thread.isRunning():
@@ -296,10 +301,11 @@ class DownloadController(QObject):
         ``try_silent_authenticate`` blocked in network I/O outlives
         ``shutdown``'s bounded join, and the deferred close must keep the
         window alive until it ends rather than let the app exit with a
-        thread in flight.
+        thread in flight.  The flag — not ``isRunning()`` — reports re-auth
+        liveness so a finished-but-deferred-deleting wrapper is never
+        dereferenced.
         """
-        reauth_running = self._reauth_thread is not None and self._reauth_thread.isRunning()
-        return self._shutdown.is_set() and (self._thread.isRunning() or reauth_running)
+        return self._shutdown.is_set() and (self._thread.isRunning() or self._reauth_running)
 
     def snapshot(self) -> tuple[QueueItem, ...]:
         """Return the insertion-ordered registry of frozen item records."""
@@ -404,6 +410,7 @@ class DownloadController(QObject):
         """
         if self._reauth_running or self._shutdown.is_set():
             return
+        self._release_reauth_refs()
         self._reauth_running = True
         # Parentless on purpose: ``cancel()`` cannot interrupt the blocking
         # ``check_login`` call, so the thread can outlive shutdown's bounded
@@ -440,11 +447,27 @@ class DownloadController(QObject):
         self.cancel_all()
 
     def _on_reauth_thread_finished(self) -> None:
-        """Drop the one-shot thread/worker refs once the thread has ended."""
+        """Mark the one-shot re-auth ended and release its refs."""
         self._reauth_running = False
+        # Lets a deferred close re-check is_draining() — the download
+        # worker's finished signal alone cannot cover a re-auth that was
+        # still running after it.
+        self.reauth_finished.emit()
+        self._release_reauth_refs()
+
+    def _release_reauth_refs(self) -> None:
+        """Park re-auth thread/worker refs past their deferred deletes.
+
+        ``finished`` queues ``worker.deleteLater``/``thread.deleteLater``
+        ahead of the slot that lands here, so the ``DeferredDelete`` events
+        are still in flight when this runs — dropping the last Python refs
+        now would free the C++ objects underneath them.  Park the refs for
+        one event-loop turn instead; by the time the timer fires the C++
+        objects are gone and only dead wrappers are released.
+        """
+        stale = (self._reauth_thread, self._reauth_worker)
         self._reauth_thread = None
         self._reauth_worker = None
-        # Lets a deferred close re-check is_draining() now that the thread
-        # refs are cleared — the download worker's finished signal alone
-        # cannot cover a re-auth still running after it.
-        self.reauth_finished.emit()
+        if any(stale):
+            self._reauth_stale_refs.append(stale)
+            QTimer.singleShot(0, self._reauth_stale_refs.clear)
