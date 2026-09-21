@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 import platformdirs
-from PySide6.QtCore import Qt, QThread, QUrl
+from PySide6.QtCore import Qt, QThread, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -41,6 +41,10 @@ class SettingsDialog(QDialog):
         self._tidal_service = TidalService()
         self._tidal_thread: QThread | None = None
         self._tidal_worker: StreamingAuthWorker | None = None
+        # Refs parked until their objects' deferred deletes have landed —
+        # keyed by the finished thread so a still-running retired thread is
+        # never released early.  See _clear_tidal_auth_refs.
+        self._tidal_retired: dict[QThread, tuple[QThread, StreamingAuthWorker | None]] = {}
         self._redirect_catcher = RedirectCatcher(self)
         self._redirect_catcher.found.connect(self._on_tidal_redirect_captured)
 
@@ -211,18 +215,39 @@ class SettingsDialog(QDialog):
         self._tidal_thread.start()
 
     def _clear_tidal_auth_refs(self) -> None:
-        self._tidal_thread = None
-        self._tidal_worker = None
+        # ``finished`` queued the thread/worker ``deleteLater`` slots ahead
+        # of this one, so their ``DeferredDelete`` events are still in
+        # flight — dropping the last Python refs here would free the C++
+        # objects underneath them.  Park the refs for one event-loop turn;
+        # by the time the timer fires only dead wrappers are released.
+        sender = self.sender()
+        if sender is None or sender is self._tidal_thread:
+            pair = (self._tidal_thread, self._tidal_worker)
+            self._tidal_thread = None
+            self._tidal_worker = None
+            if pair[0] is not None:
+                self._tidal_retired[pair[0]] = pair
+        if isinstance(sender, QThread):
+            QTimer.singleShot(0, lambda s=sender: self._tidal_retired.pop(s, None))
 
     def _stop_tidal_auth(self) -> None:
         self._redirect_catcher.stop()
         if self._tidal_worker is not None:
             self._tidal_worker.cancel()
-        if self._tidal_thread is not None and self._tidal_thread.isRunning():
-            self._tidal_thread.quit()
-            self._tidal_thread.wait(3000)
-        self._tidal_worker = None
+        thread = self._tidal_thread
+        if thread is not None and thread.isRunning():
+            thread.quit()
+            thread.wait(3000)
+        if thread is not None:
+            # Same deferred-delete hazard as _clear_tidal_auth_refs: a
+            # finished-but-undelivered thread still has deleteLater events
+            # queued, and a still-running thread needs its refs held until
+            # its own finished retires them.
+            self._tidal_retired[thread] = (thread, self._tidal_worker)
+            if not thread.isRunning():
+                QTimer.singleShot(0, lambda t=thread: self._tidal_retired.pop(t, None))
         self._tidal_thread = None
+        self._tidal_worker = None
 
     def _on_tidal_link_ready(self, msg: str) -> None:
         match = re.search(r"https?://\S+", msg)
