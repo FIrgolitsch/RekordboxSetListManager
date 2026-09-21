@@ -88,6 +88,9 @@ def window_with_fake_download(qtbot, monkeypatch):
     )
     w = MainWindow()
     qtbot.addWidget(w)
+    # new_project() consults the discard prompt during construction; tests
+    # only care about prompts issued by closeEvent itself.
+    confirm_calls.clear()
     return w, made, confirm_calls
 
 

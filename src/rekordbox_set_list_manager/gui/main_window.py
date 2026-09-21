@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtWidgets import QMainWindow, QSplitter, QTabWidget
 
 if TYPE_CHECKING:
@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from PySide6.QtWidgets import QMenu
 
 from rekordbox_set_list_manager.controllers.autosave_controller import AutosaveController
+from rekordbox_set_list_manager.controllers.download_controller import DownloadController
 from rekordbox_set_list_manager.controllers.edit_controller import EditController
 from rekordbox_set_list_manager.controllers.file_controller import FileController
 from rekordbox_set_list_manager.controllers.import_controller import ImportController
@@ -107,6 +108,12 @@ class MainWindow(QMainWindow):
         # _connect_signals so the recovery check runs ahead of the view
         # refresh on every project_changed emission.
         self._autosave_ctrl = AutosaveController(self._ctrl, self, self)
+        # Parented to the window so destruction drains the worker thread; its
+        # own destroyed -> shutdown wiring keeps teardown hands-off here.
+        self._download_ctrl = DownloadController(parent=self)
+        # Set once the discard prompt passes — the deferred re-close must not
+        # ask again after the user already confirmed.
+        self._close_confirmed = False
 
         menu_bar.build_menus(self)
 
@@ -248,8 +255,23 @@ class MainWindow(QMainWindow):
     # -------------------------------------------------------- window close
 
     def closeEvent(self, event) -> None:
-        """Confirm unsaved changes before closing the window."""
-        if self._file_ctrl.confirm_discard():
-            event.accept()
-        else:
+        """Confirm unsaved changes, then drain the download worker before closing."""
+        if self._download_ctrl.is_draining():
+            # A close is already deferred behind the drain — re-entry while
+            # the worker still runs is ignored, never re-prompted.
             event.ignore()
+            return
+        if not (self._close_confirmed or self._file_ctrl.confirm_discard()):
+            event.ignore()
+            return
+        self._close_confirmed = True
+        self._download_ctrl.shutdown()
+        if self._download_ctrl.is_draining():
+            # The bounded wait was not enough: defer the real close until the
+            # worker thread ends so the app never exits with it running.
+            self._download_ctrl.worker_finished.connect(
+                lambda: QTimer.singleShot(0, self.close)
+            )
+            event.ignore()
+            return
+        event.accept()
