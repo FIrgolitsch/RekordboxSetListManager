@@ -206,20 +206,24 @@ class DownloadController(QObject):
         minted: list[str] = []
         for tidal_id, label in entries:
             tid = str(tidal_id)
+            # Coerce the label up front too — a non-str value raising at the
+            # item_added emit would leave a registered, queued record whose
+            # UI-visible signal never fired.
+            text = str(label)
             if tid in active:
                 continue
             item_id = uuid.uuid4().hex
             record = QueueItem(
                 item_id=item_id,
                 tidal_id=tid,
-                label=label,
+                label=text,
                 batch_id=batch_id,
                 cancel_event=threading.Event(),
             )
             self._items[item_id] = record
             active.add(tid)
             self._queue.put(record)
-            self.item_added.emit(item_id, label, batch_id)
+            self.item_added.emit(item_id, text, batch_id)
             minted.append(item_id)
         return minted
 
