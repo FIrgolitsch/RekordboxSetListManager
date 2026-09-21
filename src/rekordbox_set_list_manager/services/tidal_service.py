@@ -188,7 +188,10 @@ class TidalService(StreamingService):
         :meth:`try_silent_authenticate`, so callers that need a session must
         read this property fresh rather than caching it — pinning a stale
         session object is exactly what the accessor exists to prevent.
-        Callers must not mutate the returned session.
+        Callers must not rebind or replace the session; updating
+        ``session.config`` fields (``client_id``/``client_secret``/
+        ``quality``) is reserved for the download adapter, which adjusts
+        them as part of its normal credential and quality handling.
 
         Returns
         -------
