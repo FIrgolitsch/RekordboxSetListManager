@@ -283,9 +283,12 @@ def _template_fields(tidal_track: tidalapi.media.Track) -> dict[str, str]:
 def render_path(tidal_track: tidalapi.media.Track, root: Path, template: str) -> Path:
     """Render *template* into a sanitized ``.aiff`` path inside *root*.
 
-    Unknown ``{placeholder}`` names fall back to the default template; empty
-    fields collapse stray separators; every component is sanitized and the
-    resolved path must stay inside *root*.
+    Unknown ``{placeholder}`` names fall back to the default template.  An
+    empty field value drops a dangling *leading* separator inside its
+    component (``{tracknumber} - {title}`` with no track number renders
+    ``"Title"``), while a component left fully empty is rendered as
+    ``"Unknown"`` so the template's directory shape is preserved.  Every
+    component is sanitized and the resolved path must stay inside *root*.
 
     Parameters
     ----------
