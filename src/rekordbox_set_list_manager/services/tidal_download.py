@@ -104,10 +104,12 @@ class DownloadResult:
         Expected track duration in seconds.
     skipped_existing : bool
         ``True`` when the file already existed and nothing was fetched.
-        Dedup is path-only: a *different* Tidal track rendering to the same
-        templated path also reports ``skipped_existing`` — the file then
-        holds the earlier track's audio while the result carries the new
-        ``track_id``.
+        Identity is verified before skipping: a file tagged
+        ``TXXX:TIDAL_ID`` for a different track — or with a conflicting
+        ``TSRC`` when the id frame is absent — does not satisfy the dedup;
+        the download proceeds under a ``[track_id]``-suffixed name
+        instead.  Files carrying neither tag keep the original path-only
+        behavior.
     """
 
     filepath: Path
@@ -330,6 +332,49 @@ def render_path(tidal_track: tidalapi.media.Track, root: Path, template: str) ->
             kind=DownloadErrorKind.VALIDATION,
         )
     return resolved
+
+
+def _read_tag_identity(path: Path) -> tuple[str | None, str | None]:
+    """Return ``(tidal_id, isrc)`` embedded in *path*; ``None``s when unreadable.
+
+    ``TXXX:TIDAL_ID`` is written by :func:`tag_aiff`; ``TSRC`` carries the
+    ISRC.  Both come back ``None`` for foreign files, untagged files, or
+    anything mutagen cannot parse — the caller treats those as
+    unidentifiable rather than as a mismatch.
+    """
+    try:
+        audio = AIFF(path)
+    except Exception:
+        log.debug("Could not read tags from existing file %s", path, exc_info=True)
+        return None, None
+    tags = getattr(audio, "tags", None)
+    if tags is None:
+        return None, None
+    tidal_id = None
+    for frame in tags.getall("TXXX"):
+        if getattr(frame, "desc", "") == "TIDAL_ID":
+            text = frame.text
+            tidal_id = str(text[0]) if text else None
+    isrcs = tags.getall("TSRC")
+    isrc = str(isrcs[0].text[0]) if isrcs and isrcs[0].text else None
+    return tidal_id, isrc
+
+
+def _is_same_track(path: Path, track_id: str, tidal_track: tidalapi.media.Track) -> bool:
+    """Whether the existing file at *path* already holds *track_id*'s audio.
+
+    A ``TXXX:TIDAL_ID`` frame decides outright.  Files predating it fall
+    back to ``TSRC``: a matching ISRC is the same recording, while a
+    *different* ISRC proves different audio.  Files with neither tag keep
+    the original path-only dedup answer (``True``).
+    """
+    existing_id, existing_isrc = _read_tag_identity(path)
+    if existing_id is not None:
+        return existing_id == track_id
+    if existing_isrc is not None:
+        track_isrc = str(getattr(tidal_track, "isrc", "") or "")
+        return not track_isrc or existing_isrc == track_isrc
+    return True
 
 
 def _check_payload_magic(payload: bytes) -> str:
@@ -609,10 +654,10 @@ class TidalDownloadService:
         plan = _tidal_download_adapter.build_segment_plan(info.stream)
         final = render_path(tidal_track, self._download_dir, self._template)
         requested = str(tidalapi.media.Quality.hi_res_lossless)
-        if final.exists():
-            # The templated path is the dedup key — skip before any segment GET.
+
+        def _skipped(path: Path) -> DownloadResult:
             return DownloadResult(
-                filepath=final,
+                filepath=path,
                 track_id=track_id,
                 served_quality=served,
                 requested_quality=requested,
@@ -621,6 +666,21 @@ class TidalDownloadService:
                 duration_s=float(getattr(tidal_track, "duration", 0) or 0),
                 skipped_existing=True,
             )
+
+        if final.exists():
+            # The templated path is the dedup key — but only when the file
+            # there actually holds this track's audio.  An embedded
+            # TIDAL_ID/ISRC that disagrees means a different track rendered
+            # to the same path; claiming it would silently pair the new id
+            # with another track's audio.
+            if _is_same_track(final, track_id, tidal_track):
+                return _skipped(final)
+            # Disambiguate by track id rather than overwrite — the earlier
+            # download stays intact and both tracks keep working anchors.
+            # A colliding suffixed name is re-verified before skipping.
+            final = final.with_name(f"{final.stem} [{_sanitize_component(track_id)}].aiff")
+            if final.exists() and _is_same_track(final, track_id, tidal_track):
+                return _skipped(final)
         part = final.with_name(f"{final.name}.part")
         final.parent.mkdir(parents=True, exist_ok=True)
         seg_paths: list[Path] = []

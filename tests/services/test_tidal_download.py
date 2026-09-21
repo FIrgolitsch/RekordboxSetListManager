@@ -410,6 +410,35 @@ def test_download_track_skips_existing_without_new_segment_gets(tmp_path):
     assert len(http.calls) == calls_after_first
 
 
+def test_download_track_other_track_at_same_path_gets_disambiguated_name(tmp_path):
+    """A different track id rendering to the templated path must not claim
+    the existing file — it downloads under a ``[track_id]``-suffixed name."""
+    service, session, _http = _make_service(
+        tmp_path,
+        "playback_bts_flac_clear.json",
+        bodies=[_flac_payload(), _flac_payload()],
+    )
+    first = service.download_track("12345678")
+    assert AIFF(first.filepath).tags["TXXX:TIDAL_ID"].text == ["12345678"]
+
+    other = _fake_tidal_track()  # same metadata -> same templated path
+    other.id = 99999
+    session._tidal_track = other
+
+    second = service.download_track("99999")
+
+    assert second.skipped_existing is False
+    assert second.filepath.name == "01 - Test Title [99999].aiff"
+    assert second.filepath != first.filepath
+    assert AIFF(second.filepath).tags["TXXX:TIDAL_ID"].text == ["99999"]
+    # The earlier track's file is left intact — and a repeat request for
+    # the disambiguated track still dedups to its own name.
+    assert first.filepath.exists()
+    third = service.download_track("99999")
+    assert third.skipped_existing is True
+    assert third.filepath == second.filepath
+
+
 # ---------------------------------------------------------------------------
 # MPD manifest — init segment first, media order preserved
 # ---------------------------------------------------------------------------

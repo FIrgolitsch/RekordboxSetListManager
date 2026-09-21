@@ -193,7 +193,8 @@ def tag_aiff(
     dual-write is needed.  Fields are guarded individually — tidalapi
     attributes can be ``None`` depending on how the track was fetched.  A
     ``TXXX:TIDAL_QUALITY`` frame persists the served quality tier for a
-    future re-download pass.
+    future re-download pass, and ``TXXX:TIDAL_ID`` persists the Tidal
+    track id so path-level dedup can verify which track a file holds.
 
     Parameters
     ----------
@@ -235,6 +236,9 @@ def tag_aiff(
     release_date = getattr(album, "release_date", None) if album is not None else None
     if release_date:
         tags.add(TDRC(encoding=3, text=str(release_date)[:10]))
+    track_id = getattr(tidal_track, "id", None)
+    if track_id:
+        tags.add(TXXX(encoding=3, desc="TIDAL_ID", text=str(track_id)))
     tags.add(TXXX(encoding=3, desc="TIDAL_QUALITY", text=served_quality))
     if cover:
         data, mime = _normalize_cover(cover)
