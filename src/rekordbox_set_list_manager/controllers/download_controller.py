@@ -111,6 +111,7 @@ class DownloadController(QObject):
     auth_required = Signal()
     batch_finished = Signal(str)
     worker_finished = Signal()
+    reauth_finished = Signal()  # the one-shot re-auth thread ended
 
     def __init__(
         self,
@@ -270,8 +271,16 @@ class DownloadController(QObject):
             self._thread.wait(3000)
 
     def is_draining(self) -> bool:
-        """True while a shutdown is in progress and the worker still runs."""
-        return self._shutdown.is_set() and self._thread.isRunning()
+        """True while a shutdown is in progress and a thread still runs.
+
+        Covers the re-auth thread as well as the download worker: a
+        ``try_silent_authenticate`` blocked in network I/O outlives
+        ``shutdown``'s bounded join, and the deferred close must keep the
+        window alive until it ends rather than let the app exit with a
+        thread in flight.
+        """
+        reauth_running = self._reauth_thread is not None and self._reauth_thread.isRunning()
+        return self._shutdown.is_set() and (self._thread.isRunning() or reauth_running)
 
     def snapshot(self) -> tuple[QueueItem, ...]:
         """Return the insertion-ordered registry of frozen item records."""
@@ -377,7 +386,11 @@ class DownloadController(QObject):
         if self._reauth_running or self._shutdown.is_set():
             return
         self._reauth_running = True
-        thread = QThread(self)
+        # Parentless on purpose: ``cancel()`` cannot interrupt the blocking
+        # ``check_login`` call, so the thread can outlive shutdown's bounded
+        # wait — and must therefore outlive the controller too.  Its own
+        # ``finished`` → ``deleteLater`` wiring reaps it once it ends.
+        thread = QThread()
         worker = StreamingAuthWorker(self._tidal, silent=True)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
@@ -407,3 +420,7 @@ class DownloadController(QObject):
         self._reauth_running = False
         self._reauth_thread = None
         self._reauth_worker = None
+        # Lets a deferred close re-check is_draining() now that the thread
+        # refs are cleared — the download worker's finished signal alone
+        # cannot cover a re-auth still running after it.
+        self.reauth_finished.emit()

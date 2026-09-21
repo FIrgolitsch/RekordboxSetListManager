@@ -268,10 +268,11 @@ class MainWindow(QMainWindow):
         self._download_ctrl.shutdown()
         if self._download_ctrl.is_draining():
             # The bounded wait was not enough: defer the real close until the
-            # worker thread ends so the app never exits with it running.
-            self._download_ctrl.worker_finished.connect(
-                lambda: QTimer.singleShot(0, self.close)
-            )
+            # worker threads end so the app never exits with one running.  A
+            # silent re-auth blocked in network I/O outlives the download
+            # thread, so its finished signal re-triggers the close too.
+            self._download_ctrl.worker_finished.connect(lambda: QTimer.singleShot(0, self.close))
+            self._download_ctrl.reauth_finished.connect(lambda: QTimer.singleShot(0, self.close))
             event.ignore()
             return
         event.accept()
