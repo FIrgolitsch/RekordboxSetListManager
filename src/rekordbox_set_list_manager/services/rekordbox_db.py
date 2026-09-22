@@ -429,10 +429,17 @@ class RekordboxDbService:
         if pid:
             raise RekordboxDbError(f"Rekordbox is running — close it before {action}")
 
-        # Snapshot master.db (and its WAL/SHM siblings) before opening so a
-        # failed write can never leave the library unrecoverable.
+        # Snapshot the DB (and its WAL/SHM siblings) before opening so a
+        # failed write can never leave the library unrecoverable.  When the
+        # DB path cannot be detected the write still proceeds — pyrekordbox
+        # may locate the database on its own — but loudly: a backup-less
+        # write is exactly what this pre-flight exists to prevent.
         db_path = self.get_db_path()
         if db_path is None:
+            log.warning(
+                "Could not locate the Rekordbox DB path — proceeding without a "
+                "pre-write backup"
+            )
             return
         try:
             _backup_db_files(db_path)
@@ -459,19 +466,22 @@ def get_rekordbox_pid() -> int:
 
 
 def _backup_db_files(db_path: Path) -> None:
-    """Snapshot ``master.db`` and its WAL/SHM siblings into the backup dir.
+    """Snapshot the database file and its WAL/SHM siblings into the backup dir.
 
-    Every sibling matching ``master.db*`` in the database's directory is
-    copied to ``<user data dir>/backups/rekordbox/master-<UTC ts>.db*`` and
+    Every sibling matching ``<db name>*`` in the database's directory is
+    copied to ``<user data dir>/backups/rekordbox/<db stem>-<UTC ts>.*`` and
     locked down to owner-only ``0o600`` — a backup holds the entire DJ
-    library, so it gets the same treatment as credential files.  Afterwards
-    only the newest ``_BACKUP_KEEP`` timestamp-groups are kept; older ones
-    are deleted.
+    library, so it gets the same treatment as credential files.  The glob is
+    derived from ``db_path.name`` rather than hardcoded to ``master.db*`` so
+    the snapshot always covers the file actually being written (e.g. a
+    renamed copy), never an unrelated sibling.  Afterwards only the newest
+    ``_BACKUP_KEEP`` timestamp-groups for that stem are kept; older ones are
+    deleted.
 
     Parameters
     ----------
     db_path : Path
-        Path to the Rekordbox ``master.db`` file.
+        Path to the Rekordbox database file (normally ``master.db``).
     """
     backup_dir = (
         Path(platformdirs.user_data_dir("rekordbox_set_list_manager")) / "backups" / "rekordbox"
@@ -481,15 +491,15 @@ def _backup_db_files(db_path: Path) -> None:
     # Microseconds keep same-second exports from overwriting each other's
     # backup file set.
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
-    for src in sorted(db_path.parent.glob("master.db*")):
-        dest = backup_dir / f"master-{timestamp}{src.suffix}"
+    for src in sorted(db_path.parent.glob(f"{db_path.name}*")):
+        dest = backup_dir / f"{db_path.stem}-{timestamp}{src.suffix}"
         shutil.copy2(src, dest)
         dest.chmod(0o600)
 
     # A backup is a file set: group by the timestamp prefix and drop whole
     # groups so a pruned set never loses its WAL/SHM siblings.
     groups: dict[str, list[Path]] = {}
-    for file in backup_dir.glob("master-*.db*"):
+    for file in backup_dir.glob(f"{db_path.stem}-*.db*"):
         groups.setdefault(file.name.split(".")[0], []).append(file)
     for key in sorted(groups)[:-_BACKUP_KEEP]:
         for file in groups[key]:
