@@ -46,6 +46,11 @@ log = logging.getLogger(__name__)
 _REREAD_ATTEMPTS = 3
 _REREAD_DELAY_S = 0.5
 
+# Substrings that mark a re-read failure as lock-shaped (retryable).  The
+# driver's phrasing varies — SQLite says "database is locked", SQLCipher
+# and busy-timeouts say "database is busy".
+_LOCK_MARKERS = ("locked", "busy")
+
 
 class RekordboxImportError(Exception):
     """Raised when a download import cannot proceed or completes badly."""
@@ -365,7 +370,11 @@ class RekordboxImportController(QObject):
             try:
                 return list(self._db.get_collection())
             except RekordboxDbError as exc:
-                if "locked" not in str(exc).lower() or attempt >= _REREAD_ATTEMPTS - 1:
+                message = str(exc).lower()
+                if (
+                    not any(marker in message for marker in _LOCK_MARKERS)
+                    or attempt >= _REREAD_ATTEMPTS - 1
+                ):
                     raise
                 self._sleep(_REREAD_DELAY_S)
         return []  # pragma: no cover — the loop always returns or raises
