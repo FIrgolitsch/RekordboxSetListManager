@@ -435,9 +435,7 @@ class RekordboxImportController(QObject):
             track = project_tracks.get(str(result.track_id))
             if track is None:
                 if not ingest_skipped:
-                    unmatched.append(
-                        SkippedItem(path.name, "no project track with this Tidal ID")
-                    )
+                    unmatched.append(SkippedItem(path.name, "no project track with this Tidal ID"))
                 continue
             if track.match_status is MatchStatus.MANUALLY_MATCHED:
                 # Explicit user bindings win — reported, never rebound.

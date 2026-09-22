@@ -434,8 +434,7 @@ class RekordboxDbService:
         db_path = self.get_db_path()
         if db_path is None:
             log.warning(
-                "Could not locate the Rekordbox DB path — proceeding without a "
-                "pre-write backup"
+                "Could not locate the Rekordbox DB path — proceeding without a pre-write backup"
             )
             return
         try:
