@@ -313,11 +313,9 @@ def _elem_to_track(elem: ET.Element) -> Track | None:
 
     colour_str = elem.get("Colour", "0")
     try:
-        colour_int = int(colour_str)
-        color: RekordboxColor | None = (
-            RekordboxColor(colour_int) if colour_int in RekordboxColor._value2member_map_ else None
-        )
+        color: RekordboxColor | None = RekordboxColor(int(colour_str))
     except ValueError:
+        # Non-numeric attribute or a value outside the enum — no colour.
         color = None
 
     return Track(
