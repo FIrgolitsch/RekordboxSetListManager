@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -16,7 +17,7 @@ from rekordbox_set_list_manager.models.track import Track
 from rekordbox_set_list_manager.services.skipped_item import SkippedItem
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Iterator
     from uuid import UUID
 
     from rekordbox_set_list_manager.models.section import Section
@@ -78,9 +79,7 @@ class RekordboxDbService:
     def is_available(self) -> bool:
         """Return True if a Rekordbox database can be located and opened."""
         try:
-            from pyrekordbox import Rekordbox6Database  # noqa: PLC0415
-
-            with Rekordbox6Database():
+            with _open_db():
                 pass
         except Exception:
             # Best-effort probe: any failure (missing DB, driver, config)
@@ -120,10 +119,8 @@ class RekordboxDbService:
 
         """
         try:
-            from pyrekordbox import Rekordbox6Database  # noqa: PLC0415
-
             tracks: list[Track] = []
-            with Rekordbox6Database() as db:
+            with _open_db() as db:
                 for content in db.get_content().all():
                     track = _content_to_track(content)
                     if track is not None:
@@ -155,9 +152,7 @@ class RekordboxDbService:
 
         """
         try:
-            from pyrekordbox import Rekordbox6Database  # noqa: PLC0415
-
-            with Rekordbox6Database() as db:
+            with _open_db() as db:
                 content = db.get_content(ISRC=isrc)
                 if hasattr(content, "all"):
                     rows = content.all()
@@ -199,9 +194,7 @@ class RekordboxDbService:
 
         """
         try:
-            from pyrekordbox import Rekordbox6Database  # noqa: PLC0415
-
-            with Rekordbox6Database() as db:
+            with _open_db() as db:
                 content = db.get_content(FolderPath=path)
                 if hasattr(content, "first"):
                     content = content.first()
@@ -257,12 +250,10 @@ class RekordboxDbService:
         self._prepare_write("exporting")
 
         try:
-            from pyrekordbox import Rekordbox6Database  # noqa: PLC0415
-
             exported = 0
             skipped: list[SkippedItem] = []
 
-            with Rekordbox6Database() as db:
+            with _open_db() as db:
                 # Remove any existing root-level playlist or folder with the
                 # same name so the export is idempotent (re-running replaces
                 # the old data). "Root-level" means the ParentID does not
@@ -363,14 +354,11 @@ class RekordboxDbService:
         # the caller unwrapped and unambiguous.
         self._prepare_write("importing")
 
-        db = None
         try:
-            from pyrekordbox import Rekordbox6Database  # noqa: PLC0415
-
             inserted: dict[str, int] = {}
             skipped: list[SkippedItem] = []
 
-            with Rekordbox6Database() as db:
+            with _open_db() as db:
                 for item in items:
                     path = Path(item.path)
                     if not path.exists():
@@ -409,9 +397,6 @@ class RekordboxDbService:
             raise RekordboxDbError(f"Failed to import files into Rekordbox: {exc}") from exc
         else:
             return inserted, skipped
-        finally:
-            if db is not None:
-                db.engine.dispose()
 
     def _prepare_write(self, action: str) -> None:
         """Guard against a running Rekordbox and back up the DB files.
@@ -462,6 +447,26 @@ class RekordboxDbService:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+@contextmanager
+def _open_db() -> Iterator[Any]:
+    """Open the Rekordbox database and always dispose its engine on exit.
+
+    pyrekordbox's ``close()`` ends the session but never disposes the
+    engine, so a bare ``with Rekordbox6Database()`` leaves a pooled
+    SQLCipher connection alive until GC — on Windows that lingering handle
+    can keep ``master.db`` locked for the next open/write.  Every call
+    site routes through here so teardown is uniform.
+    """
+    from pyrekordbox import Rekordbox6Database  # noqa: PLC0415
+
+    db = Rekordbox6Database()
+    try:
+        with db:
+            yield db
+    finally:
+        db.engine.dispose()
 
 
 def get_rekordbox_pid() -> int:
