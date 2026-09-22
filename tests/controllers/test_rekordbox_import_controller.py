@@ -704,9 +704,7 @@ def test_xml_mode_missing_file_is_skipped_from_manifest(tmp_path):
     collection = ET.parse(xml_path).getroot().find("COLLECTION")
     assert collection is not None
     assert [e.get("Name") for e in collection.findall("TRACK")] == ["A"]
-    assert any(
-        s.label == "missing.aiff" and "does not exist" in s.reason for s in result.skipped
-    )
+    assert any(s.label == "missing.aiff" and "does not exist" in s.reason for s in result.skipped)
     assert result.matched == 1
 
 

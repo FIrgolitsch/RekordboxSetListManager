@@ -15,6 +15,7 @@ from rekordbox_set_list_manager.models.enums import MatchStatus, RekordboxColor,
 from rekordbox_set_list_manager.models.track import Track
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
     from uuid import UUID
 
     from rekordbox_set_list_manager.models.section import Section
@@ -125,6 +126,48 @@ class RekordboxXmlService:
             )
             for tid in section_ids:
                 ET.SubElement(playlist_node, "TRACK", Key=str(id_map[tid]))
+
+        try:
+            path.write_text(_pretty_xml(root), encoding="utf-8")
+        except OSError as exc:
+            raise RekordboxXmlError(f"Could not write XML to {path}: {exc}") from exc
+
+    def export_collection(self, tracks: Iterable[Track], path: Path) -> None:
+        """Write *tracks* as a collection-only Rekordbox XML file at *path*.
+
+        The generated file contains only the ``PRODUCT`` header and a
+        ``COLLECTION`` of one ``TRACK`` element per track — no ``PLAYLISTS``
+        element.  This is the ingest manifest imported through Rekordbox's
+        rekordbox-xml bridge (Preferences → Advanced → rekordbox xml →
+        Imported Library → Import To Collection), so tracks carry no
+        section name or colour semantics.
+
+        Parameters
+        ----------
+        tracks : Iterable[Track]
+            Tracks to write into the collection manifest.
+        path : Path
+            Destination file path for the generated XML file.
+
+        Raises
+        ------
+        RekordboxXmlError
+            If the file cannot be written.
+
+        """
+        root = ET.Element("DJ_PLAYLISTS", Version=_RB_XML_VERSION)
+        ET.SubElement(
+            root,
+            "PRODUCT",
+            Name=_PRODUCT_NAME,
+            Version=_PRODUCT_VERSION,
+            Company=_PRODUCT_COMPANY,
+        )
+
+        tracks = list(tracks)
+        collection = ET.SubElement(root, "COLLECTION", Entries=str(len(tracks)))
+        for i, track in enumerate(tracks):
+            collection.append(_track_to_elem(track, i + 1, "", 0))
 
         try:
             path.write_text(_pretty_xml(root), encoding="utf-8")

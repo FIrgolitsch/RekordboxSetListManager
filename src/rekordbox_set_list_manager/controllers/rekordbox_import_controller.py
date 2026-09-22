@@ -27,6 +27,7 @@ from rekordbox_set_list_manager.services.rekordbox_db import (
     RekordboxDbError,
     RekordboxDbService,
 )
+from rekordbox_set_list_manager.services.rekordbox_xml import RekordboxXmlService
 from rekordbox_set_list_manager.services.skipped_item import SkippedItem
 from rekordbox_set_list_manager.services.track_matcher import MatchStrategy
 from rekordbox_set_list_manager.utils import config
@@ -38,7 +39,6 @@ if TYPE_CHECKING:
     from rekordbox_set_list_manager.controllers.edit_controller import EditController
     from rekordbox_set_list_manager.controllers.project_controller import ProjectController
     from rekordbox_set_list_manager.models.project import Project
-    from rekordbox_set_list_manager.services.rekordbox_xml import RekordboxXmlService
     from rekordbox_set_list_manager.services.tidal_download import DownloadResult
 
 log = logging.getLogger(__name__)
@@ -73,8 +73,9 @@ class ImportResult:
         collection (and may need to analyze the new files) before the
         tracks are usable.
     pending_import : bool
-        ``True`` when the import produced an XML file the user still has
-        to import into Rekordbox manually (xml mode).
+        ``True`` when xml-mode items were written to the manifest but not
+        yet found in the collection — the user still has to run
+        Rekordbox's rekordbox-xml bridge import.
     xml_path : Path | None
         Location of the generated Rekordbox XML file, or ``None`` in db
         mode.
@@ -121,7 +122,8 @@ class RekordboxImportController(QObject):
         self._ctrl = ctrl
         self._edit_ctrl = edit_ctrl
         self._db = db_service if db_service is not None else RekordboxDbService()
-        self._xml = xml_service  # Reserved for the Rekordbox XML import path.
+        # Instantiated lazily on the first xml-mode run when not injected.
+        self._xml = xml_service
         self._sleep = sleep
 
     # ------------------------------------------------------------------ API
@@ -144,7 +146,7 @@ class RekordboxImportController(QObject):
         ------
         RekordboxImportError
             If ``rekordbox_import_mode`` is unknown, no project is loaded,
-            or the configured mode is not supported yet.
+            or xml mode is configured without ``download_dir``.
 
         """
         results = list(results)
@@ -186,24 +188,30 @@ class RekordboxImportController(QObject):
             for result in results
         ]
 
+        xml_path: Path | None = None
+        inserted_ids: dict[str, int] = {}
         if mode == "xml":
-            raise RekordboxImportError("rekordbox_import_mode 'xml' is not supported yet")
+            xml_path, skipped = self._write_import_xml(results, project_tracks)
+        else:
+            inserted_ids, skipped = self._db.import_files(items)
 
-        inserted_ids, skipped = self._db.import_files(items)
         try:
             collection = self._reread_collection()
         except RekordboxDbError:
-            # The committed rows are already in Rekordbox — a dead re-read
-            # degrades to the authoritative insert IDs, it never fails the
-            # write that already landed.
+            # db mode: the committed rows are already in Rekordbox — a dead
+            # re-read degrades to the authoritative insert IDs, it never
+            # fails the write that already landed.  xml mode: a dead re-read
+            # simply finds nothing, so every unresolved item reports pending
+            # rather than misreporting a written manifest as a failure.
             log.warning(
-                "Collection re-read failed after ingest; falling back to insert ids",
+                "Collection re-read failed after import; degrading to %s",
+                "insert ids" if mode == "db" else "pending-import reporting",
                 exc_info=True,
             )
             collection = []
 
-        resolved, unmatched = self._resolve_matches(
-            results, items, project_tracks, inserted_ids, collection
+        resolved, unmatched, pending = self._resolve_matches(
+            results, items, project_tracks, inserted_ids, collection, mode
         )
 
         def _apply(proj: Project) -> int:
@@ -235,13 +243,81 @@ class RekordboxImportController(QObject):
             skipped=skipped,
             unmatched=unmatched,
             needs_reload_tag=mode == "db" and bool(inserted_ids),
-            pending_import=False,
-            xml_path=None,
+            pending_import=mode == "xml" and pending > 0,
+            xml_path=xml_path,
         )
         self.import_finished.emit(result)
         return result
 
     # ------------------------------------------------------------------ internals
+
+    def _write_import_xml(
+        self,
+        results: list[DownloadResult],
+        project_tracks: dict[str, Track],
+    ) -> tuple[Path, list[SkippedItem]]:
+        """Write the collection-only ingest manifest for xml mode.
+
+        One ``TRACK`` element per downloaded file that exists on disk;
+        missing files are reported as skips and omitted so the manifest
+        never carries a dead ``Location``.  The file lands at the fixed
+        ``rekordbox-import.xml`` path under ``download_dir`` — the path the
+        user binds once in Rekordbox's rekordbox-xml bridge preferences.
+
+        This mode never opens the database for writing: the running-guard
+        and backup pre-flight protect DB writes and are deliberately not
+        invoked — xml mode expressly works while Rekordbox is open.
+
+        Parameters
+        ----------
+        results : list[DownloadResult]
+            The delivered downloads to manifest.
+        project_tracks : dict[str, Track]
+            Project tracks keyed by Tidal ID, consulted for the title,
+            artist, and analysis metadata carried into each ``TRACK``.
+
+        Returns
+        -------
+        tuple[Path, list[SkippedItem]]
+            The manifest path written and the per-file skips.
+
+        Raises
+        ------
+        RekordboxImportError
+            If the ``download_dir`` config key is not set.
+
+        """
+        raw_dir = config.get("download_dir")
+        if not raw_dir:
+            raise RekordboxImportError(
+                "rekordbox_import_mode 'xml' requires the 'download_dir' config key to be set"
+            )
+        xml_path = Path(str(raw_dir)) / "rekordbox-import.xml"
+
+        xml_tracks: list[Track] = []
+        skipped: list[SkippedItem] = []
+        for result in results:
+            path = Path(result.filepath)
+            if not path.exists():
+                skipped.append(SkippedItem(path.name, "file does not exist"))
+                continue
+            track = project_tracks.get(str(result.track_id))
+            xml_tracks.append(
+                Track(
+                    title=track.title if track is not None else path.stem,
+                    artist=track.artist if track is not None else "",
+                    isrc=track.isrc if track is not None else None,
+                    bpm=track.bpm if track is not None else None,
+                    key=track.key if track is not None else None,
+                    duration=track.duration if track is not None else None,
+                    filepath=str(path),
+                )
+            )
+
+        if self._xml is None:
+            self._xml = RekordboxXmlService()
+        self._xml.export_collection(xml_tracks, xml_path)
+        return xml_path, skipped
 
     @staticmethod
     def _to_import_item(result: DownloadResult, proj_track: Track | None) -> ImportItem:
@@ -285,14 +361,17 @@ class RekordboxImportController(QObject):
         project_tracks: dict[str, Track],
         inserted: dict[str, int],
         collection: list[Track],
-    ) -> tuple[dict[UUID, tuple[Track, MatchStrategy]], list[SkippedItem]]:
+        mode: str,
+    ) -> tuple[dict[UUID, tuple[Track, MatchStrategy]], list[SkippedItem], int]:
         """Pair each download with a collection track via the deterministic chain.
 
         Order: exact filepath → ISRC (lowest Rekordbox ID wins on
         duplicates) → the row just inserted for this path.  Anything left
         is reported as unmatched rather than fuzzy-guessed — including
         downloads with no project track and tracks the user already bound
-        by hand, which are never silently rebound.
+        by hand, which are never silently rebound.  The returned pending
+        count tracks unresolved items in xml mode, where a missing row is
+        pending the user's bridge import rather than lost.
         """
         by_path: dict[str, Track] = {}
         by_isrc: dict[str, list[Track]] = {}
@@ -304,6 +383,7 @@ class RekordboxImportController(QObject):
 
         resolved: dict[UUID, tuple[Track, MatchStrategy]] = {}
         unmatched: list[SkippedItem] = []
+        pending = 0
 
         for result, item in zip(results, items, strict=True):
             path = Path(result.filepath)
@@ -341,15 +421,27 @@ class RekordboxImportController(QObject):
                         rekordbox_id=inserted_id,
                     )
             if local is None:
-                unmatched.append(
-                    SkippedItem(track.display_name, "not found in the Rekordbox collection")
-                )
+                if mode == "xml":
+                    pending += 1
+                    unmatched.append(
+                        SkippedItem(
+                            track.display_name,
+                            "not yet in the Rekordbox collection — import "
+                            "rekordbox-import.xml via Rekordbox's rekordbox xml "
+                            "bridge (Preferences → Advanced → rekordbox xml → "
+                            "Imported Library → Import To Collection), then re-run",
+                        )
+                    )
+                else:
+                    unmatched.append(
+                        SkippedItem(track.display_name, "not found in the Rekordbox collection")
+                    )
                 continue
             # Keyed by track UUID: duplicate results for the same track
             # collapse deterministically to the last resolution.
             resolved[track.id] = (local, strategy)
 
-        return resolved, unmatched
+        return resolved, unmatched, pending
 
 
 def _lowest_id_key(track: Track) -> tuple[bool, int, str]:
