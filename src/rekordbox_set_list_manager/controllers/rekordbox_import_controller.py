@@ -165,6 +165,14 @@ class RekordboxImportController(QObject):
         RekordboxImportError
             If ``rekordbox_import_mode`` is unknown, no project is loaded,
             or xml mode is configured without ``download_dir``.
+        RekordboxDbError
+            db mode only — propagates from the ingest when Rekordbox is
+            running, the pre-write backup fails, or the database write or
+            commit fails.  A failed collection *re-read* degrades to
+            insert-ID reporting instead of raising.
+        RekordboxXmlError
+            xml mode only — propagates when the ingest manifest cannot be
+            written.
 
         """
         results = list(results)
