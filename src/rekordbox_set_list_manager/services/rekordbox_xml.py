@@ -101,7 +101,10 @@ class RekordboxXmlService:
         collection = ET.SubElement(root, "COLLECTION", Entries=str(len(ordered_ids)))
         for tid in ordered_ids:
             track = tracks[tid]
-            section_name, section_colour = track_meta.get(tid, ("", 0))
+            # ordered_ids and track_meta are built from the same
+            # section.track_ids loops — a missing key is a real invariant
+            # break and should raise, not silently emit blank metadata.
+            section_name, section_colour = track_meta[tid]
             effective_colour = int(track.color) if track.color is not None else section_colour
             collection.append(_track_to_elem(track, id_map[tid], section_name, effective_colour))
 
