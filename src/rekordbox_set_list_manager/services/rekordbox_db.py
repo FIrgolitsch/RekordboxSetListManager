@@ -374,7 +374,9 @@ class RekordboxDbService:
                 for item in items:
                     path = Path(item.path)
                     if not path.exists():
-                        skipped.append(SkippedItem(path.name, "file does not exist"))
+                        skipped.append(
+                            SkippedItem(path.name, "file does not exist", path=str(path))
+                        )
                         continue
                     try:
                         content = db.add_content(
@@ -383,7 +385,9 @@ class RekordboxDbService:
                             **({"ISRC": item.isrc} if item.isrc else {}),
                         )
                     except ValueError as exc:
-                        skipped.append(SkippedItem(path.name, f"not imported: {exc}"))
+                        skipped.append(
+                            SkippedItem(path.name, f"not imported: {exc}", path=str(path))
+                        )
                         continue
                     inserted[str(path)] = int(content.ID)
                 db.commit()

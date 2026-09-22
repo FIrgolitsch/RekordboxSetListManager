@@ -211,7 +211,7 @@ class RekordboxImportController(QObject):
             collection = []
 
         resolved, unmatched, pending = self._resolve_matches(
-            results, items, project_tracks, inserted_ids, collection, mode
+            results, items, project_tracks, inserted_ids, collection, skipped, mode
         )
 
         def _apply(proj: Project) -> int:
@@ -299,7 +299,7 @@ class RekordboxImportController(QObject):
         for result in results:
             path = Path(result.filepath)
             if not path.exists():
-                skipped.append(SkippedItem(path.name, "file does not exist"))
+                skipped.append(SkippedItem(path.name, "file does not exist", path=str(path)))
                 continue
             track = project_tracks.get(str(result.track_id))
             xml_tracks.append(
@@ -361,6 +361,7 @@ class RekordboxImportController(QObject):
         project_tracks: dict[str, Track],
         inserted: dict[str, int],
         collection: list[Track],
+        skipped: list[SkippedItem],
         mode: str,
     ) -> tuple[dict[UUID, tuple[Track, MatchStrategy]], list[SkippedItem], int]:
         """Pair each download with a collection track via the deterministic chain.
@@ -372,6 +373,14 @@ class RekordboxImportController(QObject):
         by hand, which are never silently rebound.  The returned pending
         count tracks unresolved items in xml mode, where a missing row is
         pending the user's bridge import rather than lost.
+
+        Downloads already rejected by ingest are reported once in
+        ``skipped`` and are never re-reported here — so ``skipped`` and
+        ``unmatched`` partition the batch, and an absent-from-manifest file
+        is never counted as a pending bridge import.  A skipped download
+        can still resolve when a collection row already exists for its
+        path (the dedup-skip case: the file was refused because the row is
+        there), so the skip check gates reporting, not resolution.
         """
         by_path: dict[str, Track] = {}
         by_isrc: dict[str, list[Track]] = {}
@@ -381,24 +390,31 @@ class RekordboxImportController(QObject):
             if local.isrc:
                 by_isrc.setdefault(local.isrc, []).append(local)
 
+        skipped_paths = {s.path for s in skipped if s.path is not None}
+
         resolved: dict[UUID, tuple[Track, MatchStrategy]] = {}
         unmatched: list[SkippedItem] = []
         pending = 0
 
         for result, item in zip(results, items, strict=True):
             path = Path(result.filepath)
+            ingest_skipped = str(path) in skipped_paths
             track = project_tracks.get(str(result.track_id))
             if track is None:
-                unmatched.append(SkippedItem(path.name, "no project track with this Tidal ID"))
+                if not ingest_skipped:
+                    unmatched.append(
+                        SkippedItem(path.name, "no project track with this Tidal ID")
+                    )
                 continue
             if track.match_status is MatchStatus.MANUALLY_MATCHED:
                 # Explicit user bindings win — reported, never rebound.
-                unmatched.append(
-                    SkippedItem(
-                        track.display_name,
-                        "already manually matched — kept existing binding",
+                if not ingest_skipped:
+                    unmatched.append(
+                        SkippedItem(
+                            track.display_name,
+                            "already manually matched — kept existing binding",
+                        )
                     )
-                )
                 continue
 
             local = by_path.get(str(path))
@@ -421,6 +437,8 @@ class RekordboxImportController(QObject):
                         rekordbox_id=inserted_id,
                     )
             if local is None:
+                if ingest_skipped:
+                    continue
                 if mode == "xml":
                     pending += 1
                     unmatched.append(
