@@ -415,11 +415,11 @@ class RekordboxImportController(QObject):
         path (the dedup-skip case: the file was refused because the row is
         there), so the skip check gates reporting, not resolution.
         """
-        by_path: dict[str, Track] = {}
+        by_path: dict[str, list[Track]] = {}
         by_isrc: dict[str, list[Track]] = {}
         for local in collection:
             if local.filepath:
-                by_path.setdefault(local.filepath, local)
+                by_path.setdefault(local.filepath, []).append(local)
             if local.isrc:
                 by_isrc.setdefault(local.isrc, []).append(local)
 
@@ -468,16 +468,20 @@ def _collection_match(
     path: Path,
     track: Track,
     item: ImportItem,
-    by_path: dict[str, Track],
+    by_path: dict[str, list[Track]],
     by_isrc: dict[str, list[Track]],
     inserted: dict[str, int],
 ) -> tuple[Track | None, MatchStrategy]:
     """Resolve one download to a collection track via the deterministic chain.
 
     Order: exact filepath → shared ISRC → the row just inserted for this
-    path.  Returns ``(None, FILEPATH)`` when nothing resolves.
+    path.  Duplicate rows on either join resolve to the lowest Rekordbox
+    ID.  Returns ``(None, FILEPATH)`` when nothing resolves.
     """
-    local = by_path.get(str(path))
+    candidates = by_path.get(str(path))
+    # Duplicate FolderPath rows are ambiguous like a shared ISRC: the
+    # lowest Rekordbox ID wins deterministically, not collection order.
+    local = min(candidates, key=_lowest_id_key) if candidates else None
     strategy = MatchStrategy.FILEPATH
     if local is None and track.isrc and track.isrc in by_isrc:
         # A shared ISRC is ambiguous: the lowest Rekordbox ID wins
