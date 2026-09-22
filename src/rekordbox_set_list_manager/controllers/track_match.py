@@ -15,8 +15,9 @@ def apply_track_match(track: Track, local: Track | None) -> None:
     """Apply *local* Rekordbox metadata to *track*.
 
     If *local* is ``None`` the match is cleared (status → UNMATCHED, all
-    Rekordbox fields set to ``None``).  Otherwise each non-``None`` field from
-    *local* is copied and ``match_status`` is set to ``MANUALLY_MATCHED``.
+    Rekordbox and match-provenance fields set to ``None``).  Otherwise each
+    non-``None`` field from *local* is copied and ``match_status`` is set to
+    ``MANUALLY_MATCHED``.
 
     Parameters
     ----------
@@ -34,6 +35,10 @@ def apply_track_match(track: Track, local: Track | None) -> None:
         track.color = None
         track.rekordbox_id = None
         track.match_status = MatchStatus.UNMATCHED
+        # None means "not yet matched" — a cleared match must not keep the
+        # strategy/score of the binding it just dropped.
+        track.match_strategy = None
+        track.match_score = None
     else:
         if local.filepath:
             track.filepath = local.filepath
