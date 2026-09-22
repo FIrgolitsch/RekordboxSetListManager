@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import importlib
+import urllib.parse
+import xml.etree.ElementTree as ET
 from unittest.mock import MagicMock
 
 import pytest
@@ -202,7 +204,8 @@ def test_import_downloaded_unknown_mode_raises(tmp_path):
     assert fake_db.import_calls == []
 
 
-def test_import_downloaded_xml_mode_not_supported_yet(tmp_path):
+def test_import_downloaded_xml_mode_requires_download_dir(tmp_path):
+    """xml mode names the missing config key before anything is written."""
     mod = _mod()
     config_mod.set_value("rekordbox_import_mode", "xml")
     track = Track(title="Song", artist="Artist", tidal_id="t1")
@@ -210,10 +213,13 @@ def test_import_downloaded_xml_mode_not_supported_yet(tmp_path):
     fake_db = _FakeDb()
     ctrl = mod.RekordboxImportController(pc, ec, db_service=fake_db)
 
-    with pytest.raises(mod.RekordboxImportError, match="not supported yet"):
-        ctrl.import_downloaded([_result("t1", tmp_path / "x.aiff")])
+    file_path = tmp_path / "x.aiff"
+    file_path.write_bytes(b"data")
+    with pytest.raises(mod.RekordboxImportError, match="download_dir"):
+        ctrl.import_downloaded([_result("t1", file_path)])
 
     assert fake_db.import_calls == []
+    assert not (tmp_path / "rekordbox-import.xml").exists()
 
 
 def test_import_downloaded_raises_without_project(tmp_path):
@@ -568,3 +574,186 @@ def test_only_deterministic_strategies_are_stamped(tmp_path):
         project_track(pc, by_isrc).match_strategy,
     }
     assert strategies == {"filepath", "isrc"}
+
+
+# ---------------------------------------------------------------------------
+# import_downloaded — xml mode (rekordbox xml bridge fallback)
+# ---------------------------------------------------------------------------
+
+
+def _enable_xml_mode(download_dir) -> None:
+    """Point the controller at xml mode with *download_dir* as the manifest dir."""
+    config_mod.set_value("rekordbox_import_mode", "xml")
+    config_mod.set_value("download_dir", str(download_dir))
+
+
+def test_xml_mode_writes_manifest_and_reports_pending(tmp_path):
+    """xml mode writes the fixed-path manifest, never touches the DB write
+    path, and reports collection-absent rows as pending bridge imports."""
+    mod = _mod()
+    _enable_xml_mode(tmp_path)
+    file_path = tmp_path / "song.aiff"
+    file_path.write_bytes(b"data")
+    track = Track(title="Song", artist="Artist", tidal_id="t1", isrc="USAA1")
+    pc, ec = _make_ctrl(_project_with(track))
+    fake_db = _FakeDb()
+    fake_db.collection_script = [[]]  # row not yet bridge-imported into Rekordbox
+    ctrl = mod.RekordboxImportController(pc, ec, db_service=fake_db)
+    spy = QSignalSpy(ctrl.import_finished)
+
+    result = ctrl.import_downloaded([_result("t1", file_path)])
+
+    # The manifest lands at the fixed path as a collection-only document —
+    # the artifact itself is never consulted as a match source.
+    xml_path = tmp_path / "rekordbox-import.xml"
+    assert xml_path.exists()
+    root = ET.parse(xml_path).getroot()
+    assert root.tag == "DJ_PLAYLISTS"
+    assert root.find("PRODUCT") is not None
+    assert root.find("PLAYLISTS") is None
+    locations = [e.get("Location") for e in root.findall("./COLLECTION/TRACK")]
+    quoted = urllib.parse.quote(str(file_path), safe="/")
+    assert locations == [f"file://localhost{quoted}"]
+
+    # The DB write path is never consulted — the running-guard and backup
+    # inside import_files cannot run.
+    assert fake_db.import_calls == []
+    # …but the live collection re-read still ran — detection, not verification.
+    assert fake_db.collection_calls == 1
+
+    assert result.mode == "xml"
+    assert result.inserted == 0
+    assert result.matched == 0
+    assert result.needs_reload_tag is False
+    assert result.pending_import is True
+    assert result.xml_path == xml_path
+    assert len(result.unmatched) == 1
+    assert "rekordbox xml bridge" in result.unmatched[0].reason
+    assert "Import To Collection" in result.unmatched[0].reason
+    assert spy.count() == 1
+    assert spy.at(0)[0] is result
+
+
+def test_xml_mode_resolves_on_rerun_after_bridge_import(tmp_path):
+    """Once Rekordbox holds the row, the re-run matches by filepath and
+    clears pending_import — the post-bridge loop converges."""
+    mod = _mod()
+    _enable_xml_mode(tmp_path)
+    file_path = tmp_path / "song.aiff"
+    file_path.write_bytes(b"data")
+    track = Track(title="Song", artist="Artist", tidal_id="t1")
+    pc, ec = _make_ctrl(_project_with(track))
+    fake_db = _FakeDb()
+    fake_db.collection_script = [
+        [Track(title="Song", artist="Artist", filepath=str(file_path), rekordbox_id=42)]
+    ]
+    ctrl = mod.RekordboxImportController(pc, ec, db_service=fake_db)
+
+    result = ctrl.import_downloaded([_result("t1", file_path)])
+
+    assert result.matched == 1
+    assert result.pending_import is False
+    assert result.unmatched == []
+    updated = project_track(pc, track)
+    assert updated.match_status == MatchStatus.MATCHED
+    assert updated.match_strategy == "filepath"
+    assert updated.rekordbox_id == 42
+
+
+def test_xml_mode_second_write_replaces_manifest(tmp_path):
+    """Re-running xml mode simply rewrites the same fixed-path file."""
+    mod = _mod()
+    _enable_xml_mode(tmp_path)
+    file_path = tmp_path / "song.aiff"
+    file_path.write_bytes(b"data")
+    track = Track(title="Song", artist="Artist", tidal_id="t1")
+    pc, ec = _make_ctrl(_project_with(track))
+    fake_db = _FakeDb()
+    fake_db.collection_script = [[], []]
+    ctrl = mod.RekordboxImportController(pc, ec, db_service=fake_db)
+
+    ctrl.import_downloaded([_result("t1", file_path)])
+    ctrl.import_downloaded([_result("t1", file_path)])
+
+    xml_path = tmp_path / "rekordbox-import.xml"
+    collection = ET.parse(xml_path).getroot().find("COLLECTION")
+    assert collection is not None
+    assert len(collection.findall("TRACK")) == 1
+
+
+def test_xml_mode_missing_file_is_skipped_from_manifest(tmp_path):
+    """A vanished download becomes a SkippedItem and gets no TRACK element —
+    the manifest never carries a dead Location."""
+    mod = _mod()
+    _enable_xml_mode(tmp_path)
+    present = tmp_path / "present.aiff"
+    present.write_bytes(b"data")
+    missing = tmp_path / "missing.aiff"  # deliberately never created
+    track_a = Track(title="A", artist="X", tidal_id="t1")
+    track_b = Track(title="B", artist="Y", tidal_id="t2")
+    pc, ec = _make_ctrl(_project_with(track_a, track_b))
+    fake_db = _FakeDb()
+    fake_db.collection_script = [
+        [Track(title="A", artist="X", filepath=str(present), rekordbox_id=1)]
+    ]
+    ctrl = mod.RekordboxImportController(pc, ec, db_service=fake_db)
+
+    result = ctrl.import_downloaded([_result("t1", present), _result("t2", missing)])
+
+    xml_path = tmp_path / "rekordbox-import.xml"
+    collection = ET.parse(xml_path).getroot().find("COLLECTION")
+    assert collection is not None
+    assert [e.get("Name") for e in collection.findall("TRACK")] == ["A"]
+    assert any(
+        s.label == "missing.aiff" and "does not exist" in s.reason for s in result.skipped
+    )
+    assert result.matched == 1
+
+
+def test_xml_mode_works_while_rekordbox_is_running(tmp_path, monkeypatch):
+    """The xml path never invokes the running-guard — it is expressly the
+    works-while-Rekordbox-is-open mode."""
+    mod = _mod()
+    _enable_xml_mode(tmp_path)
+    monkeypatch.setattr(
+        "rekordbox_set_list_manager.services.rekordbox_db.get_rekordbox_pid",
+        lambda *a, **k: 4242,
+    )
+    file_path = tmp_path / "song.aiff"
+    file_path.write_bytes(b"data")
+    track = Track(title="Song", artist="Artist", tidal_id="t1")
+    pc, ec = _make_ctrl(_project_with(track))
+    fake_db = _FakeDb()
+    fake_db.collection_script = [
+        [Track(title="Song", artist="Artist", filepath=str(file_path), rekordbox_id=9)]
+    ]
+    ctrl = mod.RekordboxImportController(pc, ec, db_service=fake_db)
+
+    result = ctrl.import_downloaded([_result("t1", file_path)])
+
+    assert result.matched == 1
+    assert (tmp_path / "rekordbox-import.xml").exists()
+
+
+def test_xml_mode_reread_failure_marks_everything_pending(tmp_path):
+    """A dead re-read never raises in xml mode — every unresolved item
+    reports the pending bridge-import instructions."""
+    mod = _mod()
+    _enable_xml_mode(tmp_path)
+    file_path = tmp_path / "song.aiff"
+    file_path.write_bytes(b"data")
+    track = Track(title="Song", artist="Artist", tidal_id="t1")
+    pc, ec = _make_ctrl(_project_with(track))
+    fake_db = _FakeDb()
+    fake_db.collection_script = [RekordboxDbError("database is locked")] * mod._REREAD_ATTEMPTS
+    sleeps = []
+    ctrl = mod.RekordboxImportController(pc, ec, db_service=fake_db, sleep=sleeps.append)
+
+    result = ctrl.import_downloaded([_result("t1", file_path)])
+
+    assert fake_db.collection_calls == mod._REREAD_ATTEMPTS
+    assert result.matched == 0
+    assert result.pending_import is True
+    assert len(result.unmatched) == 1
+    assert "rekordbox xml bridge" in result.unmatched[0].reason
+    assert "Import To Collection" in result.unmatched[0].reason

@@ -247,6 +247,69 @@ class TestExportSet:
 
 
 # ---------------------------------------------------------------------------
+# export_collection — collection-only ingest manifest (rekordbox xml bridge)
+# ---------------------------------------------------------------------------
+
+
+class TestExportCollection:
+    """The xml-mode manifest: PRODUCT + COLLECTION only — never a PLAYLISTS tree."""
+
+    def test_writes_collection_only_document(
+        self, service: RekordboxXmlService, track_a: Track, track_b: Track, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "rekordbox-import.xml"
+        service.export_collection([track_a, track_b], out)
+        root = ET.parse(out).getroot()
+        assert root.tag == "DJ_PLAYLISTS"
+        assert root.find("PRODUCT") is not None
+        assert root.find("PLAYLISTS") is None
+        collection = root.find("COLLECTION")
+        assert collection is not None
+        assert collection.get("Entries") == "2"
+
+    def test_track_ids_are_sequential_one_based(
+        self, service: RekordboxXmlService, track_a: Track, track_b: Track, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "rekordbox-import.xml"
+        service.export_collection([track_a, track_b], out)
+        collection = ET.parse(out).getroot().find("COLLECTION")
+        assert collection is not None
+        assert [e.get("TrackID") for e in collection.findall("TRACK")] == ["1", "2"]
+
+    def test_track_metadata_and_quoted_location(
+        self, service: RekordboxXmlService, track_a: Track, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "rekordbox-import.xml"
+        service.export_collection([track_a], out)
+        collection = ET.parse(out).getroot().find("COLLECTION")
+        assert collection is not None
+        elem = collection.findall("TRACK")[0]
+        assert elem.get("Name") == "Sundown"
+        assert elem.get("Artist") == "DJ Koze"
+        assert elem.get("AverageBpm") == "128.00"
+        assert elem.get("Tonality") == "Am"
+        assert elem.get("TotalTime") == "390"
+        assert elem.get("Location") == "file://localhost/Users/dj/Music/sundown.mp3"
+        # An ingest manifest carries no section name or colour semantics.
+        assert elem.get("Comments") == ""
+        assert elem.get("Colour") == "0"
+
+    def test_exported_collection_round_trips(
+        self, service: RekordboxXmlService, track_a: Track, track_b: Track, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "rekordbox-import.xml"
+        service.export_collection([track_a, track_b], out)
+        imported = service.import_collection(out)
+        assert [t.filepath for t in imported] == [track_a.filepath, track_b.filepath]
+
+    def test_export_raises_on_unwritable_path(
+        self, service: RekordboxXmlService, track_a: Track
+    ) -> None:
+        with pytest.raises(RekordboxXmlError, match="Could not write"):
+            service.export_collection([track_a], Path("/nonexistent_dir/out.xml"))
+
+
+# ---------------------------------------------------------------------------
 # import_collection — reads tracks from XML
 # ---------------------------------------------------------------------------
 
