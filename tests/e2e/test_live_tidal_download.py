@@ -28,16 +28,14 @@ _LIVE_ENABLED = os.environ.get(_ENV_GATE, "").strip().lower() in {"1", "true", "
 def test_live_tidal_marker_registered():
     """``live_tidal`` stays registered so ``-m live_tidal`` selection is deliberate."""
     pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
-    markers = tomllib.loads(pyproject.read_text(encoding="utf-8"))["tool"]["pytest"][
-        "ini_options"
-    ]["markers"]
+    markers = tomllib.loads(pyproject.read_text(encoding="utf-8"))["tool"]["pytest"]["ini_options"][
+        "markers"
+    ]
     assert any("live_tidal" in marker for marker in markers)
 
 
 @pytest.mark.live_tidal
-@pytest.mark.skipif(
-    not _LIVE_ENABLED, reason=f"set {_ENV_GATE}=1 to run the live Tidal smoke test"
-)
+@pytest.mark.skipif(not _LIVE_ENABLED, reason=f"set {_ENV_GATE}=1 to run the live Tidal smoke test")
 def test_live_tidal_download_end_to_end(qtbot, tmp_path, monkeypatch):
     """One real track through the real controller, thread, and Tidal service."""
     track_id = os.environ.get(_ENV_TRACK_ID, "").strip()
