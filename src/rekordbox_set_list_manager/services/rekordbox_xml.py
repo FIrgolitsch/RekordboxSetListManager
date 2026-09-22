@@ -6,6 +6,7 @@ Reference: https://cdn.rekordbox.com/files/20200410160904/xml_format_list.pdf
 
 from __future__ import annotations
 
+import re
 import urllib.parse
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -238,10 +239,17 @@ def _location_to_filepath(location: str | None) -> str | None:
     if not location:
         return None
     if location.startswith("file://localhost"):
-        return urllib.parse.unquote(location[len("file://localhost") :])
-    if location.startswith("file:///"):
-        return urllib.parse.unquote("/" + location[len("file:///") :])
-    return location or None
+        raw = urllib.parse.unquote(location[len("file://localhost") :])
+    elif location.startswith("file:///"):
+        raw = urllib.parse.unquote("/" + location[len("file:///") :])
+    else:
+        return location or None
+    # Rekordbox on Windows writes file://localhost/C:/Users/... — the leading
+    # slash would glue onto the drive letter as "/C:/...", which is not a
+    # valid absolute path on Windows, so drop it.
+    if re.match(r"^/[A-Za-z]:/", raw):
+        raw = raw[1:]
+    return raw
 
 
 def _track_to_elem(track: Track, track_id: int, section_name: str, colour: int) -> ET.Element:
