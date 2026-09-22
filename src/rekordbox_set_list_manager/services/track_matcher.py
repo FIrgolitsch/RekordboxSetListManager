@@ -21,6 +21,7 @@ class MatchStrategy(Enum):
 
     ISRC = auto()
     EXACT = auto()
+    FILEPATH = auto()
     FUZZY = auto()
     FILENAME = auto()
     NONE = auto()

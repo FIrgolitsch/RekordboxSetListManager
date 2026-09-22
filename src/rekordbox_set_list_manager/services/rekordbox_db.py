@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING, Any
@@ -15,6 +16,7 @@ from rekordbox_set_list_manager.models.track import Track
 from rekordbox_set_list_manager.services.skipped_item import SkippedItem
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
     from uuid import UUID
 
     from rekordbox_set_list_manager.models.section import Section
@@ -43,13 +45,34 @@ class RekordboxDbError(Exception):
     """Raised when the Rekordbox database cannot be opened or queried."""
 
 
+@dataclass(frozen=True)
+class ImportItem:
+    """One downloaded file to ingest into the Rekordbox collection.
+
+    Attributes
+    ----------
+    path : Path
+        Absolute path of the audio file to add.
+    title : str
+        Title stamped on the new ``DjmdContent`` row — keeps the row visible
+        to the collection read path before Rekordbox analysis fills it in.
+    isrc : str | None
+        Optional ISRC to stamp; enables the deterministic ISRC join.
+    """
+
+    path: Path
+    title: str
+    isrc: str | None = None
+
+
 class RekordboxDbService:
     """Read/write wrapper around a local Rekordbox 6/7 SQLite database.
 
     Uses pyrekordbox to auto-detect and open the database using the Pioneer
     application settings on the local machine.  Reads the collection for
-    matching; writes via ``export_set_to_db``, which refuses to run while
-    Rekordbox is open and backs up the database files first.
+    matching; writes via ``export_set_to_db`` and ``import_files``, which
+    refuse to run while Rekordbox is open and back up the database files
+    first.
     """
 
     def is_available(self) -> bool:
@@ -225,13 +248,13 @@ class RekordboxDbService:
         Raises
         ------
         RekordboxDbError
-            If Rekordbox is running, the pre-export backup fails, or the
+            If Rekordbox is running, the pre-write backup fails, or the
             database cannot be opened, written, or committed.
 
         """
         # Guard + backup run before the try so their RekordboxDbErrors reach
         # the caller unwrapped and unambiguous.
-        self._prepare_export()
+        self._prepare_write("exporting")
 
         try:
             from pyrekordbox import Rekordbox6Database  # noqa: PLC0415
@@ -290,25 +313,120 @@ class RekordboxDbService:
         else:
             return exported, skipped
 
-    def _prepare_export(self) -> None:
+    def import_files(self, items: Iterable[ImportItem]) -> tuple[dict[str, int], list[SkippedItem]]:
+        """Ingest downloaded audio files into the Rekordbox collection.
+
+        Shared write pre-flight: refuses to run while Rekordbox is running,
+        then backs up the database files before opening the database.  Each
+        existing file is inserted via ``db.add_content`` (which flushes but
+        does not commit) and the whole batch is committed in a single
+        ``db.commit()`` call.
+
+        Parameters
+        ----------
+        items : Iterable[ImportItem]
+            Downloaded files to ingest, with the title and optional ISRC to
+            stamp on each new ``DjmdContent`` row.
+
+        Returns
+        -------
+        tuple[dict[str, int], list[SkippedItem]]
+            Mapping of ``str(path)`` → inserted ``DjmdContent.ID`` for each
+            row actually inserted, plus the per-file skips.
+
+        Raises
+        ------
+        RekordboxDbError
+            If Rekordbox is running, the running check itself fails, the
+            pre-write backup fails, or the database cannot be opened,
+            written, or committed.
+
+        Notes
+        -----
+        - ``item.path`` values are converted to :class:`pathlib.Path` before
+          ``add_content`` is consulted — accept ``str`` safely from the
+          caller's ``DownloadResult.filepath``.
+        - ``Title`` is always stamped (falling back to the file stem) so
+          freshly inserted rows survive the collection read path, which
+          drops rows with blank titles.
+        - ``ISRC`` is only passed when present.
+        - A per-file ``ValueError`` (e.g. duplicate ``FolderPath``) becomes a
+          :class:`SkippedItem`; the batch continues.  Any other failure
+          aborts the batch without committing partial results.
+
+        """
+        items = list(items)
+        if not items:
+            return {}, []
+
+        # Guard + backup run before the try so their RekordboxDbErrors reach
+        # the caller unwrapped and unambiguous.
+        self._prepare_write("importing")
+
+        db = None
+        try:
+            from pyrekordbox import Rekordbox6Database  # noqa: PLC0415
+
+            inserted: dict[str, int] = {}
+            skipped: list[SkippedItem] = []
+
+            with Rekordbox6Database() as db:
+                for item in items:
+                    path = Path(item.path)
+                    if not path.exists():
+                        skipped.append(SkippedItem(path.name, "file does not exist"))
+                        continue
+                    try:
+                        content = db.add_content(
+                            path,
+                            Title=item.title or path.stem,
+                            **({"ISRC": item.isrc} if item.isrc else {}),
+                        )
+                    except ValueError as exc:
+                        skipped.append(SkippedItem(path.name, f"not imported: {exc}"))
+                        continue
+                    inserted[str(path)] = int(content.ID)
+                db.commit()
+        except RekordboxDbError:
+            raise
+        except Exception as exc:
+            raise RekordboxDbError(f"Failed to import files into Rekordbox: {exc}") from exc
+        else:
+            return inserted, skipped
+        finally:
+            if db is not None:
+                db.engine.dispose()
+
+    def _prepare_write(self, action: str) -> None:
         """Guard against a running Rekordbox and back up the DB files.
+
+        Shared pre-flight for every write path that touches the Rekordbox
+        database (export, import).  The guard always runs *before* the
+        backup so a refused write cannot create a misleading timestamped
+        backup row.
+
+        Parameters
+        ----------
+        action : str
+            Gerund naming the operation in progress (``"exporting"``,
+            ``"importing"``) — used verbatim in the running-guard message.
 
         Raises
         ------
         RekordboxDbError
             If Rekordbox is running, if the running check itself fails
-            (fail closed — exporting without the guard is unsafe), or if the
-            pre-export backup cannot be completed.
+            (fail closed — writing without the guard is unsafe), or if the
+            pre-write backup cannot be completed.
         """
         try:
             pid = get_rekordbox_pid()
         except Exception as exc:
             raise RekordboxDbError(f"Could not check whether Rekordbox is running: {exc}") from exc
         if pid:
-            raise RekordboxDbError("Rekordbox is running — close it before exporting")
+            raise RekordboxDbError(f"Rekordbox is running — close it before {action}")
 
         # Snapshot master.db (and its WAL/SHM siblings) before opening so a
-        # failed export can never leave the library unrecoverable.
+        # failed write can never leave the library unrecoverable.
         db_path = self.get_db_path()
         if db_path is None:
             return
@@ -340,9 +458,11 @@ def _backup_db_files(db_path: Path) -> None:
     """Snapshot ``master.db`` and its WAL/SHM siblings into the backup dir.
 
     Every sibling matching ``master.db*`` in the database's directory is
-    copied to ``<user data dir>/backups/rekordbox/master-<UTC ts>.db*`` with
-    permissions preserved.  Afterwards only the newest ``_BACKUP_KEEP``
-    timestamp-groups are kept; older ones are deleted.
+    copied to ``<user data dir>/backups/rekordbox/master-<UTC ts>.db*`` and
+    locked down to owner-only ``0o600`` — a backup holds the entire DJ
+    library, so it gets the same treatment as credential files.  Afterwards
+    only the newest ``_BACKUP_KEEP`` timestamp-groups are kept; older ones
+    are deleted.
 
     Parameters
     ----------
@@ -358,7 +478,9 @@ def _backup_db_files(db_path: Path) -> None:
     # backup file set.
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     for src in sorted(db_path.parent.glob("master.db*")):
-        shutil.copy2(src, backup_dir / f"master-{timestamp}{src.suffix}")
+        dest = backup_dir / f"master-{timestamp}{src.suffix}"
+        shutil.copy2(src, dest)
+        dest.chmod(0o600)
 
     # A backup is a file set: group by the timestamp prefix and drop whole
     # groups so a pruned set never loses its WAL/SHM siblings.

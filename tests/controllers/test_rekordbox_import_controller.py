@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -66,7 +65,7 @@ class _FakeDb:
         return outcome
 
 
-def _result(track_id: str, filepath: Path) -> DownloadResult:
+def _result(track_id: str, filepath) -> DownloadResult:
     return DownloadResult(
         filepath=filepath,
         track_id=track_id,
