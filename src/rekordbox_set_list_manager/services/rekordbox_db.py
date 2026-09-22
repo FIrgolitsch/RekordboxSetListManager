@@ -389,7 +389,19 @@ class RekordboxDbService:
                             SkippedItem(path.name, f"not imported: {exc}", path=str(path))
                         )
                         continue
-                    inserted[str(path)] = int(content.ID)
+                    # DjmdContent.ID is a VARCHAR — a non-numeric value must
+                    # not abort the batch (same contract as the read path).
+                    rid = _int_or_none(content.ID)
+                    if rid is None:
+                        skipped.append(
+                            SkippedItem(
+                                path.name,
+                                "imported but Rekordbox returned a non-numeric row ID",
+                                path=str(path),
+                            )
+                        )
+                        continue
+                    inserted[str(path)] = rid
                 db.commit()
         except RekordboxDbError:
             raise
