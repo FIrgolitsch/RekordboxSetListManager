@@ -292,7 +292,10 @@ class RekordboxImportController(QObject):
             raise RekordboxImportError(
                 "rekordbox_import_mode 'xml' requires the 'download_dir' config key to be set"
             )
-        xml_path = Path(str(raw_dir)) / "rekordbox-import.xml"
+        # expanduser: a hand-edited config.json commonly writes "~" —
+        # pathlib leaves it literal, which would write the manifest into a
+        # stray "~" directory instead of the bound download folder.
+        xml_path = Path(str(raw_dir)).expanduser() / "rekordbox-import.xml"
 
         xml_tracks: list[Track] = []
         skipped: list[SkippedItem] = []
