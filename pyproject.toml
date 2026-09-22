@@ -279,6 +279,7 @@ addopts = [
 ]
 markers = [
     "live_tidal: hits the real Tidal API; gated on SET_MANAGER_LIVE_TIDAL_TEST",
+    "live_rekordbox: writes to a copied Rekordbox master.db; gated on SET_MANAGER_LIVE_REKORDBOX_TEST + SET_MANAGER_LIVE_REKORDBOX_DB",
 ]
 
 # ---------------------------------------------------------------------------
