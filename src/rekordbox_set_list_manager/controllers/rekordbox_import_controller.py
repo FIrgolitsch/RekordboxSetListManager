@@ -433,49 +433,76 @@ class RekordboxImportController(QObject):
                     )
                 continue
 
-            local = by_path.get(str(path))
-            strategy = MatchStrategy.FILEPATH
-            if local is None and track.isrc and track.isrc in by_isrc:
-                # A shared ISRC is ambiguous: the lowest Rekordbox ID wins
-                # deterministically, regardless of collection ordering.
-                local = min(by_isrc[track.isrc], key=_lowest_id_key)
-                strategy = MatchStrategy.ISRC
+            local, strategy = _collection_match(path, track, item, by_path, by_isrc, inserted)
             if local is None:
-                inserted_id = inserted.get(str(path))
-                if inserted_id is not None:
-                    # The re-read missed a row we just committed — the
-                    # insert's ID is authoritative for this path.
-                    local = Track(
-                        title=track.title,
-                        artist=track.artist,
-                        filepath=str(path),
-                        isrc=item.isrc,
-                        rekordbox_id=inserted_id,
-                    )
-            if local is None:
-                if ingest_skipped:
-                    continue
-                if mode == "xml":
-                    pending += 1
-                    unmatched.append(
-                        SkippedItem(
-                            track.display_name,
-                            "not yet in the Rekordbox collection — import "
-                            "rekordbox-import.xml via Rekordbox's rekordbox xml "
-                            "bridge (Preferences → Advanced → rekordbox xml → "
-                            "Imported Library → Import To Collection), then re-run",
-                        )
-                    )
-                else:
-                    unmatched.append(
-                        SkippedItem(track.display_name, "not found in the Rekordbox collection")
-                    )
+                if not ingest_skipped:
+                    report, pending_bump = _unresolved_report(track, mode)
+                    unmatched.append(report)
+                    pending += pending_bump
                 continue
             # Keyed by track UUID: duplicate results for the same track
             # collapse deterministically to the last resolution.
             resolved[track.id] = (local, strategy)
 
         return resolved, unmatched, pending
+
+
+def _collection_match(
+    path: Path,
+    track: Track,
+    item: ImportItem,
+    by_path: dict[str, Track],
+    by_isrc: dict[str, list[Track]],
+    inserted: dict[str, int],
+) -> tuple[Track | None, MatchStrategy]:
+    """Resolve one download to a collection track via the deterministic chain.
+
+    Order: exact filepath → shared ISRC → the row just inserted for this
+    path.  Returns ``(None, FILEPATH)`` when nothing resolves.
+    """
+    local = by_path.get(str(path))
+    strategy = MatchStrategy.FILEPATH
+    if local is None and track.isrc and track.isrc in by_isrc:
+        # A shared ISRC is ambiguous: the lowest Rekordbox ID wins
+        # deterministically, regardless of collection ordering.
+        local = min(by_isrc[track.isrc], key=_lowest_id_key)
+        strategy = MatchStrategy.ISRC
+    if local is None:
+        inserted_id = inserted.get(str(path))
+        if inserted_id is not None:
+            # The re-read missed a row we just committed — the insert's ID
+            # is authoritative for this path.
+            local = Track(
+                title=track.title,
+                artist=track.artist,
+                filepath=str(path),
+                isrc=item.isrc,
+                rekordbox_id=inserted_id,
+            )
+    return local, strategy
+
+
+def _unresolved_report(track: Track, mode: str) -> tuple[SkippedItem, int]:
+    """Build the report for a download that resolved to no collection row.
+
+    Returns the :class:`SkippedItem` plus the pending increment: 1 in xml
+    mode (the row is pending the user's bridge import), else 0.
+    """
+    if mode == "xml":
+        return (
+            SkippedItem(
+                track.display_name,
+                "not yet in the Rekordbox collection — import "
+                "rekordbox-import.xml via Rekordbox's rekordbox xml "
+                "bridge (Preferences → Advanced → rekordbox xml → "
+                "Imported Library → Import To Collection), then re-run",
+            ),
+            1,
+        )
+    return (
+        SkippedItem(track.display_name, "not found in the Rekordbox collection"),
+        0,
+    )
 
 
 def _lowest_id_key(track: Track) -> tuple[bool, int, str]:
