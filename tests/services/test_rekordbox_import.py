@@ -165,3 +165,98 @@ def test_import_files_skips_missing_file(mock_cls, tmp_path):
     assert skipped == [SkippedItem(missing.name, "file does not exist")]
     db.add_content.assert_called_once()  # only the existing file
     db.commit.assert_called_once_with()
+
+
+@patch("pyrekordbox.Rekordbox6Database")
+def test_import_files_dedup_skip_is_per_file(mock_cls, tmp_path):
+    """A ValueError on item 2 of 3 skips only that item; 1 and 3 still land."""
+    db = _make_db()
+    db.add_content.side_effect = [
+        MagicMock(ID="11"),
+        ValueError("already exists"),
+        MagicMock(ID="33"),
+    ]
+    mock_cls.return_value = db
+
+    paths = []
+    for name in ("one.aiff", "two.aiff", "three.aiff"):
+        p = tmp_path / name
+        p.write_bytes(b"x")
+        paths.append(p)
+
+    inserted, skipped = RekordboxDbService().import_files([_item(p) for p in paths])
+
+    assert inserted == {str(paths[0]): 11, str(paths[2]): 33}
+    assert len(skipped) == 1
+    assert skipped[0].label == paths[1].name
+    assert "not imported" in skipped[0].reason
+    db.commit.assert_called_once_with()
+
+
+@patch("pyrekordbox.Rekordbox6Database")
+def test_import_files_hard_failure_aborts_batch_without_commit(mock_cls, tmp_path):
+    """A non-ValueError mid-batch aborts: nothing commits, engine still freed."""
+    db = _make_db()
+    db.add_content.side_effect = [MagicMock(ID="1"), RuntimeError("disk full")]
+    mock_cls.return_value = db
+
+    p1 = tmp_path / "one.aiff"
+    p1.write_bytes(b"1")
+    p2 = tmp_path / "two.aiff"
+    p2.write_bytes(b"2")
+
+    with pytest.raises(RekordboxDbError, match="Failed to import files"):
+        RekordboxDbService().import_files([_item(p1), _item(p2)])
+
+    db.commit.assert_not_called()
+    db.engine.dispose.assert_called_once_with()
+
+
+# ---------------------------------------------------------------------------
+# Write pre-flight ordering — the backup must precede the database open
+# ---------------------------------------------------------------------------
+
+
+@patch("rekordbox_set_list_manager.services.rekordbox_db._backup_db_files")
+@patch("rekordbox_set_list_manager.services._pyrekordbox_adapter.rekordbox_db_candidates")
+@patch("pyrekordbox.Rekordbox6Database")
+def test_import_files_backs_up_before_opening_db(mock_cls, mock_candidates, mock_backup, tmp_path):
+    """The master.db* snapshot always precedes Rekordbox6Database() on import."""
+    db_path = tmp_path / "master.db"
+    db_path.touch()
+    mock_candidates.return_value = [db_path]
+
+    calls = []
+    mock_backup.side_effect = lambda path: calls.append("backup")
+    db = _make_db()
+    mock_cls.side_effect = lambda *a, **k: (calls.append("open"), db)[1]
+
+    path = tmp_path / "song.aiff"
+    path.write_bytes(b"x")
+    RekordboxDbService().import_files([_item(path)])
+
+    assert calls == ["backup", "open"]
+    mock_backup.assert_called_once_with(db_path)
+
+
+# ---------------------------------------------------------------------------
+# _backup_db_files — backup copies are owner-only
+# ---------------------------------------------------------------------------
+
+
+def test_backup_db_files_outputs_are_owner_only(tmp_path, monkeypatch):
+    """Backup copies of the whole library get 0o600 like credential files."""
+    db_dir = tmp_path / "rekordbox"
+    db_dir.mkdir()
+    (db_dir / "master.db").write_bytes(b"main")
+    (db_dir / "master.db-wal").write_bytes(b"wal")
+    (db_dir / "master.db-shm").write_bytes(b"shm")
+    data_dir = tmp_path / "userdata"
+    monkeypatch.setattr("platformdirs.user_data_dir", lambda *a, **k: str(data_dir))
+
+    rekordbox_db._backup_db_files(db_dir / "master.db")
+
+    backups = sorted((data_dir / "backups" / "rekordbox").glob("master-*.db*"))
+    assert len(backups) == 3
+    for backup in backups:
+        assert backup.stat().st_mode & 0o777 == 0o600
