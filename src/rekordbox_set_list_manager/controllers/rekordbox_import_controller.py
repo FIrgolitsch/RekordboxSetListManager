@@ -99,6 +99,16 @@ class RekordboxImportController(QObject):
     inserted-row fallback — never the fuzzy matcher), and a single
     undoable mutation through :class:`EditController`.
 
+    Threading
+    ---------
+    :meth:`import_downloaded` must be called on the GUI thread.  It
+    performs synchronous Rekordbox I/O plus bounded re-read sleeps (so it
+    briefly blocks) and then mutates ``Project``/``UndoStack`` in place —
+    neither is safe from a worker thread, and the injectable ``sleep``
+    exists for tests, not as a threading seam.  If ingest is ever moved to
+    a worker, only the ingest may run there; the ``apply_mutation`` call
+    must be marshalled back to the GUI thread.
+
     Signals
     -------
     import_finished : emitted with the :class:`ImportResult` once a call
@@ -130,6 +140,9 @@ class RekordboxImportController(QObject):
 
     def import_downloaded(self, results: Iterable[DownloadResult]) -> ImportResult:
         """Ingest downloaded files into Rekordbox and re-match the project.
+
+        Must be called on the GUI thread — see the class-level
+        ``Threading`` contract.
 
         Parameters
         ----------
