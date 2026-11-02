@@ -109,7 +109,14 @@ _FLUSH_REGISTERED = False
 _HTTPS_WARNED = False
 
 
-def _ensure_consumer() -> _Consumer:
+def _enqueue(payload: dict[str, Any]) -> None:
+    """Hand *payload* to the live consumer, atomically with the liveness check.
+
+    The put happens under ``_CONSUMER_LOCK`` — the same lock ``_flush`` holds
+    while it enqueues the shutdown sentinel — so a flush can never slip its
+    sentinel in between "consumer is live" and "event enqueued" and strand
+    the event behind it.
+    """
     global _CONSUMER, _FLUSHED, _FLUSH_REGISTERED, _QUEUE
     with _CONSUMER_LOCK:
         # A queued shutdown sentinel dooms the current consumer even while it
@@ -122,7 +129,7 @@ def _ensure_consumer() -> _Consumer:
         if not _FLUSH_REGISTERED:
             atexit.register(_flush)
             _FLUSH_REGISTERED = True
-        return _CONSUMER
+        _CONSUMER.queue.put_nowait(payload)
 
 
 def _drain(q: queue.Queue[dict[str, Any] | None]) -> None:
@@ -186,8 +193,7 @@ def record(event: str, **fields: Any) -> None:  # noqa: ANN401
         "ts": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
         **safe_fields,
     }
-    consumer = _ensure_consumer()
-    consumer.queue.put_nowait(payload)
+    _enqueue(payload)
 
 
 # ---------------------------------------------------------------------------

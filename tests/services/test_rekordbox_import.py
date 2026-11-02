@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -244,6 +245,7 @@ def test_import_files_backs_up_before_opening_db(mock_cls, mock_candidates, mock
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits only")
 def test_backup_db_files_outputs_are_owner_only(tmp_path, monkeypatch):
     """Backup copies of the whole library get 0o600 like credential files."""
     db_dir = tmp_path / "rekordbox"
