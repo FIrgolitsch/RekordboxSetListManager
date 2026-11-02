@@ -37,6 +37,16 @@ _FIXTURES = Path(__file__).resolve().parent.parent / "fixtures" / "tidal"
 
 
 @pytest.fixture(autouse=True)
+def _instant_rate_gate(monkeypatch):
+    """Zero the default ``RateGate`` interval so default-built gates never sleep.
+
+    The interval also scales the retry backoff, so failure-path tests that
+    retry ``_MAX_RETRIES`` times drop from seconds to milliseconds.
+    """
+    monkeypatch.setattr(_tidal_download_adapter.RateGate.__init__, "__defaults__", (0.0,))
+
+
+@pytest.fixture(autouse=True)
 def _isolate_config(tmp_path, monkeypatch):
     """Redirect config to a per-test dir and seed dummy client credentials.
 

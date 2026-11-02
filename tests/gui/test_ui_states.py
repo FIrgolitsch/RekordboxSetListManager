@@ -180,7 +180,9 @@ def test_section_header_elides_name_keeps_count_suffix(window):
     window._ctrl.project_changed.emit(window._project)
     block = window._multi_section_view._blocks[str(sec.id)]
 
-    block._hdr_frame.resize(260, 30)
+    # Wide enough that name_room stays positive under any platform font metrics
+    # (elidedText returns '' — no ellipsis — when the room is zero).
+    block._hdr_frame.resize(420, 30)
     block._apply_header_text()
 
     text = block._hdr_label.text()
@@ -494,7 +496,9 @@ def test_indicator_dots_render_legibly_on_dark_theme(window, qapp):
         sel_img = block._view.viewport().grab().toImage()
         sel_rect = block._view.visualRect(block._proxy.index(1, 4))
         sel_dot = sel_img.pixelColor(sel_rect.left() + 9, sel_rect.center().y())
-        sel_bg = sel_img.pixelColor(sel_rect.right() - 8, sel_rect.center().y())
+        # Sample the cell's top edge: mid-height can land on antialiased glyph
+        # pixels whose blend with the text colour varies per platform font.
+        sel_bg = sel_img.pixelColor(sel_rect.right() - 8, sel_rect.top() + 2)
         assert _color_close(sel_dot, "#a6e3a1"), f"selected dot: {sel_dot.name()}"
         assert _color_close(sel_bg, "#45475a"), f"selection chrome: {sel_bg.name()}"
         block._view.clearSelection()
@@ -509,3 +513,27 @@ def test_indicator_dots_render_legibly_on_dark_theme(window, qapp):
         assert 12 <= dup_x - plain_x <= 20
     finally:
         qapp.setStyleSheet(old_qss)
+
+
+def test_theme_dialog_rename_repaints_section_header(window, qapp, monkeypatch):
+    """A rename made inside the theme dialog is visible on screen once it closes."""
+    sec = Section(name="Old Name")
+    window._project.add_section(sec)
+    window._ctrl.project_changed.emit(window._project)
+    block = window._multi_section_view._blocks[str(sec.id)]
+    window.show()
+    qapp.processEvents()
+    before = block._hdr_label.grab().toImage()
+    assert "Old Name" in block._hdr_label.text()
+
+    # Stand in for the dialog's live mutation (it edits the model inside exec()).
+    monkeypatch.setattr(
+        "rekordbox_set_list_manager.gui.widgets.dialogs.theme_dialog.ThemeDialog.exec",
+        lambda self: setattr(sec, "name", "Renamed By Theme"),
+    )
+    window._project_actions.open_theme_dialog()
+    qapp.processEvents()
+
+    block = window._multi_section_view._blocks[str(sec.id)]
+    assert "Renamed By Theme" in block._hdr_label.text()
+    assert block._hdr_label.grab().toImage() != before, "header pixels did not change"

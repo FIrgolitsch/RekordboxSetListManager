@@ -10,8 +10,15 @@ from rekordbox_set_list_manager.gui.widgets.streaming.redirect_catcher import (
 )
 
 
-def test_catcher_detects_redirect_url(qtbot):
+def _fast_catcher() -> RedirectCatcher:
+    """Catcher polling every 20 ms instead of the production 500 ms."""
     catcher = RedirectCatcher()
+    catcher._timer.setInterval(20)
+    return catcher
+
+
+def test_catcher_detects_redirect_url(qtbot):
+    catcher = _fast_catcher()
     seen: list[str] = []
     catcher.found.connect(seen.append)
     catcher.start()
@@ -23,19 +30,19 @@ def test_catcher_detects_redirect_url(qtbot):
 
 
 def test_catcher_ignores_unrelated_clipboard(qtbot):
-    catcher = RedirectCatcher()
+    catcher = _fast_catcher()
     seen: list[str] = []
     catcher.found.connect(seen.append)
     catcher.start()
 
     QGuiApplication.clipboard().setText("https://example.com/not-a-redirect")
 
-    qtbot.wait(700)  # longer than a poll interval
+    qtbot.wait(100)  # several poll intervals
     assert seen == []
 
 
 def test_catcher_stops_after_found(qtbot):
-    catcher = RedirectCatcher()
+    catcher = _fast_catcher()
     seen: list[str] = []
     catcher.found.connect(seen.append)
     catcher.start()
@@ -50,12 +57,12 @@ def test_catcher_ignores_baseline_clipboard(qtbot):
     stale (its code belongs to a dead verifier) — never auto-capture it."""
     stale = f"{REDIRECT_PREFIX}?code=stale"
     QGuiApplication.clipboard().setText(stale)
-    catcher = RedirectCatcher()
+    catcher = _fast_catcher()
     seen: list[str] = []
     catcher.found.connect(seen.append)
     catcher.start()
 
-    qtbot.wait(700)  # longer than a poll interval
+    qtbot.wait(100)  # several poll intervals
     assert seen == []
 
     # A different (fresh) redirect URL is still captured.
