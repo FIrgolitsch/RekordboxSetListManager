@@ -509,3 +509,27 @@ def test_indicator_dots_render_legibly_on_dark_theme(window, qapp):
         assert 12 <= dup_x - plain_x <= 20
     finally:
         qapp.setStyleSheet(old_qss)
+
+
+def test_theme_dialog_rename_repaints_section_header(window, qapp, monkeypatch):
+    """A rename made inside the theme dialog is visible on screen once it closes."""
+    sec = Section(name="Old Name")
+    window._project.add_section(sec)
+    window._ctrl.project_changed.emit(window._project)
+    block = window._multi_section_view._blocks[str(sec.id)]
+    window.show()
+    qapp.processEvents()
+    before = block._hdr_label.grab().toImage()
+    assert "Old Name" in block._hdr_label.text()
+
+    # Stand in for the dialog's live mutation (it edits the model inside exec()).
+    monkeypatch.setattr(
+        "rekordbox_set_list_manager.gui.widgets.dialogs.theme_dialog.ThemeDialog.exec",
+        lambda self: setattr(sec, "name", "Renamed By Theme"),
+    )
+    window._project_actions.open_theme_dialog()
+    qapp.processEvents()
+
+    block = window._multi_section_view._blocks[str(sec.id)]
+    assert "Renamed By Theme" in block._hdr_label.text()
+    assert block._hdr_label.grab().toImage() != before, "header pixels did not change"

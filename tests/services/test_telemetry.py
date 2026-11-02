@@ -286,3 +286,32 @@ def test_record_after_flush_restarts_consumer(tmp_path: Path) -> None:
 
     lines = (tmp_path / "events.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(lines) == 2
+
+
+def test_concurrent_record_and_flush_loses_no_events(tmp_path: Path) -> None:
+    """Racing record() against repeated _flush() never strands or drops an event."""
+    writers, per_writer = 4, 50
+    stop = threading.Event()
+
+    def _record_many() -> None:
+        for _ in range(per_writer):
+            telemetry.record("project_save")
+
+    def _flush_repeatedly() -> None:
+        while not stop.is_set():
+            tel_mod._flush(timeout=5.0)
+
+    with patch("rekordbox_set_list_manager.services.telemetry.is_enabled", return_value=True):
+        flusher = threading.Thread(target=_flush_repeatedly)
+        recorders = [threading.Thread(target=_record_many) for _ in range(writers)]
+        flusher.start()
+        for t in recorders:
+            t.start()
+        for t in recorders:
+            t.join(timeout=30)
+        stop.set()
+        flusher.join(timeout=30)
+    tel_mod._flush(timeout=5.0)
+
+    lines = (tmp_path / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(lines) == writers * per_writer
