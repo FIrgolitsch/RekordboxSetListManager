@@ -33,8 +33,15 @@ class TrackFilterProxyModel(QSortFilterProxyModel):
 
     def set_filter_text(self, text: str) -> None:
         """Set the substring filter text and invalidate the current filter."""
-        self._filter_text = text.lower()
-        self.invalidateFilter()
+        # invalidateFilter() is deprecated from Qt 6.10; the begin/end pair is
+        # its replacement but is missing on the PySide6 6.9 floor.
+        if hasattr(self, "beginFilterChange"):
+            self.beginFilterChange()
+            self._filter_text = text.lower()
+            self.endFilterChange()
+        else:
+            self._filter_text = text.lower()
+            self.invalidateFilter()
 
     # ── filtering ──
 

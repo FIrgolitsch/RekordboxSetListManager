@@ -17,7 +17,7 @@ from rekordbox_set_list_manager.models.track import Track
 from rekordbox_set_list_manager.services.skipped_item import SkippedItem
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
+    from collections.abc import Generator, Iterable
     from uuid import UUID
 
     from rekordbox_set_list_manager.models.section import Section
@@ -449,7 +449,7 @@ class RekordboxDbService:
 
 
 @contextmanager
-def _open_db() -> Iterator[Any]:
+def _open_db() -> Generator[Any]:
     """Open the Rekordbox database and always dispose its engine on exit.
 
     pyrekordbox's ``close()`` ends the session but never disposes the

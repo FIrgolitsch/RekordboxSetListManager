@@ -10,18 +10,18 @@ requires-python = ">=3.14"
 license = "GPL-3.0-or-later"
 readme = "README.md"
 dependencies = [
-    "PySide6>=6.9",
-    "pyrekordbox>=0.4.4,<0.5",
+    "PySide6>=6.12",
+    "pyrekordbox>=0.5,<0.6",
     "spotipy>=2.26,<3",
     "tidalapi>=0.8.11",
-    "pydantic>=2.13",
-    "platformdirs>=4.9",
+    "pydantic>=2.14",
+    "platformdirs>=4.14",
     "rapidfuzz>=3.13,<4",
     "mutagen>=1.47,<2",
     "pyaes>=1.6.1,<2",
     "requests>=2.32.3,<3",
     "soundfile>=0.14,<0.15",
-    "pillow>=12.3.0",
+    "pillow>=13",
 ]
 
 # Dev tooling lives in [dependency-groups] (uv-native, synced by default);
@@ -31,9 +31,9 @@ dist = [
     "pyinstaller>=6.20",
 ]
 docs = [
-    "sphinx>=9.1",
-    "pydata-sphinx-theme>=0.17",
-    "sphinx-autoapi>=3.8",
+    "sphinx>=9.2",
+    "pydata-sphinx-theme>=0.24",
+    "sphinx-autoapi>=3.9",
     "sphinx-design>=0.7",
     "myst-parser>=5.0",
     "linkify-it-py>=2.1",
@@ -49,12 +49,12 @@ packages = ["src/rekordbox_set_list_manager"]
 
 [dependency-groups]
 dev = [
-    "pytest>=9.0",
+    "pytest>=9.2",
     "pytest-qt>=4.5",
     "pytest-cov>=6.0",
-    "coverage[toml]>=7.7",
-    "ruff>=0.15",
-    "ty>=0.0.36",
+    "coverage[toml]>=7.17",
+    "ruff>=0.17",
+    "ty>=0.0.95",
     "pytest-xdist>=3.8",
 ]
 

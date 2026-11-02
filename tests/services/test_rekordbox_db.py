@@ -523,11 +523,19 @@ def test_parse_color(name, expected):
 
 @pytest.fixture(autouse=True)
 def _rekordbox_not_running(monkeypatch):
-    """Stub the process check so tests never depend on local machine state."""
+    """Stub the process check and DB detection so tests never touch the real library.
+
+    Without the detection stub every export test would snapshot the developer's
+    real ``master.db`` into the real backups folder.
+    """
     monkeypatch.setattr(
         "rekordbox_set_list_manager.services.rekordbox_db.get_rekordbox_pid",
         lambda *a, **k: 0,
         raising=False,
+    )
+    monkeypatch.setattr(
+        "rekordbox_set_list_manager.services._pyrekordbox_adapter.rekordbox_db_candidates",
+        lambda *a, **k: [],
     )
 
 
